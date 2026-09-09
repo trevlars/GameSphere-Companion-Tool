@@ -38,7 +38,17 @@ jobs:
       - name: Smoke test CLI
         run: |
           uv run main.py --help
+          uv run main.py --version
           uv run python -c "from platform_paths import detect_paths; print('platform_paths ok')"
+
+      - name: Upload Linux installer to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: scripts/install-linux.sh
+          tag_name: ${{ github.event.release.tag_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
     runs-on: windows-latest

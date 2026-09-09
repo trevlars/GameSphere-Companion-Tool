@@ -9,6 +9,9 @@ import sys
 import threading
 import queue
 
+from gs_updater import apply_update, check_for_update, format_notice
+from gs_version import __version__ as APP_VERSION
+
 # Optional: request admin on Windows so we can write to Program Files (Sunshine/Apollo config).
 # Disabled at startup so the GUI always opens; user can right-click exe -> Run as administrator if needed.
 def _request_admin_and_rerun():
@@ -286,7 +289,7 @@ class SunshineGUI:
             ctk.set_appearance_mode("dark")
             ctk.set_default_color_theme("blue")
         self.root = ctk.CTk() if HAS_CTK else tk.Tk()
-        self.root.title("GameSphere Import Tool")
+        self.root.title(f"GameSphere Import Tool  v{APP_VERSION}")
         self.root.minsize(640, 620)
         self.root.geometry("760x820")
         self._set_app_icon()
@@ -305,6 +308,8 @@ class SunshineGUI:
         self._build_ui()
         self._load_config()
         self._poll_log()
+        if os.environ.get("GAMESPHERE_SKIP_UPDATE_CHECK") != "1":
+            self.root.after(1500, self._start_silent_update_check)
 
     def _set_app_icon(self):
         path = _icon_path()
@@ -447,7 +452,11 @@ class SunshineGUI:
         # Config section
         config_frame = self._gradient_frame(main)
         config_frame.pack(fill="x", pady=(0, 8))
-        self._label(config_frame, text="Configuration", font=_gs_font(14, "bold")).pack(anchor="w")
+        title_row = self._gradient_frame(config_frame)
+        title_row.pack(fill="x")
+        self._label(title_row, text="Configuration", font=_gs_font(14, "bold")).pack(side="left")
+        self._version_label = self._label(title_row, text=f"v{APP_VERSION}", font=_gs_font(12))
+        self._version_label.pack(side="right")
 
         # Streaming host: side-by-side buttons
         host_row = self._gradient_frame(config_frame)
@@ -518,7 +527,9 @@ class SunshineGUI:
         self.run_btn = self._button(btn_frame, "Run importer", self._on_run)
         self.run_btn.pack(side="left", padx=(0, 8))
         self.remove_games_btn = self._button(btn_frame, "Remove all games", self._on_remove_games)
-        self.remove_games_btn.pack(side="left")
+        self.remove_games_btn.pack(side="left", padx=(0, 8))
+        self.update_btn = self._button(btn_frame, "Check for updates", self._on_check_updates)
+        self.update_btn.pack(side="left")
 
         # Log (scrollable; gets most of the vertical space)
         self._label(main, text="Log", font=_gs_font(14, "bold")).pack(anchor="w")
@@ -624,6 +635,114 @@ class SunshineGUI:
             daemon=True,
         )
         thread.start()
+
+    def _start_silent_update_check(self):
+        thread = threading.Thread(target=self._silent_update_worker, daemon=True)
+        thread.start()
+
+    def _silent_update_worker(self):
+        try:
+            info = check_for_update()
+        except Exception:
+            return
+        if info.get("newer") and not info.get("error"):
+            self.root.after(0, lambda: self._prompt_update(info, silent=True))
+
+    def _on_check_updates(self):
+        if self.running:
+            return
+        self.update_btn.configure(state="disabled")
+        thread = threading.Thread(target=self._manual_update_worker, daemon=True)
+        thread.start()
+
+    def _manual_update_worker(self):
+        try:
+            info = check_for_update()
+        except Exception as exc:
+            info = {"error": str(exc), "newer": False, "current": APP_VERSION}
+        self.root.after(0, lambda: self._finish_manual_update_check(info))
+
+    def _finish_manual_update_check(self, info):
+        try:
+            self.update_btn.configure(state="normal")
+        except Exception:
+            pass
+        if info.get("error"):
+            messagebox.showwarning("Check for updates", format_notice(info))
+            return
+        if not info.get("newer"):
+            messagebox.showinfo("Check for updates", format_notice(info))
+            return
+        self._prompt_update(info, silent=False)
+
+    def _prompt_update(self, info, silent=False):
+        latest = info.get("latest") or info.get("tag") or "a newer version"
+        extra = ""
+        if info.get("platform") == "win" and not info.get("asset"):
+            extra = (
+                "\n\nThe Windows installer is not attached to that release yet. "
+                "Try again in a minute, or open the release page."
+            )
+        msg = (
+            f"Version {latest} is available (you have {info.get('current')}).\n\n"
+            "Download and install it now? The app will relaunch after the update."
+            f"{extra}"
+        )
+        if not messagebox.askyesno("Update GameSphere Import Tool", msg):
+            return
+        self._apply_update_now(info)
+
+    def _apply_update_now(self, info):
+        self.running = True
+        try:
+            self.update_btn.configure(state="disabled")
+            self.run_btn.configure(state="disabled")
+        except Exception:
+            pass
+        thread = threading.Thread(target=self._apply_update_worker, args=(info,), daemon=True)
+        thread.start()
+
+    def _apply_update_worker(self, info):
+        try:
+            dest = apply_update(info)
+            self.root.after(0, lambda: self._update_applied(dest, info))
+        except Exception as exc:
+            self.root.after(0, lambda: self._update_failed(exc, info))
+
+    def _update_applied(self, dest, info):
+        messagebox.showinfo(
+            "Update installed",
+            f"Updated to {info.get('latest')}.\n\n{dest}\n\nThe app will close so the new version can start.",
+        )
+        if sys.platform == "win32" and getattr(sys, "frozen", False):
+            self.root.destroy()
+            sys.exit(0)
+        if sys.platform.startswith("linux"):
+            wrapper = os.path.expanduser("~/.local/bin/gamesphere-import")
+            if os.path.isfile(wrapper):
+                try:
+                    os.execv(wrapper, [wrapper])
+                except OSError:
+                    pass
+        self.running = False
+        try:
+            self.update_btn.configure(state="normal")
+            self.run_btn.configure(state="normal")
+        except Exception:
+            pass
+
+    def _update_failed(self, exc, info):
+        self.running = False
+        try:
+            self.update_btn.configure(state="normal")
+            self.run_btn.configure(state="normal")
+        except Exception:
+            pass
+        url = info.get("html_url") or ""
+        messagebox.showerror(
+            "Update failed",
+            f"{exc}\n\nDownload manually:\n{url}",
+        )
 
     def _poll_log(self):
         try:

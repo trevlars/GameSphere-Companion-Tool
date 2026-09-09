@@ -10,6 +10,8 @@ block_cipher = None
 # Dynamic import in a thread is not traced, so include main explicitly.
 hidden_imports = [
     'main',
+    'gs_version',
+    'gs_updater',
     'vdf',
     'PIL',
     'PIL.Image',
@@ -33,6 +35,16 @@ if os.path.isdir(_assets):
         p = os.path.join(_assets, name)
         if os.path.isfile(p):
             datas_list.append((p, "assets"))
+_scripts = os.path.join(_spec_dir, "scripts")
+if os.path.isdir(_scripts):
+    for name in (
+        "gamesphere-steam-close.ps1",
+        "gamesphere-steam-close.py",
+        "gamesphere-steam-close.sh",
+    ):
+        p = os.path.join(_scripts, name)
+        if os.path.isfile(p):
+            datas_list.append((p, "scripts"))
 
 # Optional: onefile=False produces a folder with .exe + dependencies (faster startup, easier antivirus)
 # onefile=True produces a single .exe (simpler to distribute)

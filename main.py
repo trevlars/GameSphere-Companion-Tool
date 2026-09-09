@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import xml.etree.ElementTree as ET
 import vdf
 import requests
@@ -19,6 +20,7 @@ from urllib.parse import urljoin
 from dotenv import load_dotenv
 
 from platform_paths import apply_detected_paths, detect_paths, paths_to_env, write_env_file
+from gs_version import __version__
 
 # Configuration and logging setup
 def setup_logging(verbose: bool = False) -> None:
@@ -197,6 +199,239 @@ def _linux_stream_prep_cmds() -> List[Dict]:
     return []
 
 
+def _steam_environ_app_id(app_id: str) -> Optional[str]:
+    """
+    App id used in process environ (SteamAppId).
+
+    Store titles use the normal AppID. Non-Steam shortcuts launch via a 64-bit
+    rungameid `(short << 32) | 0x02000000`, but child processes usually expose
+    the 32-bit shortcuts.vdf appid — prefer that for kill matching.
+    """
+    aid = (app_id or "").strip()
+    if not aid.isdigit():
+        return None
+    value = int(aid)
+    if value > 0xFFFFFFFF:
+        return str(value >> 32)
+    return aid
+
+
+def _scripts_dir() -> Optional[str]:
+    """Directory that ships gamesphere-steam-close helpers (repo or frozen exe)."""
+    candidates = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(os.path.join(meipass, "scripts"))
+        candidates.append(os.path.join(os.path.dirname(sys.executable), "scripts"))
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(here, "scripts"))
+    candidates.append(os.path.expanduser("~/.local/share/gamesphere-import-tool/scripts"))
+    for path in candidates:
+        if os.path.isdir(path):
+            return path
+    return None
+
+
+def _steam_close_helper_path() -> Optional[str]:
+    """Return the installed (or repo) close helper path without writing files."""
+    if os.name == "nt":
+        dest = os.path.join(
+            os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+            "GameSphere",
+            "gamesphere-steam-close.ps1",
+        )
+        if os.path.isfile(dest):
+            return dest
+        src_dir = _scripts_dir()
+        src = os.path.join(src_dir, "gamesphere-steam-close.ps1") if src_dir else ""
+        return src if src and os.path.isfile(src) else None
+    dest_sh = os.path.expanduser("~/.local/bin/gamesphere-steam-close.sh")
+    if os.path.isfile(dest_sh) and os.access(dest_sh, os.X_OK):
+        return dest_sh
+    src_dir = _scripts_dir()
+    src_sh = os.path.join(src_dir, "gamesphere-steam-close.sh") if src_dir else ""
+    if src_sh and os.path.isfile(src_sh):
+        return src_sh
+    return None
+
+
+def ensure_steam_close_helper() -> Optional[str]:
+    """Install/refresh the Quit App close helper; return the command path to invoke."""
+    src_dir = _scripts_dir()
+    if os.name == "nt":
+        dest_dir = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "GameSphere")
+        dest = os.path.join(dest_dir, "gamesphere-steam-close.ps1")
+        src = os.path.join(src_dir, "gamesphere-steam-close.ps1") if src_dir else ""
+        if src and os.path.isfile(src):
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+                with open(src, "rb") as fh:
+                    data = fh.read()
+                existing = b""
+                if os.path.isfile(dest):
+                    with open(dest, "rb") as fh:
+                        existing = fh.read()
+                if existing != data:
+                    with open(dest, "wb") as fh:
+                        fh.write(data)
+                    logging.info("Installed Quit App helper %s", dest)
+            except OSError as exc:
+                logging.warning("Could not install Windows close helper: %s", exc)
+                if os.path.isfile(src):
+                    return src
+        return dest if os.path.isfile(dest) else (src if src and os.path.isfile(src) else None)
+
+    dest_dir = os.path.expanduser("~/.local/bin")
+    dest_sh = os.path.join(dest_dir, "gamesphere-steam-close.sh")
+    dest_py = os.path.join(dest_dir, "gamesphere-steam-close.py")
+    src_sh = os.path.join(src_dir, "gamesphere-steam-close.sh") if src_dir else ""
+    src_py = os.path.join(src_dir, "gamesphere-steam-close.py") if src_dir else ""
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        for src, dest in ((src_py, dest_py), (src_sh, dest_sh)):
+            if not src or not os.path.isfile(src):
+                continue
+            with open(src, "rb") as fh:
+                data = fh.read()
+            existing = b""
+            if os.path.isfile(dest):
+                with open(dest, "rb") as fh:
+                    existing = fh.read()
+            if existing != data:
+                with open(dest, "wb") as fh:
+                    fh.write(data)
+                os.chmod(dest, 0o755)
+                logging.info("Installed Quit App helper %s", dest)
+    except OSError as exc:
+        logging.warning("Could not install close helper: %s", exc)
+    if os.path.isfile(dest_sh) and os.access(dest_sh, os.X_OK):
+        return dest_sh
+    if src_sh and os.path.isfile(src_sh):
+        return src_sh
+    return None
+
+
+def _steam_close_undo_cmd(app_id: str) -> Optional[str]:
+    """
+    Sunshine prep-cmd undo that closes a detached Steam game when the client
+    sends Quit App (/cancel). Detached steam:// launches are not process-tracked
+    by Sunshine, so without this undo the game keeps running on the host.
+
+    Passes the original launch id to gamesphere-steam-close (handles 64-bit
+    Non-Steam rungameids, install-dir/exe match, and late-spawn watch).
+    Inline fallbacks match the 32-bit environ id if the helper is missing.
+    """
+    aid = (app_id or "").strip()
+    if not aid.isdigit():
+        return None
+    short = _steam_environ_app_id(aid)
+    if not short:
+        return None
+
+    helper = _steam_close_helper_path()
+    if helper:
+        if helper.lower().endswith(".ps1"):
+            return (
+                'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+                f'-File "{helper}" {aid}'
+            )
+        return f"{helper} {aid}"
+
+    if os.name == "nt":
+        return None
+
+    if sys.platform == "darwin":
+        return (
+            f"bash -c 'aid={short}; "
+            f"ps eww -A -o pid= -o command= 2>/dev/null | while read -r pid rest; do "
+            f"case \"$rest\" in *SteamAppId=$aid*|*"
+            f"SteamGameId=$aid*) "
+            f"case \"$rest\" in *Steam.app*|*steam_osx*|*steamwebhelper*) continue ;; esac; "
+            f"kill \"$pid\" 2>/dev/null || true ;; esac; done; sleep 1; "
+            f"ps eww -A -o pid= -o command= 2>/dev/null | while read -r pid rest; do "
+            f"case \"$rest\" in *SteamAppId=$aid*|*SteamGameId=$aid*) "
+            f"case \"$rest\" in *Steam.app*|*steam_osx*|*steamwebhelper*) continue ;; esac; "
+            f"kill -9 \"$pid\" 2>/dev/null || true ;; esac; done'"
+        )
+
+    # Linux (native / Flatpak Steam games still expose SteamAppId on host procs)
+    return (
+        f"bash -c 'aid={short}; "
+        f"kill_app(){{ sig=\"$1\"; for d in /proc/[0-9]*; do pid=${{d##*/}}; "
+        f"grep -Fzqx -- \"SteamAppId=$aid\" \"$d/environ\" 2>/dev/null || "
+        f"grep -Fzqx -- \"SteamGameId=$aid\" \"$d/environ\" 2>/dev/null || continue; "
+        f"cmd=$(tr \"\\0\" \" \" < \"$d/cmdline\" 2>/dev/null || true); "
+        f"case \"$cmd\" in *ubuntu12_32/steam\\ *|*ubuntu12_64/steam\\ *|"
+        f"*/steam.sh\\ *|*steamwebhelper*) continue ;; esac; "
+        f"kill -$sig \"$pid\" 2>/dev/null || true; done; }}; "
+        f"kill_app TERM; sleep 1; kill_app KILL'"
+    )
+
+
+def _steam_close_prep_entry(app_id: str) -> Optional[Dict]:
+    """Prep entry whose undo closes the Steam game (do is intentionally empty)."""
+    undo = _steam_close_undo_cmd(app_id)
+    if not undo:
+        return None
+    return {"do": "", "undo": undo, "elevated": False}
+
+
+def _prep_has_steam_close(prep_cmds: List[Dict], app_id: str) -> bool:
+    """True if prep-cmd already includes a close-by-AppID undo."""
+    short = _steam_environ_app_id(app_id) or app_id
+    needles = (
+        f"gamesphere-steam-close.sh {app_id}",
+        f"gamesphere-steam-close.sh {short}",
+        f"gamesphere-steam-close.ps1\" {app_id}",
+        f"gamesphere-steam-close.ps1 {app_id}",
+        f"gamesphere-steam-close.py {app_id}",
+    )
+    for entry in prep_cmds or []:
+        undo = str((entry or {}).get("undo") or "")
+        if any(n in undo for n in needles):
+            return True
+        if (app_id in undo or short in undo) and (
+            "SteamAppId" in undo or "SteamGameId" in undo or "gamesphere-steam-close" in undo
+        ):
+            return True
+    return False
+
+
+def _merge_steam_prep_cmds(app_id: str, existing: Optional[List] = None) -> List[Dict]:
+    """Stream-prep (if present) + Steam close undo; keep other custom prep entries."""
+    close_entry = _steam_close_prep_entry(app_id)
+    merged: List[Dict] = []
+    short = _steam_environ_app_id(app_id) or app_id
+
+    # Prefer freshly detected stream-prep so path stays current.
+    stream_prep = _linux_stream_prep_cmds()
+    stream_undo = stream_prep[0]["undo"] if stream_prep else None
+    if stream_prep:
+        merged.extend(stream_prep)
+
+    for entry in existing or []:
+        if not isinstance(entry, dict):
+            continue
+        undo = str(entry.get("undo") or "")
+        do = str(entry.get("do") or "")
+        # Drop stale stream-prep / close-game entries; we re-add canonical ones.
+        if stream_undo and undo == stream_undo:
+            continue
+        if "sunshine-stream-prep.sh" in do or "sunshine-stream-prep.sh" in undo:
+            continue
+        if "gamesphere-steam-close" in undo or (
+            (app_id in undo or short in undo)
+            and ("SteamAppId" in undo or "SteamGameId" in undo)
+        ):
+            continue
+        merged.append(entry)
+
+    if close_entry and not _prep_has_steam_close(merged, app_id):
+        merged.append(close_entry)
+    return merged
+
+
 def _build_steam_app(app_id: str, game_name: str, grid_path: Optional[str]) -> Dict:
     """Build a Sunshine app entry using platform-correct cmd/detached fields."""
     launch = _steam_launch_cmd(app_id)
@@ -216,21 +451,23 @@ def _build_steam_app(app_id: str, game_name: str, grid_path: Optional[str]) -> D
         # Sunshine docs: Steam must be detached on Linux/macOS (Steam respawns itself).
         app["cmd"] = ""
         app["detached"] = [launch]
-        prep_cmds = _linux_stream_prep_cmds()
-        if prep_cmds:
-            app["prep-cmd"] = prep_cmds
+    prep_cmds = _merge_steam_prep_cmds(app_id)
+    if prep_cmds:
+        app["prep-cmd"] = prep_cmds
     return app
 
 
 def _repair_steam_app_entry(app: Dict) -> Dict:
-    """Fix Steam entries that incorrectly use cmd instead of detached on Linux."""
+    """Fix Steam entries: detached launch + Quit App close undo."""
     app_id = _app_steam_app_id(app)
     if not app_id:
         return app
     repaired = _build_steam_app(app_id, app.get("name", ""), app.get("image-path"))
     repaired["name"] = app.get("name", repaired["name"])
-    if app.get("prep-cmd") and not repaired.get("prep-cmd"):
-        repaired["prep-cmd"] = app["prep-cmd"]
+    # Rebuild prep from existing customs + canonical stream-prep/close undo.
+    repaired["prep-cmd"] = _merge_steam_prep_cmds(app_id, app.get("prep-cmd"))
+    if not repaired["prep-cmd"]:
+        repaired.pop("prep-cmd", None)
     return repaired
 
 
@@ -776,6 +1013,342 @@ def load_installed_games(library_vdf_path: str) -> Dict[str, str]:
     return installed_games
 
 
+def _steam_root_from_library_vdf(library_vdf_path: str) -> str:
+    """Steam root directory that contains userdata/ (parent of steamapps/)."""
+    steamapps = os.path.dirname(os.path.abspath(library_vdf_path))
+    return os.path.dirname(steamapps)
+
+
+def _u32(value: int) -> int:
+    """Normalize signed VDF int32 appids to unsigned 32-bit."""
+    return int(value) & 0xFFFFFFFF
+
+
+def _shortcut_rungameid(short_appid: int) -> str:
+    """64-bit id for steam://rungameid from shortcuts.vdf appid."""
+    return str((int(short_appid) << 32) | 0x02000000)
+
+
+# GameSphere shelf console tags inferred from Non-Steam shortcut exe / ROM paths.
+# Client GSGameCategoryAssigner reads "(Switch)" etc. from the Sunshine app name.
+_ROM_FOLDER_PLATFORM = {
+    "switch": "Switch",
+    "switch2": "Switch 2",
+    "wiiu": "Wii U",
+    "wii-u": "Wii U",
+    "wii": "Wii",
+    "gc": "GameCube",
+    "gamecube": "GameCube",
+    "ngc": "GameCube",
+    "n64": "N64",
+    "snes": "SNES",
+    "nes": "NES",
+    "gba": "Game Boy",
+    "gbc": "Game Boy",
+    "gb": "Game Boy",
+    "nds": "DS",
+    "3ds": "3DS",
+    "psx": "PS1",
+    "ps1": "PS1",
+    "ps2": "PS2",
+    "ps3": "PS3",
+    "psp": "PSP",
+    "psvita": "Vita",
+    "vita": "Vita",
+    "xbox360": "Xbox 360",
+    "xbox": "Xbox",
+    "genesis": "Genesis",
+    "megadrive": "Genesis",
+    "dreamcast": "Dreamcast",
+    "saturn": "Saturn",
+    "arcade": "Arcade",
+    "mame": "Arcade",
+    "fbneo": "Arcade",
+    "pc": "PC",
+}
+
+_ROM_EXT_PLATFORM = {
+    "nsp": "Switch", "xci": "Switch", "nca": "Switch", "nro": "Switch",
+    "wbfs": "Wii", "wad": "Wii",
+    "wua": "Wii U", "wud": "Wii U", "wux": "Wii U",
+    "gcm": "GameCube", "gcz": "GameCube", "rvz": "GameCube",
+    "z64": "N64", "n64": "N64", "v64": "N64",
+    "sfc": "SNES", "smc": "SNES",
+    "nes": "NES",
+    "gba": "Game Boy", "gbc": "Game Boy", "gb": "Game Boy",
+    "nds": "DS", "cia": "3DS", "3ds": "3DS",
+    "pbp": "PS1", "cso": "PS2",
+}
+
+
+def _platform_from_shortcut_exe(exe: str) -> Optional[str]:
+    """Infer GameSphere console from a Non-Steam shortcut exe / launcher line."""
+    if not exe:
+        return None
+    blob = exe.lower().replace("\\", "/")
+
+    # Explicit ROM library folders beat launcher name (dolphin serves GC + Wii).
+    if "/roms/" in blob:
+        try:
+            after = blob.split("/roms/", 1)[1]
+            folder = after.split("/", 1)[0].strip()
+            if folder in _ROM_FOLDER_PLATFORM:
+                return _ROM_FOLDER_PLATFORM[folder]
+        except Exception:
+            pass
+
+    launcher_map = (
+        ("ryujinx-game", "Switch"),
+        ("eden-game", "Switch"),
+        ("yuzu-game", "Switch"),
+        ("suyu-game", "Switch"),
+        ("ryujinx", "Switch"),
+        ("eden", "Switch"),
+        ("yuzu", "Switch"),
+        ("suyu", "Switch"),
+        ("cemu-game", "Wii U"),
+        ("cemu", "Wii U"),
+        ("dolphin-game", "GameCube"),
+        ("dolphin", "GameCube"),
+        ("rpcs3", "PS3"),
+        ("pcsx2", "PS2"),
+        ("duckstation", "PS1"),
+        ("ppsspp", "PSP"),
+        ("vita3k", "Vita"),
+        ("xenia", "Xbox 360"),
+        ("xemu", "Xbox"),
+        ("citra", "3DS"),
+        ("lime3ds", "3DS"),
+        ("melonds", "DS"),
+        ("retroarch-game", None),  # need core/path
+        ("retroarch", None),
+    )
+    for needle, platform in launcher_map:
+        if needle in blob:
+            if platform:
+                return platform
+            break
+
+    # File extension on the last path-looking token.
+    for token in reversed(blob.replace('"', " ").split()):
+        if "." not in token:
+            continue
+        ext = token.rsplit(".", 1)[-1]
+        if ext in _ROM_EXT_PLATFORM:
+            return _ROM_EXT_PLATFORM[ext]
+
+    # RetroArch core hints.
+    if "mupen" in blob or "parallel_n64" in blob:
+        return "N64"
+    if "snes9x" in blob or "bsnes" in blob or "mesen-s" in blob:
+        return "SNES"
+    if "fceumm" in blob or "nestopia" in blob or "mesen" in blob:
+        return "NES"
+    if "mgba" in blob or "vbam" in blob or "sameboy" in blob:
+        return "Game Boy"
+    if "genesis_plus" in blob or "picodrive" in blob:
+        return "Genesis"
+    if "flycast" in blob or "redream" in blob:
+        return "Dreamcast"
+    if "ppsspp" in blob:
+        return "PSP"
+    return None
+
+
+def _ensure_platform_tag(name: str, platform: str) -> str:
+    """Append '(Switch)' etc. when missing so GameSphere can categorize without exe access."""
+    if not name or not platform:
+        return name
+    # Already tagged — leave user/Steam naming alone.
+    if re.search(rf"\(\s*{re.escape(platform)}\s*\)", name, flags=re.IGNORECASE):
+        return name
+    if re.search(r"\(\s*PC\s*Port\s*\)", name, flags=re.IGNORECASE):
+        return name
+    # Don't fight an existing console tag of a different family.
+    if re.search(
+        r"\((Switch(?:\s*2)?|Wii\s*U|Wii|GameCube|N64|SNES|NES|PS[1-5]|PSP|Vita|"
+        r"Xbox(?:\s*(?:360|One|Series[^)]*))?|3DS|DS|Genesis|Dreamcast|Arcade|PC)\)",
+        name,
+        flags=re.IGNORECASE,
+    ):
+        return name
+    return f"{name.strip()} ({platform})"
+
+
+def _retag_nonsteam_app_names(apps: List[Dict], shortcuts: Dict[str, Dict[str, str]]) -> int:
+    """Ensure existing Sunshine Non-Steam apps carry a platform tag from shortcuts.vdf exe."""
+    if not shortcuts:
+        return 0
+    tagged = 0
+    for app in apps:
+        app_id = _app_steam_app_id(app)
+        if not app_id:
+            continue
+        info = shortcuts.get(app_id)
+        if not info:
+            continue
+        platform = _platform_from_shortcut_exe(info.get("exe") or "")
+        if not platform:
+            continue
+        old = (app.get("name") or "").strip()
+        new = _ensure_platform_tag(old or info.get("name") or "", platform)
+        if new and new != old:
+            app["name"] = new
+            tagged += 1
+            logging.info("Tagged Non-Steam app for GameSphere: %s", new)
+    return tagged
+
+
+def _find_shortcut_grid_source(userdata_config_dir: str, short_appid: int) -> Optional[str]:
+    """Prefer local Steam grid art already downloaded for this Non-Steam shortcut."""
+    grid_dir = os.path.join(userdata_config_dir, "grid")
+    if not os.path.isdir(grid_dir):
+        return None
+    aid = str(short_appid)
+    for name in (
+        f"{aid}p.png",
+        f"{aid}p.jpg",
+        f"{aid}.png",
+        f"{aid}.jpg",
+        f"{aid}_icon.png",
+        f"{aid}_icon.jpg",
+    ):
+        path = os.path.join(grid_dir, name)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def load_steam_nonsteam_shortcuts(library_vdf_path: str) -> Dict[str, Dict[str, str]]:
+    """
+    Load Non-Steam games from userdata/*/config/shortcuts.vdf.
+
+    Returns dict keyed by 64-bit steam://rungameid string:
+      { "name", "short_appid", "exe", "grid_src" (optional) }
+    Merges all Steam users; skips hidden entries; dedupes by short appid.
+    """
+    steam_root = _steam_root_from_library_vdf(library_vdf_path)
+    userdata_root = os.path.join(steam_root, "userdata")
+    if not os.path.isdir(userdata_root):
+        logging.info(
+            "No Steam userdata directory at %s — skipping Non-Steam shortcuts",
+            userdata_root,
+        )
+        return {}
+
+    by_short: Dict[int, Dict[str, str]] = {}
+    files_read = 0
+    for entry in sorted(os.listdir(userdata_root)):
+        if not entry.isdigit() or entry == "0":
+            continue
+        shortcuts_path = os.path.join(userdata_root, entry, "config", "shortcuts.vdf")
+        if not os.path.isfile(shortcuts_path):
+            continue
+        files_read += 1
+        try:
+            with open(shortcuts_path, "rb") as handle:
+                data = vdf.binary_load(handle)
+        except Exception as exc:
+            logging.warning("Failed to parse shortcuts.vdf %s: %s", shortcuts_path, exc)
+            continue
+
+        shortcuts = data.get("shortcuts") or {}
+        config_dir = os.path.dirname(shortcuts_path)
+        for item in shortcuts.values():
+            if not isinstance(item, dict):
+                continue
+            raw_id = item.get("appid")
+            if raw_id is None:
+                continue
+            try:
+                short_appid = _u32(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+            if int(item.get("IsHidden") or 0):
+                continue
+            name = (item.get("appname") or item.get("AppName") or "").strip()
+            exe = (item.get("exe") or item.get("Exe") or "").strip()
+            if not name:
+                continue
+            grid_src = _find_shortcut_grid_source(config_dir, short_appid) or ""
+            prev = by_short.get(short_appid)
+            # Prefer entries that have local artwork / a longer display name.
+            if prev and len(prev.get("name", "")) >= len(name) and (
+                prev.get("grid_src") or not grid_src
+            ):
+                continue
+            by_short[short_appid] = {
+                "name": name,
+                "short_appid": str(short_appid),
+                "exe": exe,
+                "grid_src": grid_src,
+            }
+
+    result: Dict[str, Dict[str, str]] = {}
+    for short_appid, info in by_short.items():
+        result[_shortcut_rungameid(short_appid)] = info
+
+    # Collapse duplicate display names across Steam users (e.g. same emu title
+    # added on Trevor + Gemma). Prefer Ryujinx over Eden for Switch titles.
+    by_name: Dict[str, Tuple[str, Dict[str, str]]] = {}
+    for bpid, info in result.items():
+        key = (info.get("name") or "").strip().casefold()
+        if not key:
+            continue
+        exe = (info.get("exe") or "").lower()
+        prev = by_name.get(key)
+        if not prev:
+            by_name[key] = (bpid, info)
+            continue
+        prev_bpid, prev_info = prev
+        prev_exe = (prev_info.get("exe") or "").lower()
+        prefer_new = False
+        if "ryujinx-game" in exe and "ryujinx-game" not in prev_exe:
+            prefer_new = True
+        elif "ryujinx-game" in prev_exe and "ryujinx-game" not in exe:
+            prefer_new = False
+        elif "eden-game" in prev_exe and "eden-game" not in exe:
+            prefer_new = True
+        elif (info.get("grid_src") and not prev_info.get("grid_src")):
+            prefer_new = True
+        if prefer_new:
+            by_name[key] = (bpid, info)
+    if len(by_name) < len(result):
+        logging.info(
+            "Deduped Non-Steam shortcuts by name: %d → %d",
+            len(result),
+            len(by_name),
+        )
+        result = {bpid: info for bpid, info in by_name.values()}
+
+    logging.info(
+        "Found %d Non-Steam shortcut(s) from %d shortcuts.vdf file(s)",
+        len(result),
+        files_read,
+    )
+    return result
+
+
+def _copy_grid_to_sunshine(src_path: str, dest_id: str, grids_folder: str) -> Optional[str]:
+    """Copy/convert a local Steam grid image into the Sunshine covers folder."""
+    if not src_path or not os.path.isfile(src_path):
+        return None
+    os.makedirs(grids_folder, exist_ok=True)
+    dest = os.path.join(grids_folder, f"{dest_id}.png")
+    try:
+        if src_path.lower().endswith(".png"):
+            import shutil
+
+            shutil.copy2(src_path, dest)
+            return dest
+        with Image.open(src_path) as img:
+            img.convert("RGBA").save(dest, "PNG")
+        return dest
+    except Exception as exc:
+        logging.debug("Could not copy shortcut grid %s: %s", src_path, exc)
+        return None
+
+
 def load_installed_epic_games(manifests_path: str) -> Dict[str, Dict]:
     """
     Load installed Epic Games Store games from .item manifest files.
@@ -1045,11 +1618,10 @@ def process_existing_apps(
         app_id = _app_steam_app_id(app)
         if app_id:
             if app_id in installed_games:
-                if os.name != "nt":
-                    fixed = _repair_steam_app_entry(app)
-                    if fixed != app:
-                        repaired_steam += 1
-                    app = fixed
+                fixed = _repair_steam_app_entry(app)
+                if fixed != app:
+                    repaired_steam += 1
+                app = fixed
                 updated_apps.append(app)
                 existing_steam_apps.add(app_id)
             else:
@@ -1105,34 +1677,67 @@ def add_new_games(new_games: Set[str], installed_games: Dict[str, str], api_key:
     if not new_games:
         return new_apps
     
-    logging.info(f"Adding {len(new_games)} new games...")
+    logging.info(f"Adding {len(new_games)} new Steam game(s)...")
     
-    # Download grids concurrently
+    def process_game(app_id: str) -> Optional[Dict]:
+        try:
+            game_name = installed_games[app_id]
+            grid_path = fetch_grid(app_id, api_key, grids_folder)
+            new_app = _build_steam_app(app_id, game_name, grid_path)
+            logging.info(f"Added Steam game: {game_name}")
+            return new_app
+        except Exception as e:
+            logging.error(f"Error adding game {app_id}: {e}")
+            return None
+    
     with ThreadPoolExecutor(max_workers=5) as executor:
-        future_to_app_id = {}
-        
-        for app_id in new_games:
-            future = executor.submit(fetch_grid, app_id, api_key or '', grids_folder)
-            future_to_app_id[future] = app_id
-        
-        processed = 0
-        for future in as_completed(future_to_app_id):
-            app_id = future_to_app_id[future]
-            processed += 1
-            
-            try:
-                grid_path = future.result()
-                game_name = installed_games[app_id]
-                new_app = _build_steam_app(app_id, game_name, grid_path)
-                new_apps.append(new_app)
-                logging.info(f"Added: {game_name}")
-                
-            except Exception as e:
-                logging.error(f"Error processing new game {app_id}: {e}")
-            
-            if processed % 10 == 0 or processed == len(new_games):
-                logging.info(f"Processed {processed}/{len(new_games)} new games...")
+        futures = {executor.submit(process_game, app_id): app_id for app_id in new_games}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                new_apps.append(result)
     
+    return new_apps
+
+
+def add_shortcut_games(
+    new_bpids: Set[str],
+    shortcuts: Dict[str, Dict[str, str]],
+    api_key: str,
+    grids_folder: str,
+) -> List[Dict]:
+    """Add Non-Steam Steam shortcuts (Eden/emu/etc.) as Sunshine apps via steam://rungameid."""
+    new_apps: List[Dict] = []
+    if not new_bpids:
+        return new_apps
+
+    logging.info(f"Adding {len(new_bpids)} Non-Steam shortcut(s)...")
+
+    def process_shortcut(bpid: str) -> Optional[Dict]:
+        try:
+            info = shortcuts.get(bpid) or {}
+            game_name = (info.get("name") or f"Non-Steam {bpid}").strip()
+            platform = _platform_from_shortcut_exe(info.get("exe") or "")
+            if platform:
+                game_name = _ensure_platform_tag(game_name, platform)
+            short_id = info.get("short_appid") or _steam_environ_app_id(bpid) or bpid
+            grid_path = _copy_grid_to_sunshine(info.get("grid_src") or "", short_id, grids_folder)
+            if not grid_path:
+                grid_path = fetch_grid_by_name(game_name, api_key, grids_folder, f"shortcut_{short_id}")
+            new_app = _build_steam_app(bpid, game_name, grid_path)
+            logging.info(f"Added Non-Steam shortcut: {game_name}")
+            return new_app
+        except Exception as e:
+            logging.error(f"Error adding Non-Steam shortcut {bpid}: {e}")
+            return None
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(process_shortcut, bpid): bpid for bpid in new_bpids}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                new_apps.append(result)
+
     return new_apps
 
 
@@ -1430,16 +2035,23 @@ def remove_all_apps_from_config(
 def main() -> None:
     """Main application function."""
     parser = argparse.ArgumentParser(description='Sunshine Steam Game Automation')
+    parser.add_argument('--version', action='version', version=f'GameSphere Import Tool {__version__}')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     parser.add_argument('--no-restart', action='store_true', help='Skip starting Steam (if not running) and skip restarting Sunshine/Apollo')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be done without making changes')
     parser.add_argument('--remove-games', action='store_true', help='Remove all games (Steam + manually added); keep only stock apps Desktop, Steam, Virtual Display')
     parser.add_argument('--auto-config', action='store_true', help='Write a .env file from auto-detected paths and exit')
     parser.add_argument('--print-config', action='store_true', help='Print auto-detected paths as JSON and exit')
+    parser.add_argument('--check-update', action='store_true', help='Check GitHub Releases for a newer version and exit')
+    parser.add_argument('--apply-update', action='store_true', help='Install the newest GitHub Release for this platform')
     args = parser.parse_args()
     
     # Setup logging
     setup_logging(args.verbose)
+
+    if args.check_update or args.apply_update:
+        from gs_updater import cli_check
+        sys.exit(cli_check(apply=args.apply_update))
 
     if args.print_config:
         detected = detect_paths()
@@ -1489,13 +2101,24 @@ def main() -> None:
             print(f"BANNER:{wasteland_msg}")
             return
         # ----- normal import flow below -----
+
+        if not args.dry_run:
+            helper = ensure_steam_close_helper()
+            if helper:
+                logging.info("Quit App close helper: %s", helper)
         
         # Start Steam only if not already running (unless disabled)
         if not args.no_restart:
             ensure_steam_running(config['STEAM_EXE_PATH'])
         
-        # Load installed games (Steam)
+        # Load installed games (Steam store library)
         installed_games = load_installed_games(config['STEAM_LIBRARY_VDF_PATH'])
+        # Non-Steam shortcuts (Eden / emu / custom Steam tiles)
+        installed_shortcuts = load_steam_nonsteam_shortcuts(config['STEAM_LIBRARY_VDF_PATH'])
+        # Merge so process_existing_apps keeps shortcut entries and prunes removed ones
+        steam_catalog: Dict[str, str] = dict(installed_games)
+        for bpid, info in installed_shortcuts.items():
+            steam_catalog[bpid] = info.get("name") or bpid
         
         # Load Epic games (Windows only, if path set)
         installed_epic = {}
@@ -1517,14 +2140,15 @@ def main() -> None:
         # Ensure grids folder exists
         os.makedirs(config['SUNSHINE_GRIDS_FOLDER'], exist_ok=True)
         
-        # Process existing apps (Steam, Epic, custom, Xbox)
+        # Process existing apps (Steam store + Non-Steam shortcuts, Epic, custom, Xbox)
         shortcuts_folder = config.get('SUNSHINE_SHORTCUTS_FOLDER') or ''
         updated_apps, removed_steam, removed_epic, existing_steam_apps, existing_epic_apps, existing_xbox_cmds, repaired_steam = process_existing_apps(
-            sunshine_config, installed_games, installed_epic, custom_cmds, installed_xbox, shortcuts_folder
+            sunshine_config, steam_catalog, installed_epic, custom_cmds, installed_xbox, shortcuts_folder
         )
         
         # Find new games to add
         new_games = set(installed_games.keys()) - existing_steam_apps
+        new_shortcuts = set(installed_shortcuts.keys()) - existing_steam_apps
         new_epic = set(installed_epic.keys()) - existing_epic_apps
         new_xbox = set(installed_xbox.keys()) - existing_xbox_cmds
         existing_cmds = {app.get('cmd', '').strip() for app in updated_apps}
@@ -1539,6 +2163,11 @@ def main() -> None:
             logging.info(f"Epic games to remove: {[name for name, _ in removed_epic]}")
         if new_games:
             logging.info(f"New Steam games to add: {[installed_games[app_id] for app_id in new_games]}")
+        if new_shortcuts:
+            logging.info(
+                "New Non-Steam shortcuts to add: %s",
+                [installed_shortcuts[b]["name"] for b in new_shortcuts],
+            )
         if new_epic:
             logging.info(f"New Epic games to add: {[installed_epic[aid]['name'] for aid in new_epic]}")
         if new_xbox:
@@ -1547,9 +2176,28 @@ def main() -> None:
             logging.info(f"New custom games to add: {[g['name'] for g in new_custom]}")
         
         if repaired_steam:
-            logging.info("Repaired %d Steam app(s) for Linux detached launch", repaired_steam)
+            logging.info(
+                "Repaired %d Steam app(s) (detached launch and/or Quit App close undo)",
+                repaired_steam,
+            )
 
-        if not removed_steam and not removed_epic and not new_games and not new_epic and not new_xbox and not new_custom and not repaired_steam:
+        # Tag existing Non-Steam Sunshine apps from shortcuts.vdf exe (Eden → Switch, etc.)
+        # so GameSphere can shelf by launch backend without seeing the host cmd.
+        retagged = _retag_nonsteam_app_names(updated_apps, installed_shortcuts)
+        if retagged:
+            logging.info("Tagged %d Non-Steam app(s) with GameSphere platform suffixes", retagged)
+
+        if (
+            not removed_steam
+            and not removed_epic
+            and not new_games
+            and not new_shortcuts
+            and not new_epic
+            and not new_xbox
+            and not new_custom
+            and not repaired_steam
+            and not retagged
+        ):
             logging.info("No changes needed - all games are up to date")
             return
         
@@ -1557,9 +2205,17 @@ def main() -> None:
             logging.info("Dry run mode - no changes will be made")
             return
         
-        # Add new Steam games
+        # Add new Steam store games
         new_steam_apps = add_new_games(new_games, installed_games, config['STEAMGRIDDB_API_KEY'], config['SUNSHINE_GRIDS_FOLDER'])
         updated_apps.extend(new_steam_apps)
+        # Add Non-Steam shortcuts (Eden / emu / etc.)
+        new_shortcut_apps = add_shortcut_games(
+            new_shortcuts,
+            installed_shortcuts,
+            config['STEAMGRIDDB_API_KEY'],
+            config['SUNSHINE_GRIDS_FOLDER'],
+        )
+        updated_apps.extend(new_shortcut_apps)
         # Add new Epic games
         new_epic_apps = add_epic_games(new_epic, installed_epic, config['STEAMGRIDDB_API_KEY'], config['SUNSHINE_GRIDS_FOLDER'], shortcuts_folder)
         updated_apps.extend(new_epic_apps)

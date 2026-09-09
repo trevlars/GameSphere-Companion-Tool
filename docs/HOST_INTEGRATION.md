@@ -10,7 +10,7 @@ GameSphere Import Tool is a **standalone CLI** today. It does not require change
 
 | Step | Behavior |
 |------|----------|
-| Discover | Reads Steam `libraryfolders.vdf` (+ Windows Epic/Xbox/custom sources) |
+| Discover | Reads Steam `libraryfolders.vdf` + `userdata/*/config/shortcuts.vdf` Non-Steam tiles (+ Windows Epic/Xbox/custom sources) |
 | Artwork | Downloads box art from Steam CDN (optional SteamGridDB API key) |
 | Merge | Updates host `apps.json` — adds new games, removes uninstalled Steam/Epic titles |
 | Preserve | Keeps existing non-Steam apps (Desktop, custom `prep-cmd`, etc.) on normal import |
@@ -189,6 +189,8 @@ Run `gamesphere-import --print-config` on the target machine to dump detected va
 
 - **Do not overwrite** user `apps.json` wholesale — the tool merges. Document that `--remove-games` is destructive.
 - Linux games **must** use `detached` for Steam URIs; the tool handles this automatically since v0.3.0.
+- Detached Steam games are **not** killed by Sunshine’s process tracker. Since v0.3.1 each Steam app gets a prep-cmd **undo** (`gamesphere-steam-close.sh <appid>` / Windows `.ps1`, or inline equivalent) so client Quit App (`/cancel`) closes the game on the host. v1.0.2+ also matches the game install dir / distinctive exes and watches for late-spawned processes (long Steam launches).
+- The tool can self-update from public GitHub Releases (no token): GUI **Check for updates**, or `gamesphere-import --check-update` / `--apply-update`.
 - If the host ships custom `prep-cmd` (e.g. display/audio prep scripts), normal import preserves existing Desktop / Big Picture entries; new games can inherit host-specific prep when detected (e.g. `~/.local/bin/sunshine-stream-prep.sh` on Bazzite).
 
 ---

@@ -48,15 +48,17 @@ When you run the importer with no manual setup:
 
 | Automagic step | Details |
 |----------------|---------|
-| **Path detection** | Steam `libraryfolders.vdf`, host `apps.json`, covers folder — native, Flatpak, or Windows Program Files |
+| **Path detection** | Steam `libraryfolders.vdf`, `userdata/*/config/shortcuts.vdf`, host `apps.json`, covers folder — native, Flatpak, or Windows Program Files |
 | **Host profile** | Detects Bazzite, SteamOS, Windows, macOS |
 | **Steam launch commands** | Windows: `steam://rungameid/…` · Linux: `detached` + `setsid steam …` (Sunshine requirement) · Flatpak when needed |
+| **Quit App close** | Windows + Linux/macOS: prep-cmd undo closes the Steam game (`gamesphere-steam-close`) by AppID, install path, and exe name, then watches for late-spawned processes (Hogwarts Legacy–class long launches) |
+| **Auto-update** | GUI checks GitHub Releases on launch; **Check for updates** downloads the Windows exe or refreshes the Linux install. CLI: `--check-update` / `--apply-update` |
 | **Stream prep hooks** | On Bazzite, adds `sunshine-stream-prep.sh` prep to imported games when that script exists |
 | **Artwork** | Steam CDN thumbnails in parallel (optional [SteamGridDB](https://www.steamgriddb.com/profile/preferences/api) key) |
 | **Merge, don’t wipe** | Keeps your Desktop, Steam Big Picture, and custom `prep-cmd` entries |
 | **Prune** | Removes uninstalled Steam (and Epic on Windows) games from the host list |
 | **Backup** | Copies `apps.json` before writing |
-| **Repair** | Re-import fixes Linux entries that used `cmd` instead of `detached` |
+| **Repair** | Re-import fixes Linux `cmd`→`detached` and adds missing Quit App close undos |
 | **Start Steam** | Launches Steam if it isn’t running |
 | **Restart host** | Windows exe · Linux systemd · Flatpak restart |
 
@@ -70,7 +72,7 @@ gamesphere-import --print-config
 
 ## Features
 
-- **Steam** — all installed library games with concurrent name/art fetch
+- **Steam** — installed library games **and** Non-Steam shortcuts (`shortcuts.vdf`: Eden, emulators, etc.) with concurrent name/art fetch
 - **Windows extras** — Epic Games Store (beta), Xbox / Game Pass (`C:\XboxGames`), custom JSON games, `.lnk` shortcuts
 - **Sunshine & Apollo** — same tool; set `HOST=apollo` or use the Windows GUI host selector
 - **Cross-platform CLI** — Windows, Linux, macOS
@@ -91,6 +93,9 @@ uv run main.py --no-restart       # skip Steam start + host restart
 uv run main.py --remove-games     # reset to stock apps only
 uv run main.py --auto-config      # write .env from auto-detected paths
 uv run main.py --print-config     # print detected paths as JSON
+uv run main.py --version
+uv run main.py --check-update     # compare to GitHub Releases
+uv run main.py --apply-update     # install the newest release
 ```
 
 Log file: `sunshine_automation.log` in the working directory.
@@ -151,6 +156,7 @@ Want a **“Sync Steam library”** button in your web UI, a first-run wizard, o
 | Issue | Fix |
 |-------|-----|
 | Game tile appears but **doesn’t launch** on Linux | Re-run import (v0.3.0+ uses `detached` commands). Check Sunshine log for `Executing [Game Name]`. |
+| Game **launches** but **Exit on phone doesn’t close** it on the PC | Confirm Sunshine log shows `Executing Undo Cmd: …gamesphere-steam-close…`. v0.3.4+ also reaps slow-to-start titles (launcher / EAC / late shipping exe) via path+exe match and a background watch. Re-run import or `install-linux.sh` if the helper is old. |
 | **Permission denied** writing `apps.json` (Windows Program Files) | Run GUI/exe as Administrator |
 | **Missing games** in list | Some VDF entries are redistributables, not games — warnings are normal |
 | **No box art** for one title | Steam CDN gap; optional SteamGridDB key |
@@ -162,13 +168,16 @@ Want a **“Sync Steam library”** button in your web UI, a first-run wizard, o
 
 | Version | Highlights |
 |---------|------------|
+| **v1.0.2** | Late-start game close (Hogwarts) + in-app auto-update (Windows + Linux) |
+| **v0.3.3** | Quit App actually stops Game Mode emu/Non-Steam titles (tree kill, 64-bit AppID) |
+| **v0.3.1** | Quit App closes detached Steam games on Linux/macOS |
 | **[v0.3.0](https://github.com/trevlars/Gamesphere-Import-Tool/releases/tag/v0.3.0)** | Linux automagic, Bazzite/Deck support, detached launch fix, Decky scaffold |
 | [v1.0.1](https://github.com/trevlars/Gamesphere-Import-Tool/releases/tag/v1.0.1) | Windows Epic (beta) + Xbox discovery |
 
 Full history: [CHANGELOG.md](CHANGELOG.md)
 
-**Windows:** [Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) → `GamesphereImportTool.exe`  
-**Linux:** `install-linux.sh` (always latest `main`) or pin a tag in the script if you prefer.
+**Windows:** [Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) → `GamesphereImportTool.exe` (or **Check for updates** in the GUI)  
+**Linux:** `install-linux.sh` from that release, or `gamesphere-import --apply-update` after the first install.
 
 ---
 
