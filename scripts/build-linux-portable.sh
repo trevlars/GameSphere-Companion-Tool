@@ -38,7 +38,7 @@ fi
 VER="${GAMESPHERE_VERSION:-1.0.0}"
 VER="${VER#v}"
 TAG="${GAMESPHERE_IMPORT_REF:-v${VER}}"
-ARCH=x86_64 VERSION="$VER" "$APPIMAGETOOL" "$APPDIR" "$OUT/GameSphere-Import-Tool-x86_64.AppImage"
+APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION="$VER" "$APPIMAGETOOL" "$APPDIR" "$OUT/GameSphere-Import-Tool-x86_64.AppImage"
 
 echo "==> Flatpak bundle"
 rm -rf "$STAGE" "$ROOT/build/flatpak-repo" "$ROOT/build/flatpak-build"
