@@ -59,7 +59,8 @@ flatpak-builder --force-clean --user --install-deps-from=flathub \
 
 flatpak build-bundle "$ROOT/build/flatpak-repo" \
   "$OUT/io.github.trevlars.GamesphereImportTool.flatpak" \
-  io.github.trevlars.GamesphereImportTool
+  io.github.trevlars.GamesphereImportTool \
+  --branch=stable
 
 cat > "$OUT/GameSphere-Import-Tool.flatpakref" << EOF
 [Flatpak Ref]

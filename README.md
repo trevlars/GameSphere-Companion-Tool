@@ -321,6 +321,7 @@ We welcome PRs that add path detection for new hosts or client-side bridge suppo
 
 | Version | Highlights |
 |---------|------------|
+| **v1.2.4** | Flatpak `.flatpakref` branch fix (`stable`) |
 | **v1.2.3** | Flatpak + AppImage on every release; `.flatpakref` one-step install; shell installer for Decky/bridge |
 | **v1.2.2** | DeckyLoader plugin — import toggles, host tuning, bridge service control, updates; prebuilt `decky/dist` |
 | **v1.2.1** | Bridge `APPSTORES` / `GAMESTATE` / `LOCKSTATE`; session detection 8.3.0-style fixes; host-agnostic integration docs + StreamTweak parity matrix |

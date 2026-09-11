@@ -2,6 +2,11 @@
 
 All notable changes to GameSphere Import Tool are documented here.
 
+## [1.2.4] — 2026-09-11
+
+### Fixed
+- **Flatpak `.flatpakref`** — bundle now built with `--branch=stable` so one-step install works
+
 ## [1.2.3] — 2026-09-11
 
 ### Added
