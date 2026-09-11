@@ -1,0 +1,26 @@
+# Flatpak manifest — bundles the PyInstaller CLI built in CI (see scripts/build-linux-portable.sh)
+app-id: io.github.trevlars.GamesphereImportTool
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+command: gamesphere-import
+
+finish-args:
+  - --share=network
+  - --filesystem=home
+  - --talk-name=org.freedesktop.systemd1
+
+modules:
+  - name: gamesphere-import-tool
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 gamesphere-import /app/bin/gamesphere-import
+      - install -Dm644 io.github.trevlars.GamesphereImportTool.desktop /app/share/applications/io.github.trevlars.GamesphereImportTool.desktop
+      - install -Dm644 io.github.trevlars.GamesphereImportTool.metainfo.xml /app/share/metainfo/io.github.trevlars.GamesphereImportTool.metainfo.xml
+    sources:
+      - type: file
+        path: gamesphere-import
+      - type: file
+        path: io.github.trevlars.GamesphereImportTool.desktop
+      - type: file
+        path: io.github.trevlars.GamesphereImportTool.metainfo.xml

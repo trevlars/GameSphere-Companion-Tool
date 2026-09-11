@@ -60,11 +60,42 @@ gamesphere-import                  # import + restart host
 
 ## Quick start
 
-> **Easiest path:** [Download the latest release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) — no git required.
+> **Easiest path:** [Download the latest release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) — Flatpak, AppImage, or Windows `.exe`. No git required.
 
-### Linux — Bazzite, Steam Deck, or any distro (recommended)
+### Linux — Flatpak (recommended on Bazzite / Steam Deck)
 
-One command installs, detects paths, and creates `gamesphere-import` (pinned to that release):
+Install the Freedesktop runtime once if Flatpak asks:
+
+```bash
+flatpak install flathub org.freedesktop.Platform//24.08
+```
+
+**One-step install** (`.flatpakref` from Releases):
+
+```bash
+curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/GameSphere-Import-Tool.flatpakref \
+  -o GameSphere-Import-Tool.flatpakref
+flatpak install --user -y GameSphere-Import-Tool.flatpakref
+flatpak run io.github.trevlars.GamesphereImportTool --dry-run
+flatpak run io.github.trevlars.GamesphereImportTool
+```
+
+After install, `gamesphere-import` is usually on your PATH via Flatpak exports (`~/.local/share/flatpak/exports/bin`).
+
+### Linux — AppImage (portable, no install)
+
+```bash
+curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/GameSphere-Import-Tool-x86_64.AppImage -O
+chmod +x GameSphere-Import-Tool-x86_64.AppImage
+./GameSphere-Import-Tool-x86_64.AppImage --dry-run
+./GameSphere-Import-Tool-x86_64.AppImage
+```
+
+Move to `~/.local/bin` if you want it always available.
+
+### Linux — shell installer (Decky / host bridge / power users)
+
+One command installs from source checkout, creates `gamesphere-import`, and can enable the optional TCP bridge systemd unit:
 
 ```bash
 curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-linux.sh | bash
@@ -115,7 +146,7 @@ When you run the importer with no manual setup:
 | **Host profile** | Detects Bazzite, SteamOS, Windows, macOS |
 | **Steam launch commands** | Windows: `steam://rungameid/…` · Linux: `detached` + `setsid steam …` (Sunshine requirement) · Flatpak when needed |
 | **Quit App close** | Windows + Linux/macOS: prep-cmd undo closes the Steam game (`gamesphere-steam-close`) by AppID, install path, and exe name, then watches for late-spawned processes (Hogwarts Legacy–class long launches) |
-| **Auto-update** | GUI checks GitHub Releases on launch; **Check for updates** downloads the Windows exe or refreshes the Linux install. CLI: `--check-update` / `--apply-update` |
+| **Auto-update** | GUI checks GitHub Releases on launch; **Check for updates** downloads the Windows exe or refreshes Linux (Flatpak bundle, AppImage, or shell install). CLI: `--check-update` / `--apply-update` |
 | **Stream prep hooks** | On Bazzite, adds `sunshine-stream-prep.sh` prep to imported games when that script exists |
 | **Artwork** | Steam CDN thumbnails in parallel (optional [SteamGridDB](https://www.steamgriddb.com/profile/preferences/api) key) |
 | **Merge, don’t wipe** | Keeps your Desktop, Steam Big Picture, and custom `prep-cmd` entries |
@@ -290,6 +321,7 @@ We welcome PRs that add path detection for new hosts or client-side bridge suppo
 
 | Version | Highlights |
 |---------|------------|
+| **v1.2.3** | Flatpak + AppImage on every release; `.flatpakref` one-step install; shell installer for Decky/bridge |
 | **v1.2.2** | DeckyLoader plugin — import toggles, host tuning, bridge service control, updates; prebuilt `decky/dist` |
 | **v1.2.1** | Bridge `APPSTORES` / `GAMESTATE` / `LOCKSTATE`; session detection 8.3.0-style fixes; host-agnostic integration docs + StreamTweak parity matrix |
 | **v1.2.0** | Host tuning module — link speed, HDR/spatial audio, NVIDIA snapshots, session telemetry, TCP bridge (47998), Tailscale, managed apps, host tile swap (StreamTweak-inspired; Linux adapted) |

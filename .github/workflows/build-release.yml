@@ -1,8 +1,11 @@
 # Build and publish release artifacts on every version tag.
 #
-# Assets attached to each GitHub Release:
-#   - GamesphereImportTool.exe  (Windows — double-click GUI)
-#   - install-linux.sh          (Linux — curl | bash one-liner, pinned to tag)
+# Assets:
+#   Windows  — GamesphereImportTool.exe
+#   Linux    — io.github.trevlars.GamesphereImportTool.flatpak (recommended on Bazzite/Deck)
+#            — GameSphere-Import-Tool-x86_64.AppImage (portable, double-click / CLI)
+#            — GameSphere-Import-Tool.flatpakref (one-step flatpak install file)
+#            — install-linux.sh (advanced / Decky / host bridge systemd)
 
 name: Release
 
@@ -12,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to build and publish (e.g. v1.2.2)"
+        description: "Tag to build and publish (e.g. v1.2.3)"
         required: true
 
 permissions:
@@ -34,6 +37,44 @@ jobs:
           uv run main.py --version
           uv run main.py --help
           uv run python -m py_compile main.py host_tuning/*.py host_tuning_cli.py store_scanners.py store_covers.py platform_paths.py
+
+  build-linux-portable:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak --user remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Build AppImage + Flatpak bundle
+        env:
+          GAMESPHERE_IMPORT_REF: ${{ github.event.inputs.tag || github.ref_name }}
+          GAMESPHERE_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          chmod +x scripts/build-linux-portable.sh
+          bash scripts/build-linux-portable.sh
+          dist/gamesphere-import --version
+          test -f dist/GameSphere-Import-Tool-x86_64.AppImage
+          test -f dist/io.github.trevlars.GamesphereImportTool.flatpak
+          test -f dist/GameSphere-Import-Tool.flatpakref
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-portable
+          path: |
+            dist/gamesphere-import
+            dist/GameSphere-Import-Tool-x86_64.AppImage
+            dist/io.github.trevlars.GamesphereImportTool.flatpak
+            dist/GameSphere-Import-Tool.flatpakref
 
   build-windows:
     runs-on: windows-latest
@@ -58,7 +99,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: [validate, build-windows]
+    needs: [validate, build-linux-portable, build-windows]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,6 +108,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: windows-exe
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-portable
           path: dist/
 
       - name: Resolve release tag
@@ -78,49 +124,71 @@ jobs:
             echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare pinned Linux installer
+      - name: Prepare pinned Linux shell installer
         run: |
           TAG="${{ steps.tag.outputs.name }}"
           {
             echo "#!/usr/bin/env bash"
-            echo "# GameSphere Import Tool ${TAG} — pinned release installer"
+            echo "# GameSphere Import Tool ${TAG} — pinned release installer (advanced)"
             echo "export GAMESPHERE_IMPORT_REF=${TAG}"
             tail -n +2 scripts/install-linux.sh
           } > install-linux.sh
           chmod +x install-linux.sh
+          # Refresh flatpakref URL for this tag
+          sed -i "s|releases/download/v[^/]*/|releases/download/${TAG}/|" dist/GameSphere-Import-Tool.flatpakref || true
 
       - name: Write install instructions for release page
         run: |
           TAG="${{ steps.tag.outputs.name }}"
           VER="${TAG#v}"
+          BASE="https://github.com/${{ github.repository }}/releases/download/${TAG}"
           cat > RELEASE-NOTES.md << EOF
           ## Install (${VER})
 
-          ### Linux — Bazzite, Steam Deck, any distro
+          ### Linux — Flatpak (recommended on Bazzite / Steam Deck)
 
-          One command (installs \`gamesphere-import\`, host tuning, optional Decky plugin):
+          Install the Flatpak runtime once if needed: \`flatpak install flathub org.freedesktop.Platform//24.08\`
 
-          \`\`\`bash
-          curl -fsSL https://github.com/${{ github.repository }}/releases/download/${TAG}/install-linux.sh | bash
-          \`\`\`
-
-          Then:
+          **Option A — .flatpakref file (easiest):**
 
           \`\`\`bash
-          gamesphere-import --dry-run   # preview
-          gamesphere-import             # sync library + restart Sunshine
+          curl -fsSL ${BASE}/GameSphere-Import-Tool.flatpakref -o GameSphere-Import-Tool.flatpakref
+          flatpak install --user -y GameSphere-Import-Tool.flatpakref
+          flatpak run io.github.trevlars.GamesphereImportTool --dry-run
           \`\`\`
 
-          Optional: enable host bridge on boot:
+          **Option B — download the .flatpak bundle:**
 
           \`\`\`bash
-          GAMESPHERE_ENABLE_HOST_BRIDGE=1 curl -fsSL https://github.com/${{ github.repository }}/releases/download/${TAG}/install-linux.sh | bash
+          curl -fsSL ${BASE}/io.github.trevlars.GamesphereImportTool.flatpak -O
+          flatpak install --user -y io.github.trevlars.GamesphereImportTool.flatpak
+          flatpak run io.github.trevlars.GamesphereImportTool
           \`\`\`
+
+          After install, \`gamesphere-import\` may be on your PATH via Flatpak exports.
+
+          ### Linux — AppImage (portable, no install)
+
+          \`\`\`bash
+          curl -fsSL ${BASE}/GameSphere-Import-Tool-x86_64.AppImage -O
+          chmod +x GameSphere-Import-Tool-x86_64.AppImage
+          ./GameSphere-Import-Tool-x86_64.AppImage --dry-run
+          \`\`\`
+
+          Move to \`~/.local/bin\` or \`~/Applications\` if you want it always available.
+
+          ### Linux — shell installer (Decky / host bridge / power users)
+
+          \`\`\`bash
+          curl -fsSL ${BASE}/install-linux.sh | bash
+          \`\`\`
+
+          Optional host bridge on boot: \`GAMESPHERE_ENABLE_HOST_BRIDGE=1\` before the curl command.
 
           ### Windows
 
           1. Download **GamesphereImportTool.exe** below.
-          2. Run as Administrator (needed for Program Files Sunshine/Apollo paths).
+          2. Run as Administrator.
           3. Choose Sunshine or Apollo → Save config → Run importer.
 
           ### macOS
@@ -141,6 +209,9 @@ jobs:
           make_latest: true
           files: |
             dist/GamesphereImportTool.exe
+            dist/GameSphere-Import-Tool-x86_64.AppImage
+            dist/io.github.trevlars.GamesphereImportTool.flatpak
+            dist/GameSphere-Import-Tool.flatpakref
             install-linux.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

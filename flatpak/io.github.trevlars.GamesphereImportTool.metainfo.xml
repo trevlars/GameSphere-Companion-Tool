@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.trevlars.GamesphereImportTool</id>
+  <name>GameSphere Import Tool</name>
+  <summary>Sync Steam into Sunshine for GameSphere streaming</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <description>
+    <p>
+      Populates Sunshine or Apollo with your Steam library and Non-Steam shortcuts —
+      cover art, launch commands, and host tuning for GameSphere / Moonlight clients.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.trevlars.GamesphereImportTool.desktop</launchable>
+  <url type="homepage">https://github.com/trevlars/Gamesphere-Import-Tool</url>
+  <developer_name>Trevor</developer_name>
+  <releases>
+    <release version="1.2.3" date="2026-09-11"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

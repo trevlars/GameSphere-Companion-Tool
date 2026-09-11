@@ -2,6 +2,18 @@
 
 All notable changes to GameSphere Import Tool are documented here.
 
+## [1.2.3] — 2026-09-11
+
+### Added
+- **Flatpak bundle** — `io.github.trevlars.GamesphereImportTool.flatpak` + `GameSphere-Import-Tool.flatpakref` on every release (recommended Linux install on Bazzite / Deck)
+- **AppImage** — `GameSphere-Import-Tool-x86_64.AppImage` portable CLI (download & run)
+- **PyInstaller Linux CLI** — `build_cli.py` + `GamesphereImportTool-cli.spec`; CI job `build-linux-portable`
+
+### Changed
+- **GitHub Releases** — Linux assets: Flatpak, AppImage, `.flatpakref`, and `install-linux.sh` (shell installer demoted to advanced / Decky path)
+- **README Quick Start** — Flatpak first, AppImage second, shell script third
+- **`gs_updater`** — Linux `--apply-update` prefers Flatpak bundle, then AppImage, then shell installer
+
 ## [1.2.2] — 2026-09-11
 
 ### Added

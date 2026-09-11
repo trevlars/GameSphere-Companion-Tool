@@ -84,11 +84,13 @@ def pick_asset(assets: List[Dict[str, Any]], platform: str) -> Optional[Dict[str
                 return asset
     if platform == "linux":
         for name, asset in named:
-            if name.lower() == "install-linux.sh":
+            if name == "io.github.trevlars.GamesphereImportTool.flatpak":
                 return asset
         for name, asset in named:
-            low = name.lower()
-            if "linux" in low and low.endswith(".sh"):
+            if name.lower().endswith(".appimage"):
+                return asset
+        for name, asset in named:
+            if name.lower() == "install-linux.sh":
                 return asset
     return None
 
@@ -211,7 +213,36 @@ def apply_windows_update(asset: Dict[str, Any]) -> str:
 
 
 def apply_linux_update(tag: str, asset: Optional[Dict[str, Any]] = None) -> str:
-    """Refresh the install-linux.sh checkout to the given tag and reinstall helpers."""
+    """Apply update via Flatpak bundle, AppImage-friendly shell installer, or git checkout."""
+    if asset and asset.get("browser_download_url"):
+        name = (asset.get("name") or "").lower()
+        url = asset["browser_download_url"]
+        if name.endswith(".flatpak"):
+            bundle = os.path.join(tempfile.mkdtemp(prefix="gs-import-upd-"), "update.flatpak")
+            _download(url, bundle)
+            subprocess.run(
+                ["flatpak", "install", "--user", "-y", bundle],
+                check=True,
+            )
+            return "flatpak:io.github.trevlars.GamesphereImportTool"
+        if name.endswith(".appimage"):
+            dest = os.path.expanduser("~/.local/bin/GameSphere-Import-Tool.AppImage")
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            _download(url, dest)
+            os.chmod(dest, 0o755)
+            return dest
+        if name == "install-linux.sh":
+            tmp = tempfile.mkdtemp(prefix="gs-import-upd-")
+            script = os.path.join(tmp, "install-linux.sh")
+            _download(url, script)
+            os.chmod(script, 0o755)
+            env = os.environ.copy()
+            env["GAMESPHERE_IMPORT_REF"] = tag
+            env["GAMESPHERE_IMPORT_DIR"] = linux_install_dir()
+            subprocess.run(["bash", script], check=True, env=env)
+            return linux_install_dir()
+
+    # Fallback: shell installer from tag
     install_dir = linux_install_dir()
     script = None
     if asset and asset.get("browser_download_url"):
