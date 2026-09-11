@@ -273,6 +273,7 @@ We welcome PRs that add path detection for new hosts or client-side bridge suppo
 
 | Version | Highlights |
 |---------|------------|
+| **v1.2.2** | DeckyLoader plugin — import toggles, host tuning, bridge service control, updates; prebuilt `decky/dist` |
 | **v1.2.1** | Bridge `APPSTORES` / `GAMESTATE` / `LOCKSTATE`; session detection 8.3.0-style fixes; host-agnostic integration docs + StreamTweak parity matrix |
 | **v1.2.0** | Host tuning module — link speed, HDR/spatial audio, NVIDIA snapshots, session telemetry, TCP bridge (47998), Tailscale, managed apps, host tile swap (StreamTweak-inspired; Linux adapted) |
 | **v1.1.0** | Multi-store Windows discovery + cover art (GOG, Ubisoft, Battle.net, EA), Epic launch triples, Xbox `.GamingRoot` + `shell:appsFolder` — patterns from [StreamTweak](https://github.com/FoggyBytes/StreamTweak) |
