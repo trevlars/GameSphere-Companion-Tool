@@ -1,90 +1,146 @@
-# Build release artifacts and validate Linux import on tag publish.
+# Build and publish release artifacts on every version tag.
 #
-# Windows: GamesphereImportTool.exe attached to GitHub Release on publish.
-# Linux: install-linux.sh is the delivery path (no binary artifact).
+# Assets attached to each GitHub Release:
+#   - GamesphereImportTool.exe  (Windows — double-click GUI)
+#   - install-linux.sh          (Linux — curl | bash one-liner, pinned to tag)
 
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build (e.g. v0.3.0). Leave empty for default branch.'
-        required: false
+        description: "Tag to build and publish (e.g. v1.2.2)"
+        required: true
 
 permissions:
   contents: write
 
 jobs:
-  linux-smoke:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref }}
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
 
-      - name: Install uv
-        run: pip install uv
-
-      - name: Sync dependencies
-        run: uv sync
-
-      - name: Smoke test CLI
+      - name: Sync and smoke test
         run: |
-          uv run main.py --help
+          uv sync
           uv run main.py --version
-          uv run python -c "from platform_paths import detect_paths; print('platform_paths ok')"
-
-      - name: Upload Linux installer to Release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: scripts/install-linux.sh
-          tag_name: ${{ github.event.release.tag_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          uv run main.py --help
+          uv run python -m py_compile main.py host_tuning/*.py host_tuning_cli.py store_scanners.py store_covers.py platform_paths.py
 
   build-windows:
     runs-on: windows-latest
-    needs: linux-smoke
+    needs: validate
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref }}
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build Windows .exe
+        run: |
+          uv sync --extra build
+          uv run build_exe.py
+          test -f dist/GamesphereImportTool.exe
+
+      - uses: actions/upload-artifact@v4
         with:
-          python-version: '3.12'
+          name: windows-exe
+          path: dist/GamesphereImportTool.exe
 
-      - name: Install uv
-        run: pip install uv
+  publish:
+    runs-on: ubuntu-latest
+    needs: [validate, build-windows]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - name: Install dependencies
-        run: uv sync --extra build
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/
 
-      - name: Build .exe
-        run: uv run build_exe.py
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Upload to Release
-        if: github.event_name == 'release'
+      - name: Prepare pinned Linux installer
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          {
+            echo "#!/usr/bin/env bash"
+            echo "# GameSphere Import Tool ${TAG} — pinned release installer"
+            echo "export GAMESPHERE_IMPORT_REF=${TAG}"
+            tail -n +2 scripts/install-linux.sh
+          } > install-linux.sh
+          chmod +x install-linux.sh
+
+      - name: Write install instructions for release page
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          VER="${TAG#v}"
+          cat > RELEASE-NOTES.md << EOF
+          ## Install (${VER})
+
+          ### Linux — Bazzite, Steam Deck, any distro
+
+          One command (installs \`gamesphere-import\`, host tuning, optional Decky plugin):
+
+          \`\`\`bash
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/${TAG}/install-linux.sh | bash
+          \`\`\`
+
+          Then:
+
+          \`\`\`bash
+          gamesphere-import --dry-run   # preview
+          gamesphere-import             # sync library + restart Sunshine
+          \`\`\`
+
+          Optional: enable host bridge on boot:
+
+          \`\`\`bash
+          GAMESPHERE_ENABLE_HOST_BRIDGE=1 curl -fsSL https://github.com/${{ github.repository }}/releases/download/${TAG}/install-linux.sh | bash
+          \`\`\`
+
+          ### Windows
+
+          1. Download **GamesphereImportTool.exe** below.
+          2. Run as Administrator (needed for Program Files Sunshine/Apollo paths).
+          3. Choose Sunshine or Apollo → Save config → Run importer.
+
+          ### macOS
+
+          CLI from source: \`git clone\` → \`uv sync\` → \`uv run main.py --auto-config\` → \`uv run main.py\`
+
+          ---
+
+          EOF
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/GamesphereImportTool.exe
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: GameSphere Import Tool ${{ steps.tag.outputs.name }}
+          body_path: RELEASE-NOTES.md
+          generate_release_notes: true
+          make_latest: true
+          files: |
+            dist/GamesphereImportTool.exe
+            install-linux.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifact (manual run)
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: GamesphereImportTool-exe
-          path: dist/GamesphereImportTool.exe

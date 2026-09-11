@@ -13,6 +13,9 @@ All notable changes to GameSphere Import Tool are documented here.
 - **`host_tuning_cli.py bridge`** — missing `import os`
 - **`install-linux.sh`** — optional Decky plugin symlink (sudo when `~/homebrew/plugins` is root-owned on Bazzite)
 
+### Changed
+- **GitHub Releases CI** — every `v*` tag publishes `GamesphereImportTool.exe` + pinned `install-linux.sh`; README install URLs point at release assets
+
 ## [1.2.1] — 2026-09-11
 
 ### Added

@@ -60,22 +60,39 @@ gamesphere-import                  # import + restart host
 
 ## Quick start
 
-### Linux — Bazzite, Steam Deck, or any distro (recommended flow)
+> **Easiest path:** [Download the latest release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) — no git required.
 
-One command installs, detects paths, and creates `gamesphere-import`:
+### Linux — Bazzite, Steam Deck, or any distro (recommended)
+
+One command installs, detects paths, and creates `gamesphere-import` (pinned to that release):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/scripts/install-linux.sh | bash
+curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-linux.sh | bash
 gamesphere-import --dry-run   # preview (optional)
 gamesphere-import             # import + restart Sunshine
 ```
 
+Optional host bridge on boot:
+
+```bash
+GAMESPHERE_ENABLE_HOST_BRIDGE=1 curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-linux.sh | bash
+```
+
 **No `.env` editing required** on typical setups. The tool finds native or Flatpak Steam, Sunshine/Apollo config, and uses `systemctl --user restart sunshine` when that service exists.
+
+<details>
+<summary>Install from main branch instead (bleeding edge)</summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/scripts/install-linux.sh | bash
+```
+
+</details>
 
 ### Windows — GUI or `.exe`
 
-1. Download **`GamesphereImportTool.exe`** from [Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
-2. Run it → choose **Sunshine** or **Apollo** → **Save config** → **Run importer**.
+1. Download **`GamesphereImportTool.exe`** from **[Releases → Latest](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest)** (Assets section).
+2. Run as **Administrator** → choose **Sunshine** or **Apollo** → **Save config** → **Run importer**.
 
 Or from source: `uv sync` then `uv run gui.py`.
 
@@ -285,8 +302,8 @@ We welcome PRs that add path detection for new hosts or client-side bridge suppo
 
 Full history: [CHANGELOG.md](CHANGELOG.md)
 
-**Windows:** [Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) → `GamesphereImportTool.exe` (or **Check for updates** in the GUI)  
-**Linux:** `install-linux.sh` from that release, or `gamesphere-import --apply-update` after the first install.
+**Windows:** [Releases → Latest](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) → download **`GamesphereImportTool.exe`** (or **Check for updates** in the GUI)  
+**Linux:** `curl -fsSL …/releases/latest/download/install-linux.sh | bash` — or `gamesphere-import --apply-update` after the first install.
 
 ---
 
