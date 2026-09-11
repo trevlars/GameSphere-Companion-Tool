@@ -1,78 +1,84 @@
-# GameSphere Import — DeckyLoader plugin
+# GameSphere Import — Decky plugin
 
-Import your Steam library into Sunshine from **Game Mode**, apply **host tuning**, and toggle the **GameSphere bridge** (TCP 47998) — same automagic CLI as the desktop host.
+Sync your Steam library into Sunshine **from Steam Deck Game Mode** — no keyboard required.
 
-## Prerequisites
+<p align="center">
+  <img src="../assets/readme-screenshot.png" alt="GameSphere Import Tool" width="480">
+</p>
 
-1. Install the CLI on the host:
+## Before you start
 
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/scripts/install-linux.sh | bash
-   ```
+You need the Import Tool installed on the host **once**. Pick either:
 
-   Optional bridge auto-enable on install:
-
-   ```bash
-   GAMESPHERE_ENABLE_HOST_BRIDGE=1 bash scripts/install-linux.sh
-   ```
-
-2. Sunshine user service running: `systemctl --user status sunshine`
-
-## Build & install
-
-On a machine with Node 18+:
+**Flatpak (easiest):**
 
 ```bash
-cd decky
-npm install
-npm run build
+curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-flatpak.sh | bash
 ```
 
-Symlink into Decky (Steam Deck / Bazzite Game Mode):
+**Or shell install** (same as older docs):
+
+```bash
+curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-linux.sh | bash
+```
+
+Sunshine should be running: `systemctl --user status sunshine`
+
+## Enable the plugin
+
+Prebuilt UI is included — you usually **do not** need Node/npm on the Deck.
 
 ```bash
 ln -sfn "$HOME/.local/share/gamesphere-import-tool/decky" \
   "$HOME/homebrew/plugins/gamesphere-import"
 ```
 
-Reload Decky: **Quick Access → Decky icon → reload plugins**, or restart the Plugin Loader service.
+On Bazzite, if `~/homebrew/plugins` is root-owned, use `sudo` for the symlink.
 
-## Plugin panels
+Then: **Quick Access → Decky → reload plugins** (or restart Plugin Loader).
 
-### Status
-- Import Tool version and detected `apps.json` path
-- Bridge service state (`active` / `inactive`)
-- Host tuning summary (link speed, session count)
+<details>
+<summary>Rebuild from source (developers only)</summary>
 
-### Sync Steam library
-| Toggle | CLI flag |
-|--------|----------|
-| Dry run | `--dry-run` |
-| Skip Sunshine restart | `--no-restart` |
-| Apply host tuning after import | `--host-tuning` |
-| Verbose log | `--verbose` |
+```bash
+cd decky && npm install && npm run build
+```
 
-### Host tuning
-- **Initialize host tuning** — `host_tuning_cli.py init --enable-all`
-- **Apply host tuning only** — `--host-tuning-only`
-- **GameSphere bridge service** — enables/disables `gamesphere-host-bridge.service` (TCP 47998 for GameSphere session stats + store badges)
+</details>
 
-### Maintenance
-- Regenerate `.env` from detected paths (`--auto-config`)
-- Check / install GitHub updates
-- Remove all games (stock Desktop + Big Picture only)
+## Using the plugin
+
+Open **Quick Access → GameSphere Import**.
+
+| Section | What it does |
+|---------|----------------|
+| **Status** | Version, config path, bridge on/off |
+| **Sync Steam library** | Run import (try **Dry run** first) |
+| **Host tuning** | Optional streaming tweaks + bridge toggle |
+| **Maintenance** | Refresh config, check updates, remove all games |
+
+### Sync toggles
+
+| Toggle | Meaning |
+|--------|---------|
+| Dry run | Preview only — no files written |
+| Skip Sunshine restart | Import without restarting the host |
+| Apply host tuning | Extra streaming tweaks after import |
+| Verbose | More detail in the log panel |
 
 ## Notes
 
-- Linux import covers **Steam + Non-Steam shortcuts** (Eden, emulators, etc.). Multi-store Epic/GOG/Xbox remains Windows-only in the CLI.
-- Bazzite `sunshine-stream-prep.sh` hooks are preserved on normal import; only **Remove all games** resets to stock apps.
-- The bridge toggle installs `~/.config/systemd/user/gamesphere-host-bridge.service` if missing.
+- Linux import covers **Steam + Non-Steam shortcuts** (Eden, Ryujinx, etc.). Epic/GOG/Xbox scanning is **Windows only**.
+- **Remove all games** keeps only stock Desktop / Big Picture entries — use with care.
+- Bridge toggle needs Import Tool **1.2.1+** and installs `gamesphere-host-bridge.service` if missing.
 
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
-| CLI not installed | Run `install-linux.sh` from Game Mode terminal or SSH |
-| Bridge toggle fails | Ensure Import Tool 1.2.1+ and `scripts/systemd/gamesphere-host-bridge.service` exists |
-| Import hangs | Try **Skip Sunshine restart**; restart Sunshine from terminal |
-| Plugin UI empty after update | Re-run `npm run build` in `decky/` and reload Decky |
+| Plugin says CLI not installed | Run `install-flatpak.sh` or `install-linux.sh` (SSH or desktop terminal) |
+| Import hangs | Enable **Skip Sunshine restart**, then restart Sunshine manually |
+| Bridge toggle fails | Update to latest release; check `scripts/systemd/gamesphere-host-bridge.service` exists |
+| Blank plugin after update | Pull latest repo; reload Decky plugins |
+
+More help: [User guide](../docs/USER-GUIDE.md) · [Main README](../README.md)
