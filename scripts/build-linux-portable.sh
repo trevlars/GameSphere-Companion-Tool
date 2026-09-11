@@ -62,16 +62,6 @@ flatpak build-bundle "$ROOT/build/flatpak-repo" \
   io.github.trevlars.GamesphereImportTool \
   stable
 
-cat > "$OUT/GameSphere-Import-Tool.flatpakref" << EOF
-[Flatpak Ref]
-Title=GameSphere Import Tool
-Name=io.github.trevlars.GamesphereImportTool
-Branch=stable
-IsRuntime=false
-Url=https://github.com/trevlars/Gamesphere-Import-Tool/releases/download/${TAG}/io.github.trevlars.GamesphereImportTool.flatpak
-RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
-EOF
-
 echo "==> Built:"
 ls -la "$OUT/gamesphere-import" "$OUT/GameSphere-Import-Tool-x86_64.AppImage" \
-  "$OUT/io.github.trevlars.GamesphereImportTool.flatpak" "$OUT/GameSphere-Import-Tool.flatpakref"
+  "$OUT/io.github.trevlars.GamesphereImportTool.flatpak"

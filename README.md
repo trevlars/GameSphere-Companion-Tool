@@ -70,13 +70,19 @@ Install the Freedesktop runtime once if Flatpak asks:
 flatpak install flathub org.freedesktop.Platform//24.08
 ```
 
-**One-step install** (`.flatpakref` from Releases):
+**One-step install** (recommended):
 
 ```bash
-curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/GameSphere-Import-Tool.flatpakref \
-  -o GameSphere-Import-Tool.flatpakref
-flatpak install --user -y GameSphere-Import-Tool.flatpakref
+curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-flatpak.sh | bash
 flatpak run io.github.trevlars.GamesphereImportTool --dry-run
+flatpak run io.github.trevlars.GamesphereImportTool
+```
+
+Or download the `.flatpak` bundle directly:
+
+```bash
+curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/io.github.trevlars.GamesphereImportTool.flatpak -O
+flatpak install --user -y io.github.trevlars.GamesphereImportTool.flatpak
 flatpak run io.github.trevlars.GamesphereImportTool
 ```
 
@@ -321,6 +327,7 @@ We welcome PRs that add path detection for new hosts or client-side bridge suppo
 
 | Version | Highlights |
 |---------|------------|
+| **v1.2.5** | `install-flatpak.sh` one-liner; stable-branch Flatpak bundle |
 | **v1.2.4** | Flatpak `.flatpakref` branch fix (`stable`) |
 | **v1.2.3** | Flatpak + AppImage on every release; `.flatpakref` one-step install; shell installer for Decky/bridge |
 | **v1.2.2** | DeckyLoader plugin — import toggles, host tuning, bridge service control, updates; prebuilt `decky/dist` |

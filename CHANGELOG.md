@@ -2,6 +2,14 @@
 
 All notable changes to GameSphere Import Tool are documented here.
 
+## [1.2.5] — 2026-09-11
+
+### Added
+- **`install-flatpak.sh`** — one `curl | bash` Flatpak install (replaces broken `.flatpakref` for bundle-only releases)
+
+### Changed
+- Release assets drop `.flatpakref`; use `install-flatpak.sh` or direct `.flatpak` bundle instead
+
 ## [1.2.4] — 2026-09-11
 
 ### Fixed

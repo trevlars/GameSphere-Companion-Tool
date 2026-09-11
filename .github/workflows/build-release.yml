@@ -65,7 +65,6 @@ jobs:
           dist/gamesphere-import --version
           test -f dist/GameSphere-Import-Tool-x86_64.AppImage
           test -f dist/io.github.trevlars.GamesphereImportTool.flatpak
-          test -f dist/GameSphere-Import-Tool.flatpakref
 
       - uses: actions/upload-artifact@v4
         with:
@@ -74,7 +73,6 @@ jobs:
             dist/gamesphere-import
             dist/GameSphere-Import-Tool-x86_64.AppImage
             dist/io.github.trevlars.GamesphereImportTool.flatpak
-            dist/GameSphere-Import-Tool.flatpakref
 
   build-windows:
     runs-on: windows-latest
@@ -124,7 +122,7 @@ jobs:
             echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare pinned Linux shell installer
+      - name: Prepare pinned Linux installers
         run: |
           TAG="${{ steps.tag.outputs.name }}"
           {
@@ -134,8 +132,13 @@ jobs:
             tail -n +2 scripts/install-linux.sh
           } > install-linux.sh
           chmod +x install-linux.sh
-          # Refresh flatpakref URL for this tag
-          sed -i "s|releases/download/v[^/]*/|releases/download/${TAG}/|" dist/GameSphere-Import-Tool.flatpakref || true
+          {
+            echo "#!/usr/bin/env bash"
+            echo "# GameSphere Import Tool ${TAG} — Flatpak bundle installer"
+            echo "export GAMESPHERE_IMPORT_REF=${TAG}"
+            tail -n +2 scripts/install-flatpak.sh
+          } > install-flatpak.sh
+          chmod +x install-flatpak.sh
 
       - name: Write install instructions for release page
         run: |
@@ -149,11 +152,10 @@ jobs:
 
           Install the Flatpak runtime once if needed: \`flatpak install flathub org.freedesktop.Platform//24.08\`
 
-          **Option A — .flatpakref file (easiest):**
+          **Option A — install script (easiest):**
 
           \`\`\`bash
-          curl -fsSL ${BASE}/GameSphere-Import-Tool.flatpakref -o GameSphere-Import-Tool.flatpakref
-          flatpak install --user -y GameSphere-Import-Tool.flatpakref
+          curl -fsSL ${BASE}/install-flatpak.sh | bash
           flatpak run io.github.trevlars.GamesphereImportTool --dry-run
           \`\`\`
 
@@ -211,7 +213,7 @@ jobs:
             dist/GamesphereImportTool.exe
             dist/GameSphere-Import-Tool-x86_64.AppImage
             dist/io.github.trevlars.GamesphereImportTool.flatpak
-            dist/GameSphere-Import-Tool.flatpakref
+            install-flatpak.sh
             install-linux.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
