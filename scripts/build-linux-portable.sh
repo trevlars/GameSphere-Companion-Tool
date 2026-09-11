@@ -17,10 +17,13 @@ test -x "$OUT/gamesphere-import"
 
 echo "==> AppImage"
 rm -rf "$APPDIR"
-mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/metainfo"
+mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/metainfo" \
+  "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 cp "$OUT/gamesphere-import" "$APPDIR/usr/bin/"
 cp flatpak/io.github.trevlars.GamesphereImportTool.desktop "$APPDIR/usr/share/applications/"
 cp flatpak/io.github.trevlars.GamesphereImportTool.metainfo.xml "$APPDIR/usr/share/metainfo/"
+cp flatpak/io.github.trevlars.GamesphereImportTool.png "$APPDIR/"
+cp flatpak/io.github.trevlars.GamesphereImportTool.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/"
 cat > "$APPDIR/AppRun" << 'EOF'
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
@@ -46,6 +49,7 @@ mkdir -p "$STAGE"
 cp "$OUT/gamesphere-import" "$STAGE/"
 cp flatpak/io.github.trevlars.GamesphereImportTool.desktop "$STAGE/"
 cp flatpak/io.github.trevlars.GamesphereImportTool.metainfo.xml "$STAGE/"
+cp flatpak/io.github.trevlars.GamesphereImportTool.png "$STAGE/"
 cp flatpak/io.github.trevlars.GamesphereImportTool.yml "$STAGE/manifest.yml"
 
 flatpak-builder --force-clean --user --install-deps-from=flathub \

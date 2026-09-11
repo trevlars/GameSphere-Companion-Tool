@@ -5,5 +5,5 @@ Comment=Sync Steam libraries into Sunshine for GameSphere streaming
 Exec=gamesphere-import
 Icon=io.github.trevlars.GamesphereImportTool
 Terminal=true
-Categories=Game;Utility;
+Categories=Utility;
 Keywords=steam;sunshine;moonlight;gamesphere;streaming;
