@@ -238,11 +238,11 @@ See [`.env.example`](.env.example) for all keys. Common overrides:
 ```bash
 # After install-linux.sh
 cd ~/.local/share/gamesphere-import-tool/decky
-pnpm install && pnpm run build
+npm install && npm run build   # or build on dev machine, then sync repo
 ln -sfn "$PWD" ~/homebrew/plugins/gamesphere-import
 ```
 
-Reload Decky. The plugin runs `gamesphere-import` with dry-run and log output in Game Mode.
+Reload Decky plugins from the quick-access menu. The plugin exposes import toggles (dry run, skip restart, host tuning), bridge service control, updates, and status — see [`decky/README.md`](decky/README.md).
 
 ---
 

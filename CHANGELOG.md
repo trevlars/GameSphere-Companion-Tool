@@ -2,6 +2,17 @@
 
 All notable changes to GameSphere Import Tool are documented here.
 
+## [1.2.2] — 2026-09-11
+
+### Added
+- **DeckyLoader plugin v1.2.1** — status panel, import toggles (dry run, skip restart, host tuning, verbose), host tuning init/apply, GameSphere bridge systemd toggle, update checks, path refresh
+- **`decky/test_backend.py`** — SSH/CI smoke test without Decky runtime
+- Prebuilt **`decky/dist/`** in repo (no Node required on Deck/Bazzite)
+
+### Fixed
+- **`host_tuning_cli.py bridge`** — missing `import os`
+- **`install-linux.sh`** — optional Decky plugin symlink (sudo when `~/homebrew/plugins` is root-owned on Bazzite)
+
 ## [1.2.1] — 2026-09-11
 
 ### Added
