@@ -25,7 +25,7 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
   if [[ -n "$REF" ]]; then
     git -C "$INSTALL_DIR" checkout --force "$REF"
   else
-    git -C "$INSTALL_DIR" pull --ff-only
+    git -C "$INSTALL_DIR" pull --ff-only || echo "==> git pull skipped (detached HEAD or offline checkout — using tree as-is)"
   fi
 else
   echo "==> Cloning repository..."
@@ -57,6 +57,22 @@ install -m 755 "$INSTALL_DIR/scripts/gamesphere-steam-close.py" "$CLOSE_DIR/game
 CLOSE_LINK="${GAMESPHERE_STEAM_CLOSE_BIN:-$HOME/.local/bin/gamesphere-steam-close.sh}"
 install -m 755 "$INSTALL_DIR/scripts/gamesphere-steam-close.sh" "$CLOSE_LINK"
 echo "==> Installed $CLOSE_LINK (Sunshine Quit App → close Steam game, including late-spawn titles)"
+
+HOST_PREP_LINK="${GAMESPHERE_HOST_PREP_BIN:-$HOME/.local/bin/gamesphere-host-prep.sh}"
+install -m 755 "$INSTALL_DIR/scripts/gamesphere-host-prep.sh" "$HOST_PREP_LINK"
+echo "==> Installed $HOST_PREP_LINK (StreamTweak-style host tuning prep hooks)"
+
+echo "==> Initializing host tuning config..."
+uv run python3 host_tuning_cli.py init --enable-all || true
+
+if [[ "${GAMESPHERE_ENABLE_HOST_BRIDGE:-}" == "1" ]]; then
+  UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+  mkdir -p "$UNIT_DIR"
+  install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-host-bridge.service" "$UNIT_DIR/gamesphere-host-bridge.service"
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable --now gamesphere-host-bridge.service 2>/dev/null || true
+  echo "==> Enabled gamesphere-host-bridge.service (TCP 47998 — set GAMESPHERE_ENABLE_HOST_BRIDGE=1)"
+fi
 
 VER=""
 if [[ -f "$INSTALL_DIR/gs_version.py" ]]; then

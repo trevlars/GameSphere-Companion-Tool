@@ -1,14 +1,60 @@
 # GameSphere Import Tool
 
-**Populate Sunshine or Apollo with your Steam library — automatically.**
+**Populate any Moonlight-compatible host with your game libraries — automatically.**
 
-The GameSphere Import Tool reads your installed Steam games, downloads box art (Steam CDN by default — no signup), writes the host `apps.json`, and restarts the streaming service. On Linux it is designed to be **automagic**: paths, launch commands, and service restart are detected for you.
+The GameSphere Import Tool reads installed games from Steam and (on Windows) Epic, GOG, Ubisoft Connect, Battle.net, EA App, and Xbox / Game Pass, downloads box art, writes the host `apps.json`, and restarts the streaming service. On Linux it is designed to be **automagic**: paths, launch commands, and service restart are detected for you.
 
-Built for [GameSphere](https://github.com/trevlars/GameSphere) (Moonlight clients on iPhone, iPad, and Apple TV) and any Moonlight client.
+Built for [GameSphere](https://github.com/trevlars/GameSphere) (Moonlight clients on iPhone, iPad, and Apple TV) — and **any Moonlight client** talking to **any Moonlight host**.
 
 ![GameSphere Import Tool](assets/readme-screenshot.png)
 
-> Fork of **[Sunshine-App-Automation](https://github.com/CommonMugger/Sunshine-App-Automation)** by [CommonMugger](https://github.com/CommonMugger). We added Apollo support, a Windows GUI, Linux/Bazzite automagic, and GameSphere branding.
+> Fork of **[Sunshine-App-Automation](https://github.com/CommonMugger/Sunshine-App-Automation)** by [CommonMugger](https://github.com/CommonMugger). We added multi-host support, a Windows GUI, Linux/Bazzite automagic, host-side streaming QOL (adapted from [StreamTweak](https://github.com/FoggyBytes/StreamTweak)), and GameSphere branding.
+
+---
+
+## Works with every Moonlight host
+
+This tool is **host-agnostic**. It writes standard Sunshine-style `apps.json`, uses normal prep-cmd hooks, and optionally exposes a **TCP bridge on port 47998** so clients can tune link speed, read session grades, and query store badges — the same contract [StreamTweak](https://github.com/FoggyBytes/StreamTweak) pioneered for Windows.
+
+| Host | Status | Notes |
+|------|--------|-------|
+| [**Sunshine**](https://github.com/LizardByte/Sunshine) | ✅ First-class | Native + Flatpak paths; systemd restart |
+| [**Apollo**](https://github.com/ClassicOldSong/Apollo) | ✅ First-class | Set `HOST=apollo`; Virtual Display preserved on reset |
+| [**Vibeshine**](https://github.com/ClassicOldSong/Apollo) / [**Vibepollo**](https://github.com/ClassicOldSong/Apollo) | ✅ Auto-detected | `~/.config/vibeshine` / `vibepollo` paths |
+| **Your fork** | ✅ Welcome | Point `sunshine_apps_json_path` at your config; PR path detection |
+
+**Moonlight clients** (GameSphere, official Moonlight, community clients) do not need changes to benefit from library sync. Clients that implement the bridge verbs get link-speed match, session telemetry, and store badges on top.
+
+### What you get on any host
+
+1. **Library sync** — Steam + Non-Steam shortcuts + (Windows) multi-store discovery with correct launch commands and cover art  
+2. **Merge, don’t wipe** — Desktop, Big Picture, custom prep-cmd, and hand-edited entries stay put  
+3. **Quit App that works** — prep-cmd undo closes detached Steam / emu launches on Linux and Windows  
+4. **Host tuning** *(optional)* — link speed, HDR/spatial-audio prep, NVIDIA snapshots, managed apps, tile swap  
+5. **Bridge** *(optional)* — `NETINFO`, `SETSPEED`, `SESSIONDATA`, `APPSTORES`, `GAMESTATE`, `LOCKSTATE`, …
+
+### Integrate into your host or client
+
+Pick the depth that fits your project:
+
+| Goal | Start here |
+|------|------------|
+| **“Sync library” button** in Sunshine / Apollo / fork web UI | [HOST_INTEGRATION.md § Web UI button](docs/HOST_INTEGRATION.md#1-web-ui-button--sync-steam-library-recommended) |
+| **First-run wizard** after pairing | [HOST_INTEGRATION.md § Setup wizard](docs/HOST_INTEGRATION.md#2-first-run--setup-wizard) |
+| **Scheduled sync** (Steam installs while host runs) | [systemd timer example](docs/HOST_INTEGRATION.md#3-scheduled-sync-set-and-forget) |
+| **Non-Steam shortcuts** (Eden, Ryujinx, emulators) | [Shortcuts & custom games](docs/HOST_INTEGRATION.md#non-steam-shortcuts--custom-games) |
+| **Embed host tuning + bridge** in your stack | [Host tuning & bridge](docs/HOST_INTEGRATION.md#host-tuning--tcp-bridge-optional) |
+| **Client bridge wire protocol** (Moonlight / GameSphere / your app) | [CLIENT_BRIDGE.md](docs/CLIENT_BRIDGE.md) |
+| **StreamTweak feature parity** checklist | [STREAMTWEAK_PARITY.md](docs/STREAMTWEAK_PARITY.md) |
+
+**Maintainers:** we want this in every streaming repo — Sunshine, Apollo, Vibeshine, GameSphere, Decky plugins, distro images. Open a PR to add your config paths to `platform_paths.py`, or document your layout in [HOST_INTEGRATION.md](docs/HOST_INTEGRATION.md).
+
+```bash
+# Drop-in subprocess contract (same on all hosts)
+gamesphere-import --print-config   # show detected paths as JSON
+gamesphere-import --dry-run        # preview
+gamesphere-import                  # import + restart host
+```
 
 ---
 
@@ -56,7 +102,7 @@ When you run the importer with no manual setup:
 | **Stream prep hooks** | On Bazzite, adds `sunshine-stream-prep.sh` prep to imported games when that script exists |
 | **Artwork** | Steam CDN thumbnails in parallel (optional [SteamGridDB](https://www.steamgriddb.com/profile/preferences/api) key) |
 | **Merge, don’t wipe** | Keeps your Desktop, Steam Big Picture, and custom `prep-cmd` entries |
-| **Prune** | Removes uninstalled Steam (and Epic on Windows) games from the host list |
+| **Prune** | Removes uninstalled Steam (and Epic / GOG / Ubisoft / Battle.net / EA / Xbox on Windows) games from the host list |
 | **Backup** | Copies `apps.json` before writing |
 | **Repair** | Re-import fixes Linux `cmd`→`detached` and adds missing Quit App close undos |
 | **Start Steam** | Launches Steam if it isn’t running |
@@ -73,11 +119,64 @@ gamesphere-import --print-config
 ## Features
 
 - **Steam** — installed library games **and** Non-Steam shortcuts (`shortcuts.vdf`: Eden, emulators, etc.) with concurrent name/art fetch
-- **Windows extras** — Epic Games Store (beta), Xbox / Game Pass (`C:\XboxGames`), custom JSON games, `.lnk` shortcuts
+- **Multi-store Windows discovery** *(inspired by [StreamTweak](https://github.com/FoggyBytes/StreamTweak))* — Epic, GOG, Ubisoft Connect, Battle.net, EA App, and Xbox / Game Pass
+- **Store-native cover art** — Epic `catcache.bin`, GOG Galaxy cache, Ubisoft CDN, Battle.net logos, plus Steam Store search fallback (600×900 portrait minimum)
+- **Correct launch commands per store** — Epic launcher protocol (including edition triples), Xbox `shell:appsFolder`, direct exe for GOG/Ubisoft/EA
+- **`.GamingRoot` scan** — finds Xbox/Game Pass installs on any drive, not only `C:\XboxGames`
+- **Windows display-name fixup** — resolves internal codenames via Uninstall registry (StreamTweak pattern)
+- **Windows extras** — custom JSON games, `.lnk` shortcuts
 - **Sunshine & Apollo** — same tool; set `HOST=apollo` or use the Windows GUI host selector
-- **Cross-platform CLI** — Windows, Linux, macOS
+- **Cross-platform CLI** — Windows, Linux, macOS (Steam-focused on Linux/macOS)
 - **Windows GUI** — CustomTkinter app + standalone `.exe`
 - **DeckyLoader** — optional Game Mode plugin ([`decky/README.md`](decky/README.md))
+
+### Host tuning (StreamTweak-inspired)
+
+Adapted from [StreamTweak](https://github.com/FoggyBytes/StreamTweak) host-side features — Windows full support, Linux/Bazzite best-effort where the stack allows it.
+
+| Feature | Windows | Linux / Bazzite |
+|---------|---------|-----------------|
+| **Link-speed match** | PowerShell `Set-NetAdapterAdvancedProperty` | `ethtool` (read always; write may need root) |
+| **HDR / spatial audio** | Auto HDR preference + spatial sound device selection | `wlr-randr` HDR, PipeWire default sink |
+| **NVIDIA Sentinel** | Profile Inspector `.nip` if installed; else `nvidia-smi` snapshot | `nvidia-settings -q all` snapshot |
+| **Session telemetry** | Tail Sunshine log → `sessions.json` + grades from client stats | Same |
+| **TCP bridge** | Port **47998** — `NETINFO`, `SETSPEED`, `RESTORE`, `STATS`, `TAILSCALE`, `LASTSESSION`, `SESSIONDATA`, `APPSTORES`, `GAMESTATE`, `LOCKSTATE` | Same |
+| **Tailscale presence** | CLI + interface scan | `tailscale ip -4` + `ip addr` |
+| **Managed apps** | Kill on stream start, relaunch on end (Hue Sync, RGB tools, …) | Same |
+| **Host tile swap** | Replace Sunshine `desktop.png` / `steam.png` (reversible backups) | Same paths under `~/.config/sunshine/assets` |
+
+Config: `%LOCALAPPDATA%\GameSphere\host_tuning.json` (Windows) or `~/.config/gamesphere-import-tool/host_tuning.json` (Linux).
+
+```bash
+# One-time setup (Linux install-linux.sh runs init --enable-all)
+uv run host_tuning_cli.py init --enable-all
+
+# Apply tiles / detect log / NVIDIA snapshot
+gamesphere-import --host-tuning-only
+# or after a normal import:
+gamesphere-import --host-tuning
+
+# Stream prep hooks (also merged into every imported Steam app’s prep-cmd)
+~/.local/bin/gamesphere-host-prep.sh start   # session start
+~/.local/bin/gamesphere-host-prep.sh stop    # session end
+
+# TCP bridge + session monitor (background)
+gamesphere-import --host-bridge
+# or: uv run host_tuning_cli.py bridge
+# Linux auto-enable on install: GAMESPHERE_ENABLE_HOST_BRIDGE=1 bash install-linux.sh
+
+# Session history
+uv run host_tuning_cli.py sessions
+uv run host_tuning_cli.py status
+```
+
+Managed apps example — add to `host_tuning.json`:
+
+```json
+"managed_apps": [
+  { "name": "Hue Sync", "path": "C:\\Program Files\\Hue Sync\\HueSync.exe", "auto_manage": true }
+]
+```
 
 ---
 
@@ -96,6 +195,10 @@ uv run main.py --print-config     # print detected paths as JSON
 uv run main.py --version
 uv run main.py --check-update     # compare to GitHub Releases
 uv run main.py --apply-update     # install the newest release
+uv run main.py --host-tuning      # import + apply host tuning
+uv run main.py --host-tuning-only # host tuning only (no library sync)
+uv run main.py --host-bridge      # TCP bridge on 47998 + session monitor
+uv run host_tuning_cli.py status  # host tuning diagnostics
 ```
 
 Log file: `sunshine_automation.log` in the working directory.
@@ -143,13 +246,15 @@ Reload Decky. The plugin runs `gamesphere-import` with dry-run and log output in
 
 ---
 
-## For Sunshine & Apollo developers
+## For host & client developers
 
-Want a **“Sync Steam library”** button in your web UI, a first-run wizard, or a scheduled sync?
+Want a **“Sync Steam library”** button, first-run wizard, scheduled sync, Non-Steam shortcut import, or StreamTweak-style bridge in **Sunshine, Apollo, Vibeshine, GameSphere, or your fork**?
 
-→ **[docs/HOST_INTEGRATION.md](docs/HOST_INTEGRATION.md)** — subprocess contract, systemd timers, UI copy, and Python module hooks.
+→ **[docs/HOST_INTEGRATION.md](docs/HOST_INTEGRATION.md)** — subprocess contract, shortcuts/custom games, host tuning, TCP bridge verbs, systemd timers, UI copy, Python hooks.
 
----
+→ **[docs/STREAMTWEAK_PARITY.md](docs/STREAMTWEAK_PARITY.md)** — honest feature matrix vs [StreamTweak](https://github.com/FoggyBytes/StreamTweak).
+
+We welcome PRs that add path detection for new hosts or client-side bridge support.
 
 ## Troubleshooting
 
@@ -168,6 +273,9 @@ Want a **“Sync Steam library”** button in your web UI, a first-run wizard, o
 
 | Version | Highlights |
 |---------|------------|
+| **v1.2.1** | Bridge `APPSTORES` / `GAMESTATE` / `LOCKSTATE`; session detection 8.3.0-style fixes; host-agnostic integration docs + StreamTweak parity matrix |
+| **v1.2.0** | Host tuning module — link speed, HDR/spatial audio, NVIDIA snapshots, session telemetry, TCP bridge (47998), Tailscale, managed apps, host tile swap (StreamTweak-inspired; Linux adapted) |
+| **v1.1.0** | Multi-store Windows discovery + cover art (GOG, Ubisoft, Battle.net, EA), Epic launch triples, Xbox `.GamingRoot` + `shell:appsFolder` — patterns from [StreamTweak](https://github.com/FoggyBytes/StreamTweak) |
 | **v1.0.2** | Late-start game close (Hogwarts) + in-app auto-update (Windows + Linux) |
 | **v0.3.3** | Quit App actually stops Game Mode emu/Non-Steam titles (tree kill, 64-bit AppID) |
 | **v0.3.1** | Quit App closes detached Steam games on Linux/macOS |
@@ -195,8 +303,9 @@ Publishing a Windows release: push tag `vX.Y.Z`, draft/publish a GitHub Release 
 
 ## Acknowledgements
 
+- [FoggyBytes/StreamTweak](https://github.com/FoggyBytes/StreamTweak) — multi-store discovery, store-native cover art, per-store launch patterns, and host-side streaming QOL (GPL-3.0; adapted with attribution)
 - [CommonMugger/Sunshine-App-Automation](https://github.com/CommonMugger/Sunshine-App-Automation) — original automation
-- [Sunshine](https://github.com/LizardByte/Sunshine) · [Apollo](https://github.com/ClassicOldSong/Apollo) — streaming hosts
+- [Sunshine](https://github.com/LizardByte/Sunshine) · [Apollo](https://github.com/ClassicOldSong/Apollo) · Vibeshine / Vibepollo — streaming hosts
 - [GameSphere](https://github.com/trevlars/GameSphere) — client shelf
 - [uv](https://github.com/astral-sh/uv)
 

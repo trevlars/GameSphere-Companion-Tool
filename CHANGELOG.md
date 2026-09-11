@@ -2,6 +2,49 @@
 
 All notable changes to GameSphere Import Tool are documented here.
 
+## [1.2.1] — 2026-09-11
+
+### Added
+- **Bridge verbs** — `APPSTORES` (store badges from `apps.json`), `GAMESTATE` (launch heuristic), `LOCKSTATE` (screen lock)
+- **`docs/STREAMTWEAK_PARITY.md`** — explicit feature matrix vs StreamTweak
+- **Host-agnostic integration docs** — expanded [HOST_INTEGRATION.md](docs/HOST_INTEGRATION.md) for Sunshine, Apollo, Vibeshine, Vibepollo, GameSphere, shortcuts/custom games, bridge embedding
+- **`docs/CLIENT_BRIDGE.md`** — TCP 47998 wire protocol for Moonlight clients
+- **`scripts/systemd/gamesphere-host-bridge.service`** — optional user service (`GAMESPHERE_ENABLE_HOST_BRIDGE=1` on install)
+
+### Fixed
+- **APPSTORES bridge verb** — class-bound lambda received `self` and returned `ERR`; provider now lives on the TCP server instance
+- **`--host-bridge` apps.json path** — reads lowercase `sunshine_apps_json_path` from auto-detect / `.env`
+- README — “Works with every Moonlight host” welcome section and integration quick links
+- `platform_paths.py` — Vibeshine / Vibepollo config roots
+
+## [1.2.0] — 2026-09-11
+
+### Added
+- **`host_tuning/` module** — StreamTweak-inspired host-side streaming tuning with Linux adaptations
+- **Link-speed control** — wired adapter discovery + client `SETSPEED`/`RESTORE` via TCP bridge (Windows PowerShell; Linux `ethtool`)
+- **HDR + spatial audio** — session prep hooks (Windows registry/device selection; Linux `wlr-randr` / PipeWire)
+- **NVIDIA Sentinel (best-effort)** — driver snapshot to config dir (Profile Inspector `.nip` on Windows when installed; `nvidia-settings` dump on Linux)
+- **Session telemetry** — Sunshine log tail → `sessions.json`, client `SESSIONDATA` grading (Excellent/Good/Poor)
+- **TCP bridge** on port **47998** — `CAPS`, `NETINFO`, `SETSPEED`, `RESTORE`, `STATUS`, `STATS`, `TAILSCALE`, `LASTSESSION`, `SESSIONDATA`
+- **Tailscale detection** — `tailscale ip -4` + interface scan
+- **Managed apps** — kill on stream start, relaunch on end (configurable list in `host_tuning.json`)
+- **Host tile replacement** — reversible swap of Sunshine `desktop.png` / `steam.png`
+- **`gamesphere-host-prep.sh` / `.ps1`** — merged into every imported Steam app’s `prep-cmd` alongside Bazzite `sunshine-stream-prep.sh`
+- **CLI**: `--host-tuning`, `--host-tuning-only`, `--host-bridge`, and `host_tuning_cli.py` subcommands
+
+## [1.1.0] — 2026-09-11
+
+### Added
+- **Multi-store Windows discovery** — GOG, Ubisoft Connect, Battle.net, and EA App (patterns adapted from [StreamTweak](https://github.com/FoggyBytes/StreamTweak))
+- **Store-native cover art** — Epic `catcache.bin`, GOG Galaxy SQLite cache, Ubisoft CDN, Battle.net `aggregate.json`, with Steam Store name search as portrait fallback (600px minimum height)
+- **Epic launch triples** — `namespace:catalogItemId:appName` protocol URLs via Sunshine `detached` (fixes titles that cannot launch from exe alone)
+- **Xbox / Game Pass improvements** — `.GamingRoot` discovery on all fixed drives; `explorer.exe shell:appsFolder\PackageFamily!AppId` when manifest metadata is available
+- **Windows display-name fixup** — Uninstall-registry lookup for store titles with internal codenames
+- **`store_scanners.py` / `store_covers.py`** — modular store logic with StreamTweak attribution in file headers and README
+
+### Changed
+- Epic and Xbox entries now carry `_gamesphere_store_key` / `_gamesphere_store` for reliable prune across re-imports
+
 ## [1.0.2] — 2026-09-09
 
 ### Added

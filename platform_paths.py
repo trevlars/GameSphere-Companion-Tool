@@ -112,12 +112,18 @@ def detect_paths() -> Optional[PlatformPaths]:
 
     sunshine_apps_candidates = [
         os.path.join(home, ".config/sunshine/apps.json"),
+        os.path.join(home, ".config/Apollo/apps.json"),
+        os.path.join(home, ".config/vibeshine/apps.json"),
+        os.path.join(home, ".config/vibepollo/apps.json"),
         os.path.join(
             home, ".var/app/dev.lizardbyte.app.Sunshine/config/sunshine/apps.json"
         ),
         os.path.join(home, "Library/Application Support/Sunshine/apps.json"),
         "C:/Program Files/Sunshine/config/apps.json",
         "C:/Program Files (x86)/Sunshine/config/apps.json",
+        "C:/Program Files/Apollo/config/apps.json",
+        "C:/Program Files/Vibeshine/config/apps.json",
+        "C:/Program Files/Vibepollo/config/apps.json",
     ]
     sunshine_apps = _first_existing(sunshine_apps_candidates)
     if not sunshine_apps:
@@ -172,7 +178,7 @@ def detect_paths() -> Optional[PlatformPaths]:
         elif _flatpak_installed("dev.lizardbyte.app.Sunshine"):
             sunshine_restart = "flatpak"
         else:
-            sunshine_exe = shutil.which("sunshine")
+            sunshine_exe = shutil.which("sunshine") or shutil.which("Apollo")
             if sunshine_exe:
                 steam_exe = steam_exe or ""
                 sunshine_restart = "exe"
@@ -188,12 +194,23 @@ def detect_paths() -> Optional[PlatformPaths]:
     )
 
 
+def _host_env_name(apps_json_path: str) -> str:
+    low = apps_json_path.lower()
+    if "apollo" in low:
+        return "apollo"
+    if "vibeshine" in low:
+        return "vibeshine"
+    if "vibepollo" in low:
+        return "vibepollo"
+    return "sunshine"
+
+
 def paths_to_env(paths: PlatformPaths) -> Dict[str, str]:
     env = {
         "steam_library_vdf_path": paths.steam_library_vdf,
         "sunshine_apps_json_path": paths.sunshine_apps_json,
         "sunshine_grids_folder": paths.sunshine_grids_folder,
-        "HOST": "sunshine",
+        "HOST": _host_env_name(paths.sunshine_apps_json),
     }
     if paths.steam_exe:
         env["STEAM_EXE_PATH"] = paths.steam_exe

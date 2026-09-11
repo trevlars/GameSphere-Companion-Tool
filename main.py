@@ -21,6 +21,18 @@ from dotenv import load_dotenv
 
 from platform_paths import apply_detected_paths, detect_paths, paths_to_env, write_env_file
 from gs_version import __version__
+from store_scanners import (
+    STEAM_TOOL_EXCLUSIONS,
+    build_windows_display_name_lookup,
+    discover_xbox_roots,
+    enhance_epic_entry,
+    epic_launch_detached,
+    load_all_third_party_stores,
+    parse_xbox_config,
+    resolve_display_name,
+    store_key,
+)
+from store_covers import fetch_store_cover
 
 # Configuration and logging setup
 def setup_logging(verbose: bool = False) -> None:
@@ -399,7 +411,7 @@ def _prep_has_steam_close(prep_cmds: List[Dict], app_id: str) -> bool:
 
 
 def _merge_steam_prep_cmds(app_id: str, existing: Optional[List] = None) -> List[Dict]:
-    """Stream-prep (if present) + Steam close undo; keep other custom prep entries."""
+    """Stream-prep + host tuning prep + Steam close undo; keep other custom prep entries."""
     close_entry = _steam_close_prep_entry(app_id)
     merged: List[Dict] = []
     short = _steam_environ_app_id(app_id) or app_id
@@ -410,6 +422,18 @@ def _merge_steam_prep_cmds(app_id: str, existing: Optional[List] = None) -> List
     if stream_prep:
         merged.extend(stream_prep)
 
+    try:
+        from host_tuning.service import global_prep_cmds, write_prep_scripts
+
+        write_prep_scripts()
+        host_prep = global_prep_cmds()
+        host_undo = host_prep[0]["undo"] if host_prep else None
+        if host_prep:
+            merged.extend(host_prep)
+    except Exception as exc:
+        logging.debug("Host tuning prep unavailable: %s", exc)
+        host_undo = None
+
     for entry in existing or []:
         if not isinstance(entry, dict):
             continue
@@ -418,7 +442,11 @@ def _merge_steam_prep_cmds(app_id: str, existing: Optional[List] = None) -> List
         # Drop stale stream-prep / close-game entries; we re-add canonical ones.
         if stream_undo and undo == stream_undo:
             continue
+        if host_undo and undo == host_undo:
+            continue
         if "sunshine-stream-prep.sh" in do or "sunshine-stream-prep.sh" in undo:
+            continue
+        if "gamesphere-host-prep" in do or "gamesphere-host-prep" in undo:
             continue
         if "gamesphere-steam-close" in undo or (
             (app_id in undo or short in undo)
@@ -1001,6 +1029,9 @@ def load_installed_games(library_vdf_path: str) -> Dict[str, str]:
             try:
                 game_name = future.result()
                 if game_name:
+                    if game_name.lower() in {x.lower() for x in STEAM_TOOL_EXCLUSIONS}:
+                        logging.debug(f"Skipping Steam tool/runtime: {game_name} (ID: {app_id})")
+                        continue
                     installed_games[app_id] = game_name
                     logging.debug(f"Found game: {game_name} (ID: {app_id})")
             except Exception as e:
@@ -1352,32 +1383,26 @@ def _copy_grid_to_sunshine(src_path: str, dest_id: str, grids_folder: str) -> Op
 def load_installed_epic_games(manifests_path: str) -> Dict[str, Dict]:
     """
     Load installed Epic Games Store games from .item manifest files.
-    Returns dict keyed by AppName: { "name": DisplayName, "exe_path": full path to exe, "app_name": AppName }.
+    Uses StreamTweak-style launch_id triples and catalog metadata when present.
+    Returns dict keyed by AppName.
     """
     if not manifests_path or not os.path.isdir(manifests_path):
         logging.debug("Epic manifests path not set or not a directory, skipping Epic")
         return {}
+    lookup = build_windows_display_name_lookup()
     installed = {}
     for path in glob.glob(os.path.join(manifests_path, "*.item")):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            app_name = data.get("AppName")
-            display_name = data.get("DisplayName") or app_name or "Unknown"
-            install_location = data.get("InstallLocation", "")
-            launch_exe = data.get("LaunchExecutable", "")
-            if not app_name:
+            entry = enhance_epic_entry(data)
+            if not entry:
                 continue
-            exe_path = ""
-            if install_location and launch_exe:
-                exe_path = os.path.join(install_location, launch_exe)
-                if not os.path.isfile(exe_path):
-                    exe_path = ""
-            installed[app_name] = {
-                "name": display_name,
-                "exe_path": exe_path,
-                "app_name": app_name,
-            }
+            app_name = entry["app_name"]
+            install_location = data.get("InstallLocation") or ""
+            if install_location:
+                entry["name"] = resolve_display_name(install_location, entry["name"], lookup)
+            installed[app_name] = entry
         except Exception as e:
             logging.debug(f"Skip Epic manifest {path}: {e}")
     logging.info(f"Found {len(installed)} installed Epic games")
@@ -1495,13 +1520,14 @@ def _parse_microsoft_game_config(config_path: str, game_root: str) -> Optional[T
 
 def load_installed_xbox_games(folders_str: str) -> Dict[str, Dict]:
     """
-    Discover Xbox/Windows Store (Game Pass) games from usual install folders (e.g. C:\\XboxGames).
-    folders_str: comma-separated list of root paths.
-    Returns dict keyed by normalized exe path: { "name": display name, "cmd": full exe path }.
+    Discover Xbox/Windows Store (Game Pass) games from .GamingRoot and configured folders.
+    Prefers shell:appsFolder launch (StreamTweak pattern) when PackageFamily!AppId is known.
+    Returns dict keyed by store_key or normalized exe path.
     """
-    if not folders_str or os.name != 'nt':
+    if os.name != 'nt':
         return {}
-    roots = [normalize_path(p.strip()) for p in folders_str.split(",") if p.strip()]
+    roots = discover_xbox_roots(folders_str or "")
+    lookup = build_windows_display_name_lookup()
     installed = {}
     for root_dir in roots:
         if not os.path.isdir(root_dir):
@@ -1512,34 +1538,100 @@ def load_installed_xbox_games(folders_str: str) -> Dict[str, Dict]:
             if not os.path.isdir(game_dir):
                 continue
             config_path = os.path.join(game_dir, "MicrosoftGame.config")
-            display_name = None
-            exe_name = None
-            if os.path.isfile(config_path):
-                parsed = _parse_microsoft_game_config(config_path, game_dir)
-                if parsed:
-                    display_name, exe_name = parsed
-            if exe_name:
-                # Search recursively for exe_name (e.g. in Binaries/Win64/Game.exe); skips helpers like GameLaunchHelper
-                exe_path = _find_exe_in_tree(game_dir, exe_name)
-            else:
-                exe_path = None
+            content_config = os.path.join(game_dir, "Content", "MicrosoftGame.config")
+            if not os.path.isfile(config_path) and os.path.isfile(content_config):
+                config_path = content_config
+            meta = parse_xbox_config(config_path, game_dir) if os.path.isfile(config_path) else None
+            display_name = meta["display_name"] if meta else entry
+            exe_name = meta["exe_name"] if meta else None
+            store_id = meta["store_id"] if meta else None
+            search_root = meta["config_dir"] if meta else game_dir
+            exe_path = _find_exe_in_tree(search_root, exe_name) if exe_name else None
             if not exe_path:
-                # Fallback: search recursively for any .exe (e.g. when config listed only GameLaunchHelper)
-                found = _find_any_exe_in_tree(game_dir)
+                found = _find_any_exe_in_tree(search_root)
                 if found:
                     exe_path, display_from_file = found
-                    if not display_name:
+                    if not display_name or display_name == entry:
                         display_name = display_from_file
-            if not display_name:
-                display_name = entry
+            if store_id:
+                display_name = resolve_display_name(search_root, display_name, lookup)
+                key = store_key("xbox", store_id)
+                if store_id and "minecraft" in store_id.lower():
+                    display_name = "Minecraft for Windows"
+                installed[key] = {
+                    "name": display_name,
+                    "store": "Xbox",
+                    "store_id": store_id,
+                    "store_key": key,
+                    "cmd": "",
+                    "detached": f"explorer.exe shell:appsFolder\\{store_id}",
+                    "exe_path": exe_path or search_root,
+                }
+                continue
             if not exe_path or not os.path.isfile(exe_path):
                 continue
             if os.path.basename(exe_path).lower() == "minecraft.windows.exe":
                 display_name = "Minecraft for Windows"
             exe_path_norm = os.path.normpath(exe_path)
-            installed[exe_path_norm] = {"name": display_name, "cmd": exe_path_norm}
+            key = store_key("xbox", exe_path_norm.lower())
+            installed[key] = {
+                "name": display_name,
+                "store": "Xbox",
+                "store_key": key,
+                "cmd": exe_path_norm,
+                "detached": "",
+                "exe_path": exe_path_norm,
+            }
     logging.info(f"Found {len(installed)} Xbox/Windows games")
     return installed
+
+
+def _app_gamesphere_store_key(app: Dict) -> Optional[str]:
+    key = (app.get("_gamesphere_store_key") or "").strip()
+    return key or None
+
+
+def _build_store_sunshine_app(
+    info: Dict,
+    grid_path: Optional[str],
+    shortcuts_folder: Optional[str] = None,
+) -> Dict:
+    """Build a Sunshine app entry from a unified store game dict."""
+    store = info.get("store") or "Store"
+    store_key_val = info.get("store_key") or store_key(store.lower(), info.get("name", "game"))
+    name = info.get("name") or "Game"
+    cmd = (info.get("cmd") or "").strip()
+    detached = info.get("detached") or ""
+    safe_id = "".join(c if c.isalnum() or c in "._-" else "_" for c in store_key_val)
+
+    if shortcuts_folder and os.name == "nt" and cmd and os.path.sep in cmd:
+        exe = cmd.strip('"')
+        if os.path.isfile(exe):
+            os.makedirs(shortcuts_folder, exist_ok=True)
+            shortcut_path = os.path.join(shortcuts_folder, safe_id + ".lnk")
+            work_dir = os.path.dirname(exe)
+            if _create_shortcut_win(shortcut_path, exe, work_dir):
+                cmd = _shortcut_launch_cmd(shortcut_path)
+                detached = ""
+
+    app: Dict = {
+        "name": name,
+        "output": "",
+        "elevated": "false",
+        "hidden": "true",
+        "wait-all": "true",
+        "exit-timeout": "5",
+        "image-path": grid_path or "",
+        "_gamesphere_store_key": store_key_val,
+        "_gamesphere_store": store,
+    }
+    if detached and not cmd:
+        app["cmd"] = ""
+        app["detached"] = [detached] if isinstance(detached, str) else list(detached)
+    else:
+        app["cmd"] = cmd
+        app["detached"] = ""
+    return app
 
 
 def process_existing_apps(
@@ -1549,18 +1641,22 @@ def process_existing_apps(
     custom_cmds: Optional[Set[str]] = None,
     installed_xbox: Optional[Dict[str, Dict]] = None,
     shortcuts_folder: Optional[str] = None,
-) -> Tuple[List[Dict], List[Tuple[str, str]], List[Tuple[str, str]], Set[str], Set[str], Set[str], int]:
+    installed_stores: Optional[Dict[str, Dict]] = None,
+) -> Tuple[List[Dict], List[Tuple[str, str]], List[Tuple[str, str]], List[Tuple[str, str]], Set[str], Set[str], Set[str], Set[str], int]:
     """Process existing Sunshine apps and identify changes."""
     updated_apps = []
     removed_steam = []
     removed_epic: List[Tuple[str, str]] = []
+    removed_stores: List[Tuple[str, str]] = []
     existing_steam_apps: Set[str] = set()
     existing_epic_apps: Set[str] = set()
     existing_xbox_cmds: Set[str] = set()
+    existing_store_keys: Set[str] = set()
     repaired_steam = 0
     installed_epic = installed_epic or {}
     custom_cmds = custom_cmds or set()
     installed_xbox = installed_xbox or {}
+    installed_stores = installed_stores or {}
     shortcuts_folder_norm = os.path.normpath(shortcuts_folder) if shortcuts_folder else ""
 
     def _delete_shortcut_if_in_folder(shortcut_path: Optional[str]) -> None:
@@ -1575,6 +1671,25 @@ def process_existing_apps(
                 logging.warning(f"Failed to remove shortcut {p}: {e}")
 
     for app in sunshine_config.get('apps', []):
+        store_key_val = _app_gamesphere_store_key(app)
+        if store_key_val:
+            if store_key_val in installed_stores:
+                updated_apps.append(app)
+                existing_store_keys.add(store_key_val)
+                if store_key_val.startswith("epic:"):
+                    existing_epic_apps.add(store_key_val.split(":", 1)[1])
+                elif store_key_val.startswith("xbox:"):
+                    existing_xbox_cmds.add(store_key_val)
+            else:
+                removed_stores.append((app.get('name', 'Unknown'), store_key_val))
+                grid_path = app.get('image-path')
+                if grid_path and os.path.exists(grid_path):
+                    try:
+                        os.remove(grid_path)
+                    except Exception as e:
+                        logging.warning(f"Failed to remove grid image {grid_path}: {e}")
+            continue
+
         cmd = (app.get('cmd') or '').strip()
         cmd_norm = os.path.normpath(cmd) if os.path.sep in cmd else cmd
         shortcut_path = _extract_shortcut_path_from_cmd(cmd) if shortcuts_folder_norm else None
@@ -1657,18 +1772,35 @@ def process_existing_apps(
                     updated_apps.append(app)
             except Exception:
                 updated_apps.append(app)
-        elif cmd_norm in installed_xbox:
+        elif cmd_norm in installed_xbox or cmd in installed_xbox:
             updated_apps.append(app)
-            existing_xbox_cmds.add(cmd_norm)
-        elif cmd in installed_xbox:
+            key = cmd_norm if cmd_norm in installed_xbox else cmd
+            existing_xbox_cmds.add(key)
+            info = installed_xbox.get(key) or {}
+            sk = info.get("store_key")
+            if sk:
+                existing_store_keys.add(sk)
+        elif any(
+            info.get("cmd") == cmd or info.get("detached") == cmd
+            for info in installed_xbox.values()
+        ):
             updated_apps.append(app)
-            existing_xbox_cmds.add(cmd)
         elif cmd in custom_cmds:
             updated_apps.append(app)
         else:
             updated_apps.append(app)
 
-    return updated_apps, removed_steam, removed_epic, existing_steam_apps, existing_epic_apps, existing_xbox_cmds, repaired_steam
+    return (
+        updated_apps,
+        removed_steam,
+        removed_epic,
+        removed_stores,
+        existing_steam_apps,
+        existing_epic_apps,
+        existing_xbox_cmds,
+        existing_store_keys,
+        repaired_steam,
+    )
 
 def add_new_games(new_games: Set[str], installed_games: Dict[str, str], api_key: str, grids_folder: str) -> List[Dict]:
     """Add new games with grid images using concurrent downloads."""
@@ -1741,12 +1873,10 @@ def add_shortcut_games(
     return new_apps
 
 
-def _epic_launch_cmd(app_name: str) -> str:
-    """Build launch command for an Epic game (protocol; Epic Launcher must be installed)."""
-    url = f"com.epicgames.launcher://apps/{app_name}?action=launch&silent=true"
-    if os.name == 'nt':
-        return f'start "" "{url}"'
-    return url
+def _epic_launch_cmd(launch_id: str) -> Tuple[str, str]:
+    """Return (cmd, detached) for Epic — protocol launch via detached (StreamTweak pattern)."""
+    url = epic_launch_detached(launch_id)
+    return "", url
 
 
 def add_epic_games(
@@ -1756,40 +1886,45 @@ def add_epic_games(
     grids_folder: str,
     shortcuts_folder: Optional[str] = None,
 ) -> List[Dict]:
-    """Add new Epic Games Store games with grid images (by name search). If shortcuts_folder set (Windows), create .lnk and use that as cmd."""
+    """Add new Epic Games Store games with store-native or Steam-search cover art."""
     new_apps = []
     if not new_epic_ids:
         return new_apps
     logging.info(f"Adding {len(new_epic_ids)} Epic game(s)...")
+
+    def _fallback(name, safe_id):
+        return fetch_grid_by_name(name, api_key or '', grids_folder, safe_id)
+
     for app_name in new_epic_ids:
         try:
             info = installed_epic.get(app_name)
             if not info:
                 continue
             game_name = info["name"]
+            launch_id = info.get("launch_id") or app_name
             safe_id = "epic_" + "".join(c if c.isalnum() or c in "._-" else "_" for c in app_name)
-            grid_path = fetch_grid_by_name(game_name, api_key or '', grids_folder, safe_id)
-            epic_url = f"com.epicgames.launcher://apps/{app_name}?action=launch&silent=true"
+            cover_info = {
+                "name": game_name,
+                "store": "Epic Games",
+                "store_id": info.get("catalog_item_id"),
+            }
+            grid_path = fetch_store_cover(cover_info, grids_folder, safe_id, _fallback)
+            cmd, detached = _epic_launch_cmd(launch_id)
             if shortcuts_folder and os.name == 'nt':
                 os.makedirs(shortcuts_folder, exist_ok=True)
                 shortcut_path = os.path.join(shortcuts_folder, safe_id + ".lnk")
+                epic_url = epic_launch_detached(launch_id)
                 if _create_shortcut_win(shortcut_path, epic_url):
                     cmd = _shortcut_launch_cmd(shortcut_path)
-                else:
-                    cmd = _epic_launch_cmd(app_name)
-            else:
-                cmd = _epic_launch_cmd(app_name)
-            new_apps.append({
+                    detached = ""
+            entry = {
                 "name": game_name,
+                "store": "Epic Games",
+                "store_key": info.get("store_key") or store_key("epic", app_name),
                 "cmd": cmd,
-                "output": "",
-                "detached": "",
-                "elevated": "false",
-                "hidden": "true",
-                "wait-all": "true",
-                "exit-timeout": "5",
-                "image-path": grid_path or "",
-            })
+                "detached": detached,
+            }
+            new_apps.append(_build_store_sunshine_app(entry, grid_path, None))
             logging.info(f"Added Epic: {game_name}")
         except Exception as e:
             logging.error(f"Error adding Epic game {app_name}: {e}")
@@ -1841,49 +1976,70 @@ def add_custom_games(
 
 
 def add_xbox_games(
-    new_xbox_cmds: Set[str],
+    new_xbox_keys: Set[str],
     installed_xbox: Dict[str, Dict],
     api_key: str,
     grids_folder: str,
     shortcuts_folder: Optional[str] = None,
 ) -> List[Dict]:
-    """Add discovered Xbox/Windows games with grid images (by name search). If shortcuts_folder set (Windows), create .lnk and use that as cmd."""
+    """Add discovered Xbox/Windows games with store-native or Steam-search cover art."""
     new_apps = []
-    if not new_xbox_cmds:
+    if not new_xbox_keys:
         return new_apps
-    logging.info(f"Adding {len(new_xbox_cmds)} Xbox/Windows game(s)...")
-    for exe_path in new_xbox_cmds:
-        info = installed_xbox.get(exe_path)
+    logging.info(f"Adding {len(new_xbox_keys)} Xbox/Windows game(s)...")
+
+    def _fallback(name, safe_id):
+        return fetch_grid_by_name(name, api_key or '', grids_folder, safe_id)
+
+    for key in new_xbox_keys:
+        info = installed_xbox.get(key)
         if not info:
             continue
         try:
             name = info["name"]
-            safe_id = "xbox_" + str(abs(hash(exe_path)))[:12]
-            grid_path = fetch_grid_by_name(name, api_key or '', grids_folder, safe_id)
-            if shortcuts_folder and os.name == 'nt' and os.path.isfile(exe_path):
-                os.makedirs(shortcuts_folder, exist_ok=True)
-                shortcut_path = os.path.join(shortcuts_folder, safe_id + ".lnk")
-                work_dir = os.path.dirname(exe_path)
-                if _create_shortcut_win(shortcut_path, exe_path, work_dir):
-                    cmd = _shortcut_launch_cmd(shortcut_path)
-                else:
-                    cmd = exe_path
-            else:
-                cmd = exe_path
-            new_apps.append({
+            safe_id = "xbox_" + "".join(c if c.isalnum() or c in "._-" else "_" for c in key.replace(":", "_"))
+            cover_info = {
                 "name": name,
-                "cmd": cmd,
-                "output": "",
-                "detached": "",
-                "elevated": "false",
-                "hidden": "true",
-                "wait-all": "true",
-                "exit-timeout": "5",
-                "image-path": grid_path or "",
-            })
+                "store": "Xbox",
+                "store_id": info.get("store_id"),
+            }
+            grid_path = fetch_store_cover(cover_info, grids_folder, safe_id, _fallback)
+            entry = dict(info)
+            entry.setdefault("store_key", key)
+            new_apps.append(_build_store_sunshine_app(entry, grid_path, shortcuts_folder))
             logging.info(f"Added Xbox/Windows: {name}")
         except Exception as e:
-            logging.error(f"Error adding Xbox game {exe_path}: {e}")
+            logging.error(f"Error adding Xbox game {key}: {e}")
+    return new_apps
+
+
+def add_store_games(
+    new_store_keys: Set[str],
+    installed_stores: Dict[str, Dict],
+    api_key: str,
+    grids_folder: str,
+    shortcuts_folder: Optional[str] = None,
+) -> List[Dict]:
+    """Add GOG, Ubisoft, Battle.net, and EA App titles."""
+    new_apps = []
+    if not new_store_keys:
+        return new_apps
+    logging.info(f"Adding {len(new_store_keys)} third-party store game(s)...")
+
+    def _fallback(name, safe_id):
+        return fetch_grid_by_name(name, api_key or '', grids_folder, safe_id)
+
+    for key in sorted(new_store_keys):
+        info = installed_stores.get(key)
+        if not info:
+            continue
+        try:
+            safe_id = key.replace(":", "_").replace("\\", "_").replace("/", "_")
+            grid_path = fetch_store_cover(info, grids_folder, safe_id, _fallback)
+            new_apps.append(_build_store_sunshine_app(info, grid_path, shortcuts_folder))
+            logging.info("Added %s: %s", info.get("store"), info.get("name"))
+        except Exception as e:
+            logging.error(f"Error adding store game {key}: {e}")
     return new_apps
 
 
@@ -2044,6 +2200,9 @@ def main() -> None:
     parser.add_argument('--print-config', action='store_true', help='Print auto-detected paths as JSON and exit')
     parser.add_argument('--check-update', action='store_true', help='Check GitHub Releases for a newer version and exit')
     parser.add_argument('--apply-update', action='store_true', help='Install the newest GitHub Release for this platform')
+    parser.add_argument('--host-tuning', action='store_true', help='Apply host tuning after import (tiles, prep scripts, NVIDIA snapshot)')
+    parser.add_argument('--host-tuning-only', action='store_true', help='Apply host tuning and exit (no library import)')
+    parser.add_argument('--host-bridge', action='store_true', help='Run GameSphere TCP bridge (port 47998) and session monitor')
     args = parser.parse_args()
     
     # Setup logging
@@ -2052,6 +2211,37 @@ def main() -> None:
     if args.check_update or args.apply_update:
         from gs_updater import cli_check
         sys.exit(cli_check(apply=args.apply_update))
+
+    if args.host_tuning_only or args.host_bridge:
+        from host_tuning.service import apply_host_tuning, write_prep_scripts
+        if args.host_bridge:
+            from host_tuning.bridge import GameSphereBridge
+            from host_tuning import session_telemetry
+            from host_tuning.config import load_config
+            cfg = load_config()
+            write_prep_scripts()
+            apply_detected_paths()
+            apps_json = (
+                os.environ.get("SUNSHINE_APPS_JSON_PATH")
+                or os.environ.get("sunshine_apps_json_path")
+                or ""
+            )
+            bridge = GameSphereBridge()
+            log_path = session_telemetry.detect_sunshine_log_path(cfg.sunshine_log_path)
+            bridge.start(port=cfg.bridge_port, log_path=log_path, apps_json_path=apps_json)
+            logging.info("Host bridge on TCP %s — Ctrl+C to stop", cfg.bridge_port)
+            try:
+                while True:
+                    time.sleep(3600)
+            except KeyboardInterrupt:
+                bridge.stop()
+            return
+        config = validate_config()
+        write_prep_scripts()
+        results = apply_host_tuning(sunshine_apps_json=config.get('SUNSHINE_APPS_JSON_PATH', ''))
+        logging.info("Host tuning: %s", results)
+        if args.host_tuning_only:
+            return
 
     if args.print_config:
         detected = detect_paths()
@@ -2125,14 +2315,29 @@ def main() -> None:
         if config.get('EPIC_MANIFESTS_PATH') and os.name == 'nt':
             installed_epic = load_installed_epic_games(config['EPIC_MANIFESTS_PATH'])
         
+        # Load GOG, Ubisoft, Battle.net, EA (Windows)
+        installed_third_party = {}
+        if os.name == 'nt':
+            installed_third_party = load_all_third_party_stores()
+        
         # Load custom games (from JSON if path set)
         custom_list = load_custom_games(config.get('CUSTOM_GAMES_JSON_PATH', '') or '')
         custom_cmds = {g["cmd"] for g in custom_list}
         
-        # Load Xbox/Windows games from usual folders (e.g. C:\XboxGames)
+        # Load Xbox/Windows games (.GamingRoot + configured folders)
         installed_xbox = {}
-        if config.get('XBOX_GAMES_FOLDERS'):
-            installed_xbox = load_installed_xbox_games(config['XBOX_GAMES_FOLDERS'])
+        if os.name == 'nt':
+            installed_xbox = load_installed_xbox_games(config.get('XBOX_GAMES_FOLDERS', ''))
+
+        # Unified store catalog for prune/add (Epic + Xbox + other stores)
+        installed_stores: Dict[str, Dict] = {}
+        for app_name, info in installed_epic.items():
+            sk = info.get("store_key") or store_key("epic", app_name)
+            info = dict(info)
+            info["store_key"] = sk
+            installed_stores[sk] = info
+        installed_stores.update(installed_xbox)
+        installed_stores.update(installed_third_party)
         
         # Load Sunshine configuration
         sunshine_config = get_sunshine_config(config['SUNSHINE_APPS_JSON_PATH'])
@@ -2140,10 +2345,26 @@ def main() -> None:
         # Ensure grids folder exists
         os.makedirs(config['SUNSHINE_GRIDS_FOLDER'], exist_ok=True)
         
-        # Process existing apps (Steam store + Non-Steam shortcuts, Epic, custom, Xbox)
+        # Process existing apps (Steam store + Non-Steam shortcuts, Epic, custom, Xbox, other stores)
         shortcuts_folder = config.get('SUNSHINE_SHORTCUTS_FOLDER') or ''
-        updated_apps, removed_steam, removed_epic, existing_steam_apps, existing_epic_apps, existing_xbox_cmds, repaired_steam = process_existing_apps(
-            sunshine_config, steam_catalog, installed_epic, custom_cmds, installed_xbox, shortcuts_folder
+        (
+            updated_apps,
+            removed_steam,
+            removed_epic,
+            removed_stores,
+            existing_steam_apps,
+            existing_epic_apps,
+            existing_xbox_cmds,
+            existing_store_keys,
+            repaired_steam,
+        ) = process_existing_apps(
+            sunshine_config,
+            steam_catalog,
+            installed_epic,
+            custom_cmds,
+            installed_xbox,
+            shortcuts_folder,
+            installed_stores,
         )
         
         # Find new games to add
@@ -2151,6 +2372,7 @@ def main() -> None:
         new_shortcuts = set(installed_shortcuts.keys()) - existing_steam_apps
         new_epic = set(installed_epic.keys()) - existing_epic_apps
         new_xbox = set(installed_xbox.keys()) - existing_xbox_cmds
+        new_store = {k for k in installed_third_party.keys() if k not in existing_store_keys}
         existing_cmds = {app.get('cmd', '').strip() for app in updated_apps}
         existing_cmds_norm = {os.path.normpath(c) for c in existing_cmds if os.path.sep in c}
         existing_cmds |= existing_cmds_norm
@@ -2161,6 +2383,8 @@ def main() -> None:
             logging.info(f"Steam games to remove: {[name for name, _ in removed_steam]}")
         if removed_epic:
             logging.info(f"Epic games to remove: {[name for name, _ in removed_epic]}")
+        if removed_stores:
+            logging.info(f"Store games to remove: {[name for name, _ in removed_stores]}")
         if new_games:
             logging.info(f"New Steam games to add: {[installed_games[app_id] for app_id in new_games]}")
         if new_shortcuts:
@@ -2172,6 +2396,11 @@ def main() -> None:
             logging.info(f"New Epic games to add: {[installed_epic[aid]['name'] for aid in new_epic]}")
         if new_xbox:
             logging.info(f"New Xbox/Windows games to add: {[installed_xbox[c]['name'] for c in new_xbox]}")
+        if new_store:
+            logging.info(
+                "New store games to add: %s",
+                [installed_third_party[k]["name"] for k in sorted(new_store)],
+            )
         if new_custom:
             logging.info(f"New custom games to add: {[g['name'] for g in new_custom]}")
         
@@ -2190,10 +2419,12 @@ def main() -> None:
         if (
             not removed_steam
             and not removed_epic
+            and not removed_stores
             and not new_games
             and not new_shortcuts
             and not new_epic
             and not new_xbox
+            and not new_store
             and not new_custom
             and not repaired_steam
             and not retagged
@@ -2222,6 +2453,9 @@ def main() -> None:
         # Add new Xbox/Windows games
         new_xbox_apps = add_xbox_games(new_xbox, installed_xbox, config['STEAMGRIDDB_API_KEY'], config['SUNSHINE_GRIDS_FOLDER'], shortcuts_folder)
         updated_apps.extend(new_xbox_apps)
+        # Add GOG / Ubisoft / Battle.net / EA
+        new_store_apps = add_store_games(new_store, installed_third_party, config['STEAMGRIDDB_API_KEY'], config['SUNSHINE_GRIDS_FOLDER'], shortcuts_folder)
+        updated_apps.extend(new_store_apps)
         # Add new custom games
         new_custom_apps = add_custom_games(custom_list, existing_cmds, config['STEAMGRIDDB_API_KEY'], config['SUNSHINE_GRIDS_FOLDER'], shortcuts_folder)
         updated_apps.extend(new_custom_apps)
@@ -2235,6 +2469,11 @@ def main() -> None:
             restart_sunshine(config['SUNSHINE_EXE_PATH'])
         
         logging.info("Sunshine apps.json update process completed successfully")
+        if args.host_tuning:
+            from host_tuning.service import apply_host_tuning, write_prep_scripts
+            write_prep_scripts()
+            tuning = apply_host_tuning(sunshine_apps_json=config['SUNSHINE_APPS_JSON_PATH'])
+            logging.info("Host tuning applied: %s", tuning)
         host_display = os.getenv("HOST", "sunshine").strip()
         if host_display.lower() not in ("sunshine", "apollo"):
             host_display = "sunshine"

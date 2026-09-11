@@ -1,0 +1,15 @@
+[Unit]
+Description=GameSphere Import Tool host bridge (TCP 47998)
+After=network-online.target sunshine.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/gamesphere-import-tool
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/share/gamesphere-import-tool/.venv/bin/python3 %h/.local/share/gamesphere-import-tool/main.py --host-bridge
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
