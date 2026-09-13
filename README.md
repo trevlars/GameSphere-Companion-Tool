@@ -127,6 +127,7 @@ These are **off by default** — most people can ignore them.
 
 - **Host tuning** — link speed, HDR/audio prep, session grades ([StreamTweak](https://github.com/FoggyBytes/StreamTweak)-inspired). See [user guide](docs/USER-GUIDE.md#host-tuning-optional).
 - **GameSphere bridge** — TCP port 47998 for link-speed match and session stats in GameSphere clients. See [CLIENT_BRIDGE.md](docs/CLIENT_BRIDGE.md).
+- **Mic to PC** — one button / `--setup-mic`: Windows VB-CABLE + VBAN feeder (license prompt) or Linux PipeWire. Discord uses **CABLE Output**. See [MIC-TO-PC.md](docs/MIC-TO-PC.md).
 - **DeckyLoader plugin** — sync from Steam Deck Game Mode. See [decky/README.md](decky/README.md).
 
 ---

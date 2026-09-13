@@ -62,6 +62,10 @@ HOST_PREP_LINK="${GAMESPHERE_HOST_PREP_BIN:-$HOME/.local/bin/gamesphere-host-pre
 install -m 755 "$INSTALL_DIR/scripts/gamesphere-host-prep.sh" "$HOST_PREP_LINK"
 echo "==> Installed $HOST_PREP_LINK (StreamTweak-style host tuning prep hooks)"
 
+VBAN_LINK="${GAMESPHERE_VBAN_SETUP_BIN:-$HOME/.local/bin/gamesphere-vban-setup.sh}"
+install -m 755 "$INSTALL_DIR/scripts/gamesphere-vban-setup.sh" "$VBAN_LINK"
+echo "==> Installed $VBAN_LINK (GameSphere mic → PipeWire VBAN recv; run: gamesphere-vban-setup.sh)"
+
 echo "==> Initializing host tuning config..."
 uv run python3 host_tuning_cli.py init --enable-all || true
 

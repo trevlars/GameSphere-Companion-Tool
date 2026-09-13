@@ -2203,10 +2203,59 @@ def main() -> None:
     parser.add_argument('--host-tuning', action='store_true', help='Apply host tuning after import (tiles, prep scripts, NVIDIA snapshot)')
     parser.add_argument('--host-tuning-only', action='store_true', help='Apply host tuning and exit (no library import)')
     parser.add_argument('--host-bridge', action='store_true', help='Run GameSphere TCP bridge (port 47998) and session monitor')
+    parser.add_argument(
+        '--setup-mic',
+        action='store_true',
+        help='Set up Mic to PC (VBAN receive): VB-CABLE + feeder on Windows, PipeWire on Linux',
+    )
+    parser.add_argument(
+        '--setup-mic-info',
+        action='store_true',
+        help='Print Mic to PC LAN IP / defaults without installing',
+    )
+    parser.add_argument(
+        '--accept-vbaudio-license',
+        action='store_true',
+        help='Required with --setup-mic on Windows (accepts VB-Audio Cable donationware terms)',
+    )
+    parser.add_argument(
+        '--vban-feeder',
+        action='store_true',
+        help='Run the Windows VBAN→CABLE Input feeder (started by --setup-mic)',
+    )
+    parser.add_argument(
+        '--vban-feeder-stop',
+        action='store_true',
+        help='Stop a running GameSphere VBAN feeder',
+    )
     args = parser.parse_args()
     
     # Setup logging
     setup_logging(args.verbose)
+
+    if args.vban_feeder or args.vban_feeder_stop:
+        from vban_feeder import main as feeder_main, stop_feeder
+
+        if args.vban_feeder_stop:
+            sys.exit(stop_feeder(lambda m: logging.info("%s", m)))
+        sys.exit(feeder_main([]))
+
+    if args.setup_mic or args.setup_mic_info:
+        from mic_setup import setup_mic
+
+        result = setup_mic(
+            accept_third_party=bool(args.accept_vbaudio_license),
+            info_only=bool(args.setup_mic_info),
+            log=lambda m: logging.info("%s", m.rstrip()),
+        )
+        print(result.summary())
+        if result.needs_license_accept and not args.setup_mic_info:
+            logging.error(
+                "Windows mic setup downloads VB-CABLE (VB-Audio donationware). "
+                "Re-run with --accept-vbaudio-license after you accept their terms."
+            )
+            sys.exit(2)
+        sys.exit(0 if result.ok else 1)
 
     if args.check_update or args.apply_update:
         from gs_updater import cli_check

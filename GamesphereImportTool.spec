@@ -30,6 +30,8 @@ hidden_imports = [
     'host_tuning.launch_watcher',
     'host_tuning.lock_state',
     'host_tuning.stream_sockets',
+    'mic_setup',
+    'vban_feeder',
     'vdf',
     'PIL',
     'PIL.Image',
@@ -61,6 +63,8 @@ if os.path.isdir(_scripts):
         "gamesphere-steam-close.sh",
         "gamesphere-host-prep.ps1",
         "gamesphere-host-prep.sh",
+        "gamesphere-vban-setup.ps1",
+        "gamesphere-vban-setup.sh",
     ):
         p = os.path.join(_scripts, name)
         if os.path.isfile(p):

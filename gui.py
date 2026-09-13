@@ -11,6 +11,7 @@ import queue
 
 from gs_updater import apply_update, check_for_update, format_notice
 from gs_version import __version__ as APP_VERSION
+from mic_setup import platform_label, setup_mic
 
 # Optional: request admin on Windows so we can write to Program Files (Sunshine/Apollo config).
 # Disabled at startup so the GUI always opens; user can right-click exe -> Run as administrator if needed.
@@ -529,7 +530,9 @@ class SunshineGUI:
         self.remove_games_btn = self._button(btn_frame, "Remove all games", self._on_remove_games)
         self.remove_games_btn.pack(side="left", padx=(0, 8))
         self.update_btn = self._button(btn_frame, "Check for updates", self._on_check_updates)
-        self.update_btn.pack(side="left")
+        self.update_btn.pack(side="left", padx=(0, 8))
+        self.mic_btn = self._button(btn_frame, "Set up mic for GameSphere", self._on_setup_mic)
+        self.mic_btn.pack(side="left")
 
         # Log (scrollable; gets most of the vertical space)
         self._label(main, text="Log", font=_gs_font(14, "bold")).pack(anchor="w")
@@ -647,6 +650,102 @@ class SunshineGUI:
             return
         if info.get("newer") and not info.get("error"):
             self.root.after(0, lambda: self._prompt_update(info, silent=True))
+
+    def _on_setup_mic(self):
+        """One-button Mic to PC: Windows VB-CABLE + feeder, Linux PipeWire — same UX."""
+        if self.running:
+            return
+        plat = platform_label()
+        if sys.platform == "win32":
+            accept = messagebox.askyesno(
+                "Set up mic for GameSphere",
+                "GameSphere sends the phone mic to this PC over VBAN.\n\n"
+                "On Windows we install VB-CABLE (VB-Audio donationware — "
+                "not open source, not bundled) and start a small feeder "
+                "that plays the phone into CABLE Input.\n\n"
+                "• Stream name: GameSphere\n"
+                "• UDP port: 6980\n"
+                "• Discord microphone: CABLE Output\n"
+                "• VoiceMeeter is not used\n\n"
+                "Do you accept VB-Audio’s terms and continue?",
+            )
+            if not accept:
+                return
+        else:
+            if not messagebox.askyesno(
+                "Set up mic for GameSphere",
+                f"Set up mic receive on {plat}?\n\n"
+                "Linux uses PipeWire’s open-source VBAN module "
+                "(stream GameSphere, UDP 6980).\n\n"
+                "Continue?",
+            ):
+                return
+
+        self.running = True
+        try:
+            self.mic_btn.configure(state="disabled")
+            self.run_btn.configure(state="disabled")
+        except Exception:
+            pass
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", f"\n=== Set up mic for GameSphere ({plat}) ===\n")
+        self.log_text.configure(state="disabled")
+        self.log_queue = getattr(self, "log_queue", None) or queue.Queue()
+        thread = threading.Thread(target=self._setup_mic_worker, daemon=True)
+        thread.start()
+
+    def _setup_mic_worker(self):
+        def log_line(msg):
+            self.log_queue.put(("log", msg + ("" if msg.endswith("\n") else "\n")))
+
+        try:
+            result = setup_mic(
+                accept_third_party=(sys.platform == "win32"),
+                info_only=False,
+                log=log_line,
+            )
+            summary = result.summary()
+            log_line(summary)
+            self.root.after(0, lambda: self._finish_setup_mic(result))
+        except Exception as exc:
+            self.log_queue.put(("log", f"Mic setup failed: {exc}\n"))
+            self.root.after(
+                0,
+                lambda: self._finish_setup_mic(
+                    type("R", (), {"ok": False, "summary": lambda: str(exc), "lan_ips": [], "error": str(exc)})()
+                ),
+            )
+
+    def _finish_setup_mic(self, result):
+        self.running = False
+        try:
+            self.mic_btn.configure(state="normal")
+            self.run_btn.configure(state="normal")
+        except Exception:
+            pass
+        ips = getattr(result, "lan_ips", None) or []
+        ip_line = ips[0] if ips else "(check log for LAN IP)"
+        if getattr(result, "ok", False):
+            reboot = getattr(result, "reboot_hint", False)
+            extra = ""
+            if reboot:
+                extra = "\n\nReboot Windows once if CABLE Output is missing, then pick it in Discord."
+            messagebox.showinfo(
+                "Mic to PC",
+                f"Mic receive is set up.\n\n"
+                f"In GameSphere → Send mic to PC, enter:\n{ip_line}\n\n"
+                f"Port 6980 · stream GameSphere\n\n"
+                f"Discord microphone: CABLE Output\n\n"
+                f"{getattr(result, 'recording_device_hint', '') or ''}".strip()
+                + extra,
+            )
+        else:
+            err = getattr(result, "error", None) or "See the log for details."
+            messagebox.showwarning(
+                "Mic to PC",
+                f"Setup did not finish cleanly.\n\n{err}\n\n"
+                "See docs/MIC-TO-PC.md or the log panel.",
+            )
 
     def _on_check_updates(self):
         if self.running:
@@ -774,6 +873,15 @@ class SunshineGUI:
 
 
 def main():
+    if "--vban-feeder-stop" in sys.argv:
+        from vban_feeder import stop_feeder
+
+        raise SystemExit(stop_feeder(print))
+    if "--vban-feeder" in sys.argv:
+        from vban_feeder import main as feeder_main
+
+        argv = [a for a in sys.argv[1:] if a != "--vban-feeder"]
+        raise SystemExit(feeder_main(argv))
     _request_admin_and_rerun()
     if sys.platform != "win32":
         print("This GUI is intended for Windows. On other platforms use: python main.py")

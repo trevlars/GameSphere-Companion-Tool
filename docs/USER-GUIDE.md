@@ -148,6 +148,19 @@ Re-running import is safe — it refreshes the list and fixes older launch/quit 
 
 ---
 
+## Mic to PC
+
+Same button on every OS: **Set up mic for GameSphere** (Windows GUI) or `gamesphere-import --setup-mic`.
+
+GameSphere sends the phone mic over VBAN (stream `GameSphere`, UDP `6980`). The Import Tool configures the PC receiver and shows your LAN IP — then you paste that IP in GameSphere → **Send mic to PC**.
+
+- **Windows:** installs VB-CABLE (VB-Audio donationware; you accept the license) and starts a small OSS feeder into **CABLE Input**. Discord uses **CABLE Output**. No VoiceMeeter.
+- **Linux / Bazzite:** PipeWire OSS VBAN module.
+
+Full detail: **[MIC-TO-PC.md](MIC-TO-PC.md)**.
+
+---
+
 ## Host tuning (optional)
 
 Advanced host-side tweaks (link speed, HDR/audio prep, session logs, custom tiles). **Not required** for basic library sync.
@@ -216,7 +229,7 @@ See [`.env.example`](../.env.example). Common overrides:
 | **No box art** for one title | Steam CDN gap; add optional SteamGridDB key. |
 | **Wrong paths** | `gamesphere-import --print-config`, then edit `.env` or open a GitHub issue. |
 | **Flatpak can’t restart Sunshine** | Ensure `systemctl --user status sunshine` works; try native install or `--no-restart` then restart manually. |
-| **Decky plugin empty** | Re-run `install-linux.sh` or Flatpak install; reload Decky plugins. |
+| **Discord hears nothing (Windows mic)** | Discord input = **CABLE Output**. Re-run **Set up mic for GameSphere**. Reboot once after VB-CABLE install. |
 
 Log file (CLI): `sunshine_automation.log` in the working directory.
 
@@ -237,6 +250,9 @@ gamesphere-import --apply-update
 gamesphere-import --host-tuning
 gamesphere-import --host-tuning-only
 gamesphere-import --host-bridge
+gamesphere-import --setup-mic-info
+gamesphere-import --setup-mic                                    # Linux PipeWire
+gamesphere-import --setup-mic --accept-vbaudio-license           # Windows VB-CABLE + feeder
 ```
 
 From a git checkout, prefix with `uv run main.py` instead of `gamesphere-import`.
