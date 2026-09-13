@@ -93,6 +93,16 @@ Steam-only CLI from source — see [User guide → macOS](docs/USER-GUIDE.md#mac
 
 You usually **do not** need a `.env` file or path tweaks on Bazzite, Steam Deck, or a standard Windows Sunshine install.
 
+**Updates** happen from [GitHub Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) — no git pull:
+
+| Platform | How it stays current |
+|----------|----------------------|
+| **Windows** | The GUI checks on launch and via **Check for updates** (downloads the new `.exe`). |
+| **Linux** (Bazzite / Deck / Flatpak / git install) | A systemd user timer runs daily (and shortly after boot). Re-run `install-linux.sh` / `install-flatpak.sh` once to enable it. |
+| **macOS** | Source checkout: `uv run main.py --apply-update` (no `.app` is shipped). |
+
+Opt out on Linux: `GAMESPHERE_AUTO_UPDATE=0`.
+
 ---
 
 ## Works with these streaming hosts
@@ -144,7 +154,7 @@ CLI reference and all flags: **[docs/USER-GUIDE.md → Command reference](docs/U
 
 ## What's new
 
-Latest: **v1.3.0** — **Set up mic for GameSphere** (Windows VB-CABLE + VBAN feeder; Linux PipeWire). Discord/OBS use **CABLE Output**. Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
+Latest: **v1.3.1** — Linux auto-update timer + **v1.3.0** **Set up mic for GameSphere** (Windows VB-CABLE + VBAN feeder; Linux PipeWire). Discord/OBS use **CABLE Output**. Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
 
 Full history: **[CHANGELOG.md](CHANGELOG.md)**
 

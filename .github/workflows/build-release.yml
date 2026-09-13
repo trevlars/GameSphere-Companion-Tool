@@ -187,6 +187,8 @@ jobs:
 
           Optional host bridge on boot: \`GAMESPHERE_ENABLE_HOST_BRIDGE=1\` before the curl command.
 
+          Linux installs enable a systemd user timer that applies later GitHub Releases (opt out: \`GAMESPHERE_AUTO_UPDATE=0\`).
+
           ### Windows
 
           1. Download **GamesphereImportTool.exe** below.
@@ -215,5 +217,6 @@ jobs:
             dist/io.github.trevlars.GamesphereImportTool.flatpak
             install-flatpak.sh
             install-linux.sh
+            scripts/gamesphere-import-update.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

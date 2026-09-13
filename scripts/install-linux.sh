@@ -23,6 +23,9 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
   echo "==> Updating existing checkout..."
   git -C "$INSTALL_DIR" fetch --tags origin
   if [[ -n "$REF" ]]; then
+    # Dirty HTPC trees (detached HEAD + leftover files) must not block release pins.
+    git -C "$INSTALL_DIR" reset --hard
+    git -C "$INSTALL_DIR" clean -fd
     git -C "$INSTALL_DIR" checkout --force "$REF"
   else
     git -C "$INSTALL_DIR" pull --ff-only || echo "==> git pull skipped (detached HEAD or offline checkout — using tree as-is)"
@@ -69,8 +72,40 @@ echo "==> Installed $VBAN_LINK (GameSphere mic → PipeWire VBAN recv; run: game
 echo "==> Initializing host tuning config..."
 uv run python3 host_tuning_cli.py init --enable-all || true
 
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+UPDATE_BIN="${GAMESPHERE_UPDATE_BIN:-$HOME/.local/bin/gamesphere-import-update.sh}"
+mkdir -p "$(dirname "$UPDATE_BIN")"
+if [[ -f "$INSTALL_DIR/scripts/gamesphere-import-update.sh" ]]; then
+  install -m 755 "$INSTALL_DIR/scripts/gamesphere-import-update.sh" "$UPDATE_BIN"
+fi
+
+install_update_timer() {
+  if [[ "${GAMESPHERE_SKIP_UPDATE_TIMER:-}" == "1" ]]; then
+    return 0
+  fi
+  if [[ "${GAMESPHERE_AUTO_UPDATE:-1}" =~ ^(0|false|no|off)$ ]]; then
+    echo "==> Auto-update timer skipped (GAMESPHERE_AUTO_UPDATE=0)"
+    return 0
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "==> No systemctl — auto-update timer not installed (use --apply-update)"
+    return 0
+  fi
+  if [[ ! -f "$INSTALL_DIR/scripts/systemd/gamesphere-import-update.service" ]]; then
+    return 0
+  fi
+  mkdir -p "$UNIT_DIR"
+  install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-import-update.service" \
+    "$UNIT_DIR/gamesphere-import-update.service"
+  install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-import-update.timer" \
+    "$UNIT_DIR/gamesphere-import-update.timer"
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable --now gamesphere-import-update.timer 2>/dev/null || true
+  echo "==> Enabled gamesphere-import-update.timer (GitHub Releases; opt out: GAMESPHERE_AUTO_UPDATE=0)"
+}
+install_update_timer
+
 if [[ "${GAMESPHERE_ENABLE_HOST_BRIDGE:-}" == "1" ]]; then
-  UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
   mkdir -p "$UNIT_DIR"
   install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-host-bridge.service" "$UNIT_DIR/gamesphere-host-bridge.service"
   systemctl --user daemon-reload 2>/dev/null || true
@@ -88,6 +123,7 @@ echo "Run:"
 echo "  gamesphere-import --dry-run    # preview"
 echo "  gamesphere-import              # import Steam library into Sunshine"
 echo "  gamesphere-import --check-update"
+echo "  gamesphere-import --apply-update"
 echo ""
 echo "Optional DeckyLoader plugin: see decky/README.md"
 

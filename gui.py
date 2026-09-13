@@ -9,7 +9,7 @@ import sys
 import threading
 import queue
 
-from gs_updater import apply_update, check_for_update, format_notice
+from gs_updater import apply_update, auto_update_mode, check_for_update, format_notice
 from gs_version import __version__ as APP_VERSION
 from mic_setup import platform_label, setup_mic
 
@@ -309,7 +309,7 @@ class SunshineGUI:
         self._build_ui()
         self._load_config()
         self._poll_log()
-        if os.environ.get("GAMESPHERE_SKIP_UPDATE_CHECK") != "1":
+        if auto_update_mode() != "off":
             self.root.after(1500, self._start_silent_update_check)
 
     def _set_app_icon(self):
@@ -649,7 +649,10 @@ class SunshineGUI:
         except Exception:
             return
         if info.get("newer") and not info.get("error"):
-            self.root.after(0, lambda: self._prompt_update(info, silent=True))
+            if auto_update_mode() == "apply":
+                self.root.after(0, lambda: self._apply_update_now(info))
+            else:
+                self.root.after(0, lambda: self._prompt_update(info, silent=True))
 
     def _on_setup_mic(self):
         """One-button Mic to PC: Windows VB-CABLE + feeder, Linux PipeWire — same UX."""

@@ -17,7 +17,7 @@ Plain-language help for **GameSphere Import Tool**. If you just want download li
 
 - Turn on **Dry run (preview only)** to see what would change without writing files.
 - Paths are pre-filled for a normal Steam + Sunshine/Apollo install. Use **Browse…** only if yours is different.
-- **Check for updates** in the app downloads a newer `.exe` when a release is available.
+- **Check for updates** in the app (also runs on launch) downloads a newer `.exe` when a release is available.
 
 ### Which host button?
 
@@ -210,11 +210,16 @@ See [`.env.example`](../.env.example). Common overrides:
 
 ## Updates
 
+New versions come from [GitHub Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest). Testers do **not** need to `git pull`.
+
 | Platform | How |
 |----------|-----|
-| **Windows GUI** | **Check for updates** button |
-| **Linux CLI** | `gamesphere-import --check-update` then `--apply-update` |
-| **Any** | Re-run `install-flatpak.sh` or download the latest [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) |
+| **Windows GUI** | Checks on launch; **Check for updates** downloads the matching `.exe`. Set `GAMESPHERE_AUTO_UPDATE=apply` to skip the prompt. |
+| **Linux** | After `install-linux.sh` or `install-flatpak.sh`, `gamesphere-import-update.timer` applies the newest release daily (and ~5 minutes after boot). Manual: `gamesphere-import --apply-update`. |
+| **macOS** | Source tree only: `uv run main.py --apply-update`. |
+| **Any** | Re-run `install-flatpak.sh` / `install-linux.sh`, or download the latest [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest). |
+
+Disable the Linux timer: `systemctl --user disable --now gamesphere-import-update.timer` or `GAMESPHERE_AUTO_UPDATE=0`.
 
 ---
 

@@ -22,6 +22,8 @@ from gs_version import (
 )
 
 USER_AGENT = f"GameSphere-Import-Tool/{__version__}"
+FLATPAK_ID = "io.github.trevlars.GamesphereImportTool"
+APPIMAGE_BASENAME = "GameSphere-Import-Tool.AppImage"
 
 
 def parse_version(tag: str) -> Tuple[int, int, int]:
@@ -42,6 +44,22 @@ def parse_version(tag: str) -> Tuple[int, int, int]:
 
 def is_newer(remote: str, local: str = __version__) -> bool:
     return parse_version(remote) > parse_version(local)
+
+
+def auto_update_mode() -> str:
+    """How unattended updates should behave: off | prompt | apply."""
+    if os.environ.get("GAMESPHERE_SKIP_UPDATE_CHECK", "").strip() == "1":
+        return "off"
+    val = os.environ.get("GAMESPHERE_AUTO_UPDATE", "").strip().lower()
+    if val in ("0", "false", "no", "off"):
+        return "off"
+    if val in ("apply", "force"):
+        return "apply"
+    return "prompt"
+
+
+def auto_update_enabled() -> bool:
+    return auto_update_mode() != "off"
 
 
 def _http_json(url: str) -> Any:
@@ -73,7 +91,61 @@ def current_platform() -> str:
     return sys.platform
 
 
-def pick_asset(assets: List[Dict[str, Any]], platform: str) -> Optional[Dict[str, Any]]:
+def linux_install_dir() -> str:
+    return os.path.expanduser(
+        os.environ.get("GAMESPHERE_IMPORT_DIR") or "~/.local/share/gamesphere-import-tool"
+    )
+
+
+def source_checkout_dir() -> Optional[str]:
+    here = os.path.dirname(os.path.abspath(__file__))
+    if os.path.isdir(os.path.join(here, ".git")):
+        return here
+    installed = linux_install_dir()
+    if os.path.isdir(os.path.join(installed, ".git")):
+        return installed
+    return None
+
+
+def linux_appimage_path() -> str:
+    env = os.environ.get("APPIMAGE") or os.environ.get("GAMESPHERE_APPIMAGE")
+    if env:
+        return env
+    return os.path.expanduser(f"~/.local/bin/{APPIMAGE_BASENAME}")
+
+
+def _flatpak_installed() -> bool:
+    if not shutil.which("flatpak"):
+        return False
+    r = subprocess.run(
+        ["flatpak", "info", "--user", FLATPAK_ID],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return r.returncode == 0
+
+
+def detect_linux_kind() -> str:
+    """Primary Linux install to update. Prefer git (Decky / host helpers / PATH)."""
+    if os.environ.get("APPIMAGE") or (
+        getattr(sys, "frozen", False) and sys.platform.startswith("linux")
+    ):
+        return "frozen"
+    if source_checkout_dir():
+        return "git"
+    if os.path.isfile(linux_appimage_path()):
+        return "appimage"
+    if _flatpak_installed():
+        return "flatpak"
+    return "git"
+
+
+def pick_asset(
+    assets: List[Dict[str, Any]],
+    platform: str,
+    kind: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     named = [(a.get("name") or "", a) for a in assets if a.get("browser_download_url")]
     if platform == "win":
         for name, asset in named:
@@ -82,16 +154,36 @@ def pick_asset(assets: List[Dict[str, Any]], platform: str) -> Optional[Dict[str
         for name, asset in named:
             if name.lower().endswith(".exe"):
                 return asset
-    if platform == "linux":
-        for name, asset in named:
-            if name == "io.github.trevlars.GamesphereImportTool.flatpak":
-                return asset
-        for name, asset in named:
-            if name.lower().endswith(".appimage"):
-                return asset
-        for name, asset in named:
-            if name.lower() == "install-linux.sh":
-                return asset
+        return None
+    if platform in ("linux", "mac"):
+        kind = kind or ("git" if platform == "mac" else detect_linux_kind())
+
+        def by_name(exact: str) -> Optional[Dict[str, Any]]:
+            want = exact.lower()
+            for name, asset in named:
+                if name.lower() == want:
+                    return asset
+            return None
+
+        def by_suffix(suffix: str) -> Optional[Dict[str, Any]]:
+            for name, asset in named:
+                if name.lower().endswith(suffix):
+                    return asset
+            return None
+
+        if kind in ("git", "source"):
+            return by_name("install-linux.sh") or by_suffix(".sh")
+        if kind in ("appimage", "frozen"):
+            return by_suffix(".appimage")
+        if kind == "flatpak":
+            return by_name("io.github.trevlars.GamesphereImportTool.flatpak") or by_suffix(
+                ".flatpak"
+            )
+        return (
+            by_name("io.github.trevlars.GamesphereImportTool.flatpak")
+            or by_suffix(".appimage")
+            or by_name("install-linux.sh")
+        )
     return None
 
 
@@ -130,6 +222,8 @@ def fetch_newest_release() -> Optional[Dict[str, Any]]:
 
 def check_for_update() -> Dict[str, Any]:
     """Return a status dict: current, latest, newer, notes, asset, html_url, error."""
+    platform = current_platform()
+    kind = detect_linux_kind() if platform == "linux" else None
     out: Dict[str, Any] = {
         "current": __version__,
         "latest": None,
@@ -138,7 +232,8 @@ def check_for_update() -> Dict[str, Any]:
         "asset": None,
         "html_url": GITHUB_RELEASES_PAGE,
         "error": None,
-        "platform": current_platform(),
+        "platform": platform,
+        "kind": kind,
     }
     try:
         rel = fetch_newest_release()
@@ -153,15 +248,9 @@ def check_for_update() -> Dict[str, Any]:
     out["notes"] = (rel.get("body") or "").strip()
     out["html_url"] = rel.get("html_url") or GITHUB_RELEASES_PAGE
     out["newer"] = is_newer(tag, __version__)
-    out["asset"] = pick_asset(rel.get("assets") or [], out["platform"])
+    out["asset"] = pick_asset(rel.get("assets") or [], platform, kind=kind)
     out["tag"] = tag
     return out
-
-
-def linux_install_dir() -> str:
-    return os.path.expanduser(
-        os.environ.get("GAMESPHERE_IMPORT_DIR") or "~/.local/share/gamesphere-import-tool"
-    )
 
 
 def apply_windows_update(asset: Dict[str, Any]) -> str:
@@ -212,61 +301,138 @@ def apply_windows_update(asset: Dict[str, Any]) -> str:
     return target
 
 
-def apply_linux_update(tag: str, asset: Optional[Dict[str, Any]] = None) -> str:
-    """Apply update via Flatpak bundle, AppImage-friendly shell installer, or git checkout."""
-    if asset and asset.get("browser_download_url"):
-        name = (asset.get("name") or "").lower()
-        url = asset["browser_download_url"]
-        if name.endswith(".flatpak"):
-            bundle = os.path.join(tempfile.mkdtemp(prefix="gs-import-upd-"), "update.flatpak")
-            _download(url, bundle)
-            subprocess.run(
-                ["flatpak", "install", "--user", "-y", bundle],
-                check=True,
-            )
-            return "flatpak:io.github.trevlars.GamesphereImportTool"
-        if name.endswith(".appimage"):
-            dest = os.path.expanduser("~/.local/bin/GameSphere-Import-Tool.AppImage")
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            _download(url, dest)
-            os.chmod(dest, 0o755)
-            return dest
-        if name == "install-linux.sh":
-            tmp = tempfile.mkdtemp(prefix="gs-import-upd-")
-            script = os.path.join(tmp, "install-linux.sh")
-            _download(url, script)
-            os.chmod(script, 0o755)
-            env = os.environ.copy()
-            env["GAMESPHERE_IMPORT_REF"] = tag
-            env["GAMESPHERE_IMPORT_DIR"] = linux_install_dir()
-            subprocess.run(["bash", script], check=True, env=env)
-            return linux_install_dir()
-
-    # Fallback: shell installer from tag
+def _run_install_linux_sh(tag: str, script: str) -> str:
     install_dir = linux_install_dir()
-    script = None
-    if asset and asset.get("browser_download_url"):
-        tmp = tempfile.mkdtemp(prefix="gs-import-upd-")
-        script = os.path.join(tmp, "install-linux.sh")
-        _download(asset["browser_download_url"], script)
-        os.chmod(script, 0o755)
-    elif os.path.isfile(os.path.join(install_dir, "scripts", "install-linux.sh")):
-        script = os.path.join(install_dir, "scripts", "install-linux.sh")
-    else:
-        # Last resort: fetch the raw installer from the tag.
-        raw = (
-            f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/"
-            f"{tag}/scripts/install-linux.sh"
-        )
-        tmp = tempfile.mkdtemp(prefix="gs-import-upd-")
-        script = os.path.join(tmp, "install-linux.sh")
-        _download(raw, script)
-        os.chmod(script, 0o755)
     env = os.environ.copy()
     env["GAMESPHERE_IMPORT_REF"] = tag
     env["GAMESPHERE_IMPORT_DIR"] = install_dir
     subprocess.run(["bash", script], check=True, env=env)
     return install_dir
+
+
+def _install_linux_script(tag: str, asset: Optional[Dict[str, Any]]) -> str:
+    install_dir = linux_install_dir()
+    if asset and (asset.get("name") or "").lower() == "install-linux.sh" and asset.get(
+        "browser_download_url"
+    ):
+        tmp = tempfile.mkdtemp(prefix="gs-import-upd-")
+        script = os.path.join(tmp, "install-linux.sh")
+        _download(asset["browser_download_url"], script)
+        os.chmod(script, 0o755)
+        return script
+    local = os.path.join(install_dir, "scripts", "install-linux.sh")
+    if os.path.isfile(local):
+        return local
+    checkout = source_checkout_dir()
+    if checkout:
+        local = os.path.join(checkout, "scripts", "install-linux.sh")
+        if os.path.isfile(local):
+            return local
+    raw = (
+        f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/"
+        f"{tag}/scripts/install-linux.sh"
+    )
+    tmp = tempfile.mkdtemp(prefix="gs-import-upd-")
+    script = os.path.join(tmp, "install-linux.sh")
+    _download(raw, script)
+    os.chmod(script, 0o755)
+    return script
+
+
+def apply_git_update(tag: str, asset: Optional[Dict[str, Any]] = None) -> str:
+    script = _install_linux_script(tag, asset)
+    return _run_install_linux_sh(tag, script)
+
+
+def apply_flatpak_update(asset: Dict[str, Any]) -> str:
+    url = asset.get("browser_download_url")
+    if not url:
+        raise RuntimeError("Release has no Flatpak bundle yet.")
+    bundle = os.path.join(tempfile.mkdtemp(prefix="gs-import-upd-"), "update.flatpak")
+    _download(url, bundle)
+    subprocess.run(["flatpak", "install", "--user", "-y", bundle], check=True)
+    return f"flatpak:{FLATPAK_ID}"
+
+
+def apply_appimage_update(asset: Dict[str, Any], dest: Optional[str] = None) -> str:
+    url = asset.get("browser_download_url")
+    if not url:
+        raise RuntimeError("Release has no AppImage asset yet.")
+    dest = dest or linux_appimage_path()
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    tmp = dest + ".new"
+    _download(url, tmp)
+    os.chmod(tmp, 0o755)
+    os.replace(tmp, dest)
+    return dest
+
+
+def apply_frozen_linux_update(asset: Dict[str, Any]) -> str:
+    """Replace a running AppImage / PyInstaller binary after this process exits."""
+    url = asset.get("browser_download_url")
+    if not url:
+        raise RuntimeError("Release has no Linux binary asset yet.")
+    target = os.environ.get("APPIMAGE") or os.path.abspath(sys.executable)
+    tmp_dir = tempfile.mkdtemp(prefix="gs-import-upd-")
+    new_bin = os.path.join(tmp_dir, os.path.basename(target) or APPIMAGE_BASENAME)
+    _download(url, new_bin)
+    os.chmod(new_bin, 0o755)
+    helper = os.path.join(tmp_dir, "apply-update.sh")
+    helper_body = (
+        "#!/bin/sh\n"
+        f"TARGET={json.dumps(target)}\n"
+        f"SOURCE={json.dumps(new_bin)}\n"
+        f"PID={os.getpid()}\n"
+        "while kill -0 \"$PID\" 2>/dev/null; do sleep 1; done\n"
+        "mv -f \"$SOURCE\" \"$TARGET\"\n"
+        "chmod +x \"$TARGET\"\n"
+        "nohup \"$TARGET\" >/dev/null 2>&1 &\n"
+        "rm -f \"$0\"\n"
+    )
+    with open(helper, "w", encoding="utf-8") as fh:
+        fh.write(helper_body)
+    os.chmod(helper, 0o755)
+    subprocess.Popen(
+        ["/bin/sh", helper],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
+    return target
+
+
+def apply_linux_update(tag: str, asset: Optional[Dict[str, Any]] = None, kind: Optional[str] = None) -> str:
+    """Apply update for the existing Linux install type — do not switch git ↔ Flatpak."""
+    kind = kind or detect_linux_kind()
+    if kind == "frozen":
+        if asset and asset.get("browser_download_url"):
+            return apply_frozen_linux_update(asset)
+        raise RuntimeError("Frozen Linux build needs an AppImage (or CLI) on the GitHub Release.")
+    if kind == "flatpak":
+        if asset and asset.get("browser_download_url"):
+            return apply_flatpak_update(asset)
+        raise RuntimeError("Release has no Flatpak bundle yet.")
+    if kind == "appimage":
+        if asset and asset.get("browser_download_url"):
+            return apply_appimage_update(asset)
+        raise RuntimeError("Release has no AppImage asset yet.")
+    # git / source — including macOS checkouts that reuse the bash installer
+    if asset and (asset.get("name") or "").lower().endswith(".flatpak"):
+        asset = None
+    if asset and (asset.get("name") or "").lower().endswith(".appimage"):
+        asset = None
+    return apply_git_update(tag, asset)
+
+
+def apply_macos_update(tag: str, asset: Optional[Dict[str, Any]] = None) -> str:
+    if not source_checkout_dir():
+        raise RuntimeError(
+            "No macOS app bundle is shipped. Clone the repo and re-run, "
+            f"or download from {GITHUB_RELEASES_PAGE}"
+        )
+    return apply_linux_update(tag, asset, kind="git")
 
 
 def apply_update(info: Dict[str, Any]) -> str:
@@ -277,10 +443,13 @@ def apply_update(info: Dict[str, Any]) -> str:
         tag = "v" + tag
     platform = info.get("platform") or current_platform()
     asset = info.get("asset")
+    kind = info.get("kind")
     if platform == "win":
         return apply_windows_update(asset or {})
     if platform == "linux":
-        return apply_linux_update(tag, asset)
+        return apply_linux_update(tag, asset, kind=kind)
+    if platform == "mac":
+        return apply_macos_update(tag, asset)
     raise RuntimeError(
         f"In-app update is not wired for this platform. Download from {GITHUB_RELEASES_PAGE}"
     )

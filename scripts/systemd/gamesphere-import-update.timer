@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily GameSphere Import Tool update check
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=24h
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

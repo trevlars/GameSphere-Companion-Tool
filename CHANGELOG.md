@@ -4,6 +4,16 @@ All notable changes to GameSphere Import Tool are documented here.
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-09-13
+
+### Added
+- **Linux auto-update timer** — `install-linux.sh` and `install-flatpak.sh` enable a systemd user timer (`gamesphere-import-update.timer`) that checks GitHub Releases 5 minutes after boot and daily. Opt out: `GAMESPHERE_AUTO_UPDATE=0`.
+- **`gamesphere-import-update.sh`** — bounded updater for git checkouts, Flatpak bundles, and AppImages. Does not import games or restart Sunshine/Steam.
+
+### Fixed
+- **`gs_updater`** — Linux `--apply-update` no longer switches a git/Decky install over to Flatpak. macOS source checkouts can apply the git installer from Releases.
+- Windows GUI still checks on launch (**Check for updates**); set `GAMESPHERE_AUTO_UPDATE=apply` to download without the prompt. `GAMESPHERE_AUTO_UPDATE=0` disables the silent check.
+
 ## [1.3.0] — 2026-09-13
 
 ### Added
