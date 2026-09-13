@@ -16,13 +16,15 @@ You need the Import Tool installed on the host **once**. Pick either:
 curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-flatpak.sh | bash
 ```
 
-**Or shell install** (same as older docs):
+**Or shell install** (same as older docs — also enables the daily auto-update timer):
 
 ```bash
 curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-linux.sh | bash
 ```
 
 Sunshine should be running: `systemctl --user status sunshine`
+
+New Linux installs (and this plugin on first load) enable **`gamesphere-import-update.timer`** so later GitHub Releases apply without SSH. Opt out: `GAMESPHERE_AUTO_UPDATE=0`.
 
 ## Enable the plugin
 
@@ -77,6 +79,7 @@ Open **Quick Access → GameSphere Import**.
 | Issue | Fix |
 |-------|-----|
 | Plugin says CLI not installed | Run `install-flatpak.sh` or `install-linux.sh` (SSH or desktop terminal) |
+| Auto-update timer missing | Reload this plugin, or re-run `install-linux.sh`. Check `systemctl --user status gamesphere-import-update.timer` |
 | Import hangs | Enable **Skip Sunshine restart**, then restart Sunshine manually |
 | Bridge toggle fails | Update to latest release; check `scripts/systemd/gamesphere-host-bridge.service` exists |
 | Blank plugin after update | Pull latest repo; reload Decky plugins |

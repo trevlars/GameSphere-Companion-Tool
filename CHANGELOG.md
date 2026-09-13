@@ -4,6 +4,17 @@ All notable changes to GameSphere Import Tool are documented here.
 
 ## [Unreleased]
 
+## [1.3.3] — 2026-09-13
+
+### Fixed
+- **New Linux installs** — `install-linux.sh` and `install-flatpak.sh` enable lingering and a user-session bus so `gamesphere-import-update.timer` actually starts from SSH / Game Mode, and no longer claim success when `systemctl --user` failed.
+- **PATH** — git/Decky `~/.local/bin/gamesphere-import` wrapper plus `environment.d` so leftover Flatpak exports cannot steal the command. Auto-update still prefers git over leftover Flatpak.
+
+### Added
+- **Decky** — enables the same timer on plugin load.
+- **`--auto-config`** — installs the timer as a first-run fallback if the shell installer could not.
+- Release assets include systemd units and `linux-autoupdate-lib.sh`.
+
 ## [1.3.2] — 2026-09-13
 
 ### Fixed

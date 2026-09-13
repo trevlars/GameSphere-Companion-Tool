@@ -187,7 +187,7 @@ jobs:
 
           Optional host bridge on boot: \`GAMESPHERE_ENABLE_HOST_BRIDGE=1\` before the curl command.
 
-          Linux installs enable a systemd user timer that applies later GitHub Releases (opt out: \`GAMESPHERE_AUTO_UPDATE=0\`).
+          Linux installers enable \`gamesphere-import-update.timer\` (and linger when needed) so later GitHub Releases apply without SSH. Opt out: \`GAMESPHERE_AUTO_UPDATE=0\`.
 
           ### Windows
 
@@ -195,9 +195,13 @@ jobs:
           2. Run as Administrator.
           3. Choose Sunshine or Apollo → Save config → Run importer.
 
+          The GUI checks GitHub on launch (**Check for updates**). Set \`GAMESPHERE_AUTO_UPDATE=apply\` to download without a prompt; \`GAMESPHERE_AUTO_UPDATE=0\` disables the check.
+
           ### macOS
 
           CLI from source: \`git clone\` → \`uv sync\` → \`uv run main.py --auto-config\` → \`uv run main.py\`
+
+          No \`.app\` or launchd timer is shipped. Updates: \`uv run main.py --apply-update\`.
 
           ---
 
@@ -218,5 +222,8 @@ jobs:
             install-flatpak.sh
             install-linux.sh
             scripts/gamesphere-import-update.sh
+            scripts/linux-autoupdate-lib.sh
+            scripts/systemd/gamesphere-import-update.service
+            scripts/systemd/gamesphere-import-update.timer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

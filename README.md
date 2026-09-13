@@ -38,7 +38,7 @@ Built for [GameSphere](https://github.com/trevlars/GameSphere) and works with **
 2. **Right-click → Run as administrator** (needed to write Sunshine/Apollo config under Program Files).
 3. Choose **Sunshine** or **Apollo**, then click **Run importer**.
 
-The app fills in paths automatically on a normal install. Use **Dry run** first if you want a preview without changing anything.
+The app fills in paths automatically on a normal install. Use **Dry run** first if you want a preview without changing anything. On launch the GUI checks GitHub for a newer `GamesphereImportTool.exe` (**Check for updates**). Set `GAMESPHERE_AUTO_UPDATE=apply` to install without a prompt.
 
 ### Linux — Bazzite, Steam Deck (desktop), or any distro
 
@@ -93,15 +93,16 @@ Steam-only CLI from source — see [User guide → macOS](docs/USER-GUIDE.md#mac
 
 You usually **do not** need a `.env` file or path tweaks on Bazzite, Steam Deck, or a standard Windows Sunshine install.
 
-**Updates** happen from [GitHub Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) — no git pull:
+**Updates** happen from [GitHub Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) — no extra SSH or git pull:
 
 | Platform | How it stays current |
 |----------|----------------------|
-| **Windows** | The GUI checks on launch and via **Check for updates** (downloads the new `.exe`). |
-| **Linux** (Bazzite / Deck / Flatpak / git install) | A systemd user timer runs daily (and shortly after boot). Re-run `install-linux.sh` / `install-flatpak.sh` once to enable it. |
-| **macOS** | Source checkout: `uv run main.py --apply-update` (no `.app` is shipped). |
+| **Windows** | The GUI checks GitHub on launch and via **Check for updates** (downloads the new `.exe`). Set `GAMESPHERE_AUTO_UPDATE=apply` to install without a prompt. |
+| **Linux** (Bazzite / Deck / Flatpak / git install) | New installs enable `gamesphere-import-update.timer` (daily + shortly after boot, including Game Mode via linger). |
+| **macOS** | Source checkout: `uv run main.py --apply-update` (no `.app` or launchd timer is shipped). |
+| **AppImage** | Portable — no timer. Use `--apply-update`, or the Flatpak / shell installer for unattended updates. |
 
-Opt out on Linux: `GAMESPHERE_AUTO_UPDATE=0`.
+Opt out: `GAMESPHERE_AUTO_UPDATE=0`.
 
 ---
 
@@ -154,7 +155,7 @@ CLI reference and all flags: **[docs/USER-GUIDE.md → Command reference](docs/U
 
 ## What's new
 
-Latest: **v1.3.2** — unattended Linux updates from GitHub Releases + **v1.3.0** **Set up mic for GameSphere** (Windows VB-CABLE + VBAN feeder; Linux PipeWire). Discord/OBS use **CABLE Output**. Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
+Latest: **v1.3.3** — new Linux installs enable unattended GitHub updates (timer + linger). Windows GUI checks on launch. **v1.3.0** **Set up mic for GameSphere** (Windows VB-CABLE + VBAN feeder; Linux PipeWire). Discord/OBS use **CABLE Output**. Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
 
 Full history: **[CHANGELOG.md](CHANGELOG.md)**
 

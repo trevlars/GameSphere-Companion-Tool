@@ -2308,6 +2308,12 @@ def main() -> None:
         env_path = write_env_file(detected)
         logging.info("Wrote %s for %s", env_path, detected.host_label)
         print(f"Created {env_path}")
+        if sys.platform.startswith("linux"):
+            from gs_updater import ensure_linux_unattended_update
+            timer_msg = ensure_linux_unattended_update()
+            if timer_msg:
+                logging.info("Linux auto-update: %s", timer_msg)
+                print(f"Auto-update: {timer_msg}")
         return
 
     logging.info("Starting Sunshine Steam Game Automation")

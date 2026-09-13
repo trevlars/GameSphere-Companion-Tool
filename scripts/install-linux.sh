@@ -49,13 +49,39 @@ uv sync
 echo "==> Writing .env from auto-detected paths..."
 uv run main.py --auto-config
 
-mkdir -p "$(dirname "$BIN_LINK")"
-cat >"$BIN_LINK" <<EOF
+# PATH wrapper + environment.d so leftover Flatpak cannot steal `gamesphere-import`.
+_gs_load_autoupdate_lib() {
+  local lib="$INSTALL_DIR/scripts/linux-autoupdate-lib.sh"
+  if [[ -f "$lib" ]]; then
+    # shellcheck disable=SC1090
+    source "$lib"
+    return 0
+  fi
+  local tmp
+  tmp="$(mktemp)"
+  if curl -fsSL "https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/${REF:-main}/scripts/linux-autoupdate-lib.sh" -o "$tmp" \
+    || curl -fsSL "https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/scripts/linux-autoupdate-lib.sh" -o "$tmp"; then
+    # shellcheck disable=SC1090
+    source "$tmp"
+    return 0
+  fi
+  echo "==> linux-autoupdate-lib.sh missing — PATH wrapper will be written without linger helpers"
+  return 1
+}
+if _gs_load_autoupdate_lib; then
+  gs_write_git_path_wrapper "$BIN_LINK" "$INSTALL_DIR"
+  gs_write_path_environment
+else
+  mkdir -p "$(dirname "$BIN_LINK")"
+  cat >"$BIN_LINK" <<EOF
 #!/usr/bin/env bash
+export PATH="\$HOME/.local/bin:\${PATH}"
 cd "$INSTALL_DIR"
 exec uv run main.py "\$@"
 EOF
-chmod +x "$BIN_LINK"
+  chmod +x "$BIN_LINK"
+fi
+echo "==> Installed PATH wrapper $BIN_LINK (git/Decky; wins over leftover Flatpak)"
 
 # Quit App helper: Sunshine does not kill detached Steam games; prep-cmd undo calls this.
 CLOSE_DIR="$(dirname "${GAMESPHERE_STEAM_CLOSE_BIN:-$HOME/.local/bin/gamesphere-steam-close.sh}")"
@@ -78,36 +104,24 @@ uv run python3 host_tuning_cli.py init --enable-all || true
 
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UPDATE_BIN="${GAMESPHERE_UPDATE_BIN:-$HOME/.local/bin/gamesphere-import-update.sh}"
-mkdir -p "$(dirname "$UPDATE_BIN")"
+mkdir -p "$(dirname "$UPDATE_BIN")" "$UNIT_DIR"
 if [[ -f "$INSTALL_DIR/scripts/gamesphere-import-update.sh" ]]; then
   install -m 755 "$INSTALL_DIR/scripts/gamesphere-import-update.sh" "$UPDATE_BIN"
 fi
-
-install_update_timer() {
-  if [[ "${GAMESPHERE_SKIP_UPDATE_TIMER:-}" == "1" ]]; then
-    return 0
-  fi
-  if [[ "${GAMESPHERE_AUTO_UPDATE:-1}" =~ ^(0|false|no|off)$ ]]; then
-    echo "==> Auto-update timer skipped (GAMESPHERE_AUTO_UPDATE=0)"
-    return 0
-  fi
-  if ! command -v systemctl >/dev/null 2>&1; then
-    echo "==> No systemctl — auto-update timer not installed (use --apply-update)"
-    return 0
-  fi
-  if [[ ! -f "$INSTALL_DIR/scripts/systemd/gamesphere-import-update.service" ]]; then
-    return 0
-  fi
-  mkdir -p "$UNIT_DIR"
+if [[ -f "$INSTALL_DIR/scripts/systemd/gamesphere-import-update.timer" ]]; then
   install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-import-update.service" \
     "$UNIT_DIR/gamesphere-import-update.service"
   install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-import-update.timer" \
     "$UNIT_DIR/gamesphere-import-update.timer"
+elif command -v gs_write_update_units >/dev/null 2>&1; then
+  gs_write_update_units "$UNIT_DIR"
+fi
+if command -v gs_enable_update_timer >/dev/null 2>&1; then
+  gs_enable_update_timer "$UNIT_DIR"
+elif command -v systemctl >/dev/null 2>&1 && [[ -f "$UNIT_DIR/gamesphere-import-update.timer" ]]; then
   systemctl --user daemon-reload 2>/dev/null || true
   systemctl --user enable --now gamesphere-import-update.timer 2>/dev/null || true
-  echo "==> Enabled gamesphere-import-update.timer (GitHub Releases; opt out: GAMESPHERE_AUTO_UPDATE=0)"
-}
-install_update_timer
+fi
 
 if [[ "${GAMESPHERE_ENABLE_HOST_BRIDGE:-}" == "1" ]]; then
   mkdir -p "$UNIT_DIR"
@@ -129,6 +143,7 @@ echo "  gamesphere-import              # import Steam library into Sunshine"
 echo "  gamesphere-import --check-update"
 echo "  gamesphere-import --apply-update"
 echo ""
+echo "Auto-update: gamesphere-import-update.timer (opt out: GAMESPHERE_AUTO_UPDATE=0)"
 echo "Optional DeckyLoader plugin: see decky/README.md"
 
 DECKY_PLUGINS="${DECKY_PLUGINS_DIR:-$HOME/homebrew/plugins}"

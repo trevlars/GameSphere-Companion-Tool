@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
@@ -60,6 +61,178 @@ def auto_update_mode() -> str:
 
 def auto_update_enabled() -> bool:
     return auto_update_mode() != "off"
+
+
+_UPDATE_SERVICE_BODY = """[Unit]
+Description=GameSphere Import Tool auto-update from GitHub Releases
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Nice=10
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/gamesphere-import-update.sh
+
+[Install]
+WantedBy=default.target
+"""
+
+_UPDATE_TIMER_BODY = """[Unit]
+Description=Daily GameSphere Import Tool update check
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=24h
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def _linux_unit_dir() -> str:
+    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(xdg, "systemd", "user")
+
+
+def _linux_update_bin() -> str:
+    return os.path.expanduser(
+        os.environ.get("GAMESPHERE_UPDATE_BIN") or "~/.local/bin/gamesphere-import-update.sh"
+    )
+
+
+def _copy_or_write(src: Optional[str], dest: str, body: str, mode: int = 0o644) -> None:
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    if src and os.path.isfile(src):
+        shutil.copy2(src, dest)
+    elif body:
+        with open(dest, "w", encoding="utf-8") as fh:
+            fh.write(body)
+    else:
+        return
+    os.chmod(dest, mode)
+
+
+def _enable_linger() -> str:
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+    if not user:
+        try:
+            import pwd
+
+            user = pwd.getpwuid(os.getuid()).pw_name
+        except Exception:
+            return ""
+    loginctl = shutil.which("loginctl")
+    if not loginctl:
+        return ""
+    try:
+        shown = subprocess.run(
+            [loginctl, "show-user", user, "-p", "Linger", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if (shown.stdout or "").strip() == "yes":
+            return "linger=yes"
+        subprocess.run(
+            [loginctl, "enable-linger", user],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+        os.environ.setdefault("XDG_RUNTIME_DIR", runtime)
+        os.environ.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime}/bus")
+        bus = os.path.join(runtime, "bus")
+        for _ in range(10):
+            if os.path.exists(bus):
+                break
+            time.sleep(0.4)
+        return f"linger-enabled:{user}"
+    except Exception:
+        return ""
+
+
+def ensure_linux_unattended_update() -> str:
+    """Install the systemd user timer so new Linux installs update without SSH."""
+    if not sys.platform.startswith("linux"):
+        return ""
+    if auto_update_mode() == "off":
+        return "auto-update off"
+    if os.environ.get("GAMESPHERE_SKIP_UPDATE_TIMER", "").strip() == "1":
+        return "timer enable skipped (self-update)"
+    if not shutil.which("systemctl"):
+        return "no systemctl"
+    checkout = source_checkout_dir() or linux_install_dir()
+    scripts = os.path.join(checkout, "scripts")
+    unit_src = os.path.join(scripts, "systemd")
+    update_src = os.path.join(scripts, "gamesphere-import-update.sh")
+    unit_dir = _linux_unit_dir()
+    update_bin = _linux_update_bin()
+    try:
+        if os.path.isfile(update_src):
+            _copy_or_write(update_src, update_bin, "", 0o755)
+        elif not os.path.isfile(update_bin):
+            raw = (
+                f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/"
+                "main/scripts/gamesphere-import-update.sh"
+            )
+            _download(raw, update_bin)
+            os.chmod(update_bin, 0o755)
+        if not os.path.isfile(update_bin):
+            return "update script missing"
+        _copy_or_write(
+            os.path.join(unit_src, "gamesphere-import-update.service")
+            if os.path.isfile(os.path.join(unit_src, "gamesphere-import-update.service"))
+            else None,
+            os.path.join(unit_dir, "gamesphere-import-update.service"),
+            _UPDATE_SERVICE_BODY,
+        )
+        _copy_or_write(
+            os.path.join(unit_src, "gamesphere-import-update.timer")
+            if os.path.isfile(os.path.join(unit_src, "gamesphere-import-update.timer"))
+            else None,
+            os.path.join(unit_dir, "gamesphere-import-update.timer"),
+            _UPDATE_TIMER_BODY,
+        )
+        if os.path.isdir(os.path.join(checkout, ".git")):
+            env_dir = os.path.join(
+                os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+                "environment.d",
+            )
+            os.makedirs(env_dir, exist_ok=True)
+            env_file = os.path.join(env_dir, "50-gamesphere-import-path.conf")
+            home = os.path.expanduser("~")
+            with open(env_file, "w", encoding="utf-8") as fh:
+                fh.write(
+                    "# Prefer git/Decky ~/.local/bin/gamesphere-import over leftover Flatpak.\n"
+                    f"PATH={home}/.local/bin:$PATH\n"
+                )
+        linger = _enable_linger()
+        subprocess.run(
+            ["systemctl", "--user", "daemon-reload"],
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        enabled = subprocess.run(
+            ["systemctl", "--user", "enable", "--now", "gamesphere-import-update.timer"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        if enabled.returncode == 0:
+            extra = f" ({linger})" if linger else ""
+            return f"gamesphere-import-update.timer enabled{extra}"
+        err = (enabled.stderr or enabled.stdout or "").strip()
+        return f"timer not enabled: {err or 'systemctl --user failed'}"
+    except Exception as exc:
+        return f"timer install skipped: {exc}"
 
 
 def _http_json(url: str) -> Any:

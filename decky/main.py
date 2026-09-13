@@ -19,6 +19,12 @@ BIN_CANDIDATES = [
 BRIDGE_UNIT_NAME = "gamesphere-host-bridge.service"
 BRIDGE_UNIT_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-host-bridge.service")
 BRIDGE_UNIT_DST = os.path.expanduser(f"~/.config/systemd/user/{BRIDGE_UNIT_NAME}")
+UPDATE_UNIT_NAME = "gamesphere-import-update.timer"
+UPDATE_SERVICE_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-import-update.service")
+UPDATE_TIMER_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-import-update.timer")
+UPDATE_SCRIPT_SRC = os.path.join(INSTALL_DIR, "scripts/gamesphere-import-update.sh")
+UPDATE_BIN_DST = os.path.expanduser("~/.local/bin/gamesphere-import-update.sh")
+UPDATE_UNIT_DIR = os.path.expanduser("~/.config/systemd/user")
 
 
 def _resolve_command() -> list[str] | None:
@@ -135,6 +141,43 @@ def _ensure_bridge_unit() -> tuple[bool, str]:
     shutil.copy2(BRIDGE_UNIT_SRC, BRIDGE_UNIT_DST)
     _run_systemctl(["daemon-reload"])
     return True, BRIDGE_UNIT_DST
+
+
+def _enable_linger() -> None:
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+    loginctl = shutil.which("loginctl")
+    if not loginctl or not user:
+        return
+    subprocess.run(
+        [loginctl, "enable-linger", user],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+
+
+def _ensure_update_timer() -> tuple[bool, str]:
+    if os.environ.get("GAMESPHERE_AUTO_UPDATE", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return True, "auto-update off"
+    if not os.path.isfile(UPDATE_TIMER_SRC):
+        return False, f"Missing unit template: {UPDATE_TIMER_SRC}"
+    os.makedirs(os.path.dirname(UPDATE_BIN_DST), exist_ok=True)
+    os.makedirs(UPDATE_UNIT_DIR, exist_ok=True)
+    if os.path.isfile(UPDATE_SCRIPT_SRC):
+        shutil.copy2(UPDATE_SCRIPT_SRC, UPDATE_BIN_DST)
+        os.chmod(UPDATE_BIN_DST, 0o755)
+    if os.path.isfile(UPDATE_SERVICE_SRC):
+        shutil.copy2(UPDATE_SERVICE_SRC, os.path.join(UPDATE_UNIT_DIR, "gamesphere-import-update.service"))
+    shutil.copy2(UPDATE_TIMER_SRC, os.path.join(UPDATE_UNIT_DIR, UPDATE_UNIT_NAME))
+    _enable_linger()
+    _run_systemctl(["daemon-reload"])
+    ok, output = _run_systemctl(["enable", "--now", UPDATE_UNIT_NAME])
+    return ok, output or UPDATE_UNIT_NAME
 
 
 def _parse_print_config(raw: str) -> dict:
@@ -265,6 +308,8 @@ class Plugin:
 
     async def _main(self):
         decky.logger.info("GameSphere Import Decky plugin loaded")
+        ok, msg = await asyncio.get_event_loop().run_in_executor(None, _ensure_update_timer)
+        decky.logger.info("Auto-update timer: %s %s", ok, msg)
 
     async def _unload(self):
         pass

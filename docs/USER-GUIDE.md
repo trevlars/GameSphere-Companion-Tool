@@ -17,7 +17,7 @@ Plain-language help for **GameSphere Import Tool**. If you just want download li
 
 - Turn on **Dry run (preview only)** to see what would change without writing files.
 - Paths are pre-filled for a normal Steam + Sunshine/Apollo install. Use **Browse…** only if yours is different.
-- **Check for updates** in the app (also runs on launch) downloads a newer `.exe` when a release is available.
+- **Check for updates** in the app (also runs on launch) downloads a newer `.exe` when a release is available. Set `GAMESPHERE_AUTO_UPDATE=apply` to skip the prompt; `GAMESPHERE_AUTO_UPDATE=0` turns the check off.
 
 ### Which host button?
 
@@ -37,6 +37,8 @@ One command installs from the GitHub release bundle:
 ```bash
 curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-flatpak.sh | bash
 ```
+
+That command also enables **`gamesphere-import-update.timer`**. Downloading only the `.flatpak` bundle does not; use the install script for unattended updates.
 
 Run the tool:
 
@@ -73,6 +75,8 @@ curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/do
 gamesphere-import --dry-run
 gamesphere-import
 ```
+
+The installer enables **`gamesphere-import-update.timer`** (and linger when needed) so later GitHub Releases apply without SSH. Opt out: `GAMESPHERE_AUTO_UPDATE=0`.
 
 **Optional — GameSphere bridge on boot** (session stats / store badges for GameSphere clients):
 
@@ -129,6 +133,14 @@ uv run main.py
 ```
 
 Requires [uv](https://github.com/astral-sh/uv) and Python 3.12+.
+
+There is **no `.app` bundle and no launchd / calendar timer**. To pick up a new GitHub Release:
+
+```bash
+uv run main.py --apply-update
+```
+
+(`git pull` on your clone also works.) There is no unattended macOS timer.
 
 ---
 
@@ -215,8 +227,9 @@ New versions come from [GitHub Releases](https://github.com/trevlars/Gamesphere-
 | Platform | How |
 |----------|-----|
 | **Windows GUI** | Checks on launch; **Check for updates** downloads the matching `.exe`. Set `GAMESPHERE_AUTO_UPDATE=apply` to skip the prompt. |
-| **Linux** | After `install-linux.sh` or `install-flatpak.sh`, `gamesphere-import-update.timer` applies the newest release daily (and ~5 minutes after boot). Manual: `gamesphere-import --apply-update`. |
-| **macOS** | Source tree only: `uv run main.py --apply-update`. |
+| **Linux** | `install-linux.sh` / `install-flatpak.sh` enable `gamesphere-import-update.timer` (linger when needed) so the newest release applies daily and ~5 minutes after boot. Manual: `gamesphere-import --apply-update`. |
+| **macOS** | No `.app` timer. Source tree: `uv run main.py --apply-update`. |
+| **AppImage** | Portable — no timer. `--apply-update`, or use Flatpak / `install-linux.sh`. |
 | **Any** | Re-run `install-flatpak.sh` / `install-linux.sh`, or download the latest [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest). |
 
 Disable the Linux timer: `systemctl --user disable --now gamesphere-import-update.timer` or `GAMESPHERE_AUTO_UPDATE=0`.
