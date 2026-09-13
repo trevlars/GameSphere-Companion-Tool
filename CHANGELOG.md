@@ -4,6 +4,8 @@ All notable changes to GameSphere Import Tool are documented here.
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-09-13
+
 ### Added
 - **Mic to PC — Windows VB-CABLE** — **Set up mic for GameSphere** / `--setup-mic` installs VB-CABLE (license prompt, not bundled) and starts a bundled OSS VBAN feeder into **CABLE Input**. Discord/OBS use **CABLE Output**. No VoiceMeeter. Linux PipeWire path unchanged. See [docs/MIC-TO-PC.md](docs/MIC-TO-PC.md).
 

@@ -1,6 +1,6 @@
 """Single version string for CLI, GUI, and GitHub auto-update."""
 
-__version__ = "1.2.5"
+__version__ = "1.3.0"
 GITHUB_OWNER = "trevlars"
 GITHUB_REPO = "Gamesphere-Import-Tool"
 GITHUB_RELEASES_API = (
