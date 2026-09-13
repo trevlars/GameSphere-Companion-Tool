@@ -146,16 +146,21 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
   else
     echo "==> Git install already $LOCAL"
   fi
+  if [[ "${GAMESPHERE_UPDATE_ALL:-}" != "1" ]]; then
+    echo "==> Primary install is git — skip Flatpak/AppImage (GAMESPHERE_UPDATE_ALL=1 to update those too)"
+    exit 0
+  fi
 fi
 
 if command -v flatpak >/dev/null 2>&1 && flatpak info --user "$FLATPAK_ID" >/dev/null 2>&1; then
-  CUR="$(flatpak info --user "$FLATPAK_ID" 2>/dev/null | awk -F': *' '/^Version:/ {print $2; exit}')"
-  CUR="${CUR:-0.0.0}"
-  if is_newer "$TAG" "$CUR" && [[ -n "${FLATPAK_URL:-}" ]]; then
+  CUR="$(flatpak info --user "$FLATPAK_ID" 2>/dev/null | awk -F': *' '/Version:/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}')"
+  if [[ -z "$CUR" ]]; then
+    echo "==> Flatpak version unknown — skip"
+  elif is_newer "$TAG" "$CUR" && [[ -n "${FLATPAK_URL:-}" ]]; then
     echo "==> Updating Flatpak $CUR → $TAG"
     BUNDLE="$(mktemp "${TMPDIR:-/tmp}/gs-import.XXXXXX.flatpak")"
     curl -fsSL "$FLATPAK_URL" -o "$BUNDLE"
-    flatpak install --user -y "$BUNDLE"
+    flatpak install --user -y "$BUNDLE" || echo "==> Flatpak install skipped (already present or failed)"
     rm -f "$BUNDLE"
     updated=1
   else
@@ -165,8 +170,9 @@ fi
 
 if [[ -f "$APPIMAGE" ]] && [[ -n "${APPIMAGE_URL:-}" ]]; then
   CUR="$("$APPIMAGE" --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-  CUR="${CUR:-0.0.0}"
-  if is_newer "$TAG" "$CUR"; then
+  if [[ -z "$CUR" ]]; then
+    echo "==> AppImage version unknown — skip"
+  elif is_newer "$TAG" "$CUR"; then
     echo "==> Updating AppImage $CUR → $TAG"
     TMP_IMG="${APPIMAGE}.new"
     curl -fsSL "$APPIMAGE_URL" -o "$TMP_IMG"

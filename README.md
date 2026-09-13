@@ -154,7 +154,7 @@ CLI reference and all flags: **[docs/USER-GUIDE.md → Command reference](docs/U
 
 ## What's new
 
-Latest: **v1.3.1** — Linux auto-update timer + **v1.3.0** **Set up mic for GameSphere** (Windows VB-CABLE + VBAN feeder; Linux PipeWire). Discord/OBS use **CABLE Output**. Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
+Latest: **v1.3.2** — unattended Linux updates from GitHub Releases + **v1.3.0** **Set up mic for GameSphere** (Windows VB-CABLE + VBAN feeder; Linux PipeWire). Discord/OBS use **CABLE Output**. Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
 
 Full history: **[CHANGELOG.md](CHANGELOG.md)**
 

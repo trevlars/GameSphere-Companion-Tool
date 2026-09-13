@@ -4,6 +4,11 @@ All notable changes to GameSphere Import Tool are documented here.
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-09-13
+
+### Fixed
+- **Auto-update** — git/Decky installs are the primary Linux path (do not rewrite a leftover Flatpak every day). `install-linux.sh` can `chown` root-owned Decky plugin files so `git reset` is not blocked. Flatpak version parsing ignores indented `Version:` lines.
+
 ## [1.3.1] — 2026-09-13
 
 ### Added

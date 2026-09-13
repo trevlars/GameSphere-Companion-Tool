@@ -24,7 +24,11 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
   git -C "$INSTALL_DIR" fetch --tags origin
   if [[ -n "$REF" ]]; then
     # Dirty HTPC trees (detached HEAD + leftover files) must not block release pins.
-    git -C "$INSTALL_DIR" reset --hard
+    if ! git -C "$INSTALL_DIR" reset --hard; then
+      echo "==> Fixing install-dir ownership (Decky/root-owned files)..."
+      sudo chown -R "$(id -un):$(id -gn)" "$INSTALL_DIR"
+      git -C "$INSTALL_DIR" reset --hard
+    fi
     git -C "$INSTALL_DIR" clean -fd
     git -C "$INSTALL_DIR" checkout --force "$REF"
   else
