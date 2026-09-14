@@ -103,6 +103,16 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_coop(args: argparse.Namespace) -> int:
+    from host_tuning import couch_coop
+
+    if args.action == "apply":
+        print(json.dumps(couch_coop.apply("cli", force=True), indent=2))
+    else:
+        print(json.dumps(couch_coop.status(), indent=2))
+    return 0
+
+
 def cmd_config_init(args: argparse.Namespace) -> int:
     cfg = load_config()
     if args.enable_all:
@@ -141,6 +151,10 @@ def main() -> int:
     p_sessions.set_defaults(func=cmd_sessions)
 
     sub.add_parser("status", help="Show host tuning status").set_defaults(func=cmd_status)
+
+    p_coop = sub.add_parser("coop", help="Couch co-op P1/P2 (Sunshine + Steam Input slots)")
+    p_coop.add_argument("action", choices=["status", "apply"], nargs="?", default="status")
+    p_coop.set_defaults(func=cmd_coop)
 
     p_init = sub.add_parser("init", help="Create default host_tuning.json")
     p_init.add_argument("--enable-all", action="store_true")

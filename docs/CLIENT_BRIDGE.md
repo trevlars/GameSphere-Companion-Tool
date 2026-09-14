@@ -47,9 +47,16 @@ NETINFO AUTH:your-secret:
 | `LOCKSTATE` | `LOCKSTATE` | JSON `{ "locked": true/false }` |
 | `INVITE` | `INVITE {"appId":"...","appName":"...","hostId":"...","lanHost":"10.0.5.42","httpsPort":47984}` | JSON invite token + `gamesphere://join?...` URL |
 | `JOINPIN` | `JOINPIN {"token":"...","pin":"1234","name":"Gemma iPhone"}` | JSON `{ok, guestUuid}` — Companion Tool posts the PIN to Sunshine |
-| `INVITEEND` | `INVITEEND {"token":"..."}` | Unpair guest certs for that invite (host quit). Empty token ends all open invites |
+| `INVITEEND` | `INVITEEND {"token":"..."}` | Unpair **ephemeral** guest certs for that invite (host quit). Trusted UUIDs (see `TRUSTED`) stay paired. |
+| `JOINREQ` | `JOINREQ {"friendName":"…","steamId":"…","appId":"…","appName":"…"}` | Friend → PC: mint join request `{ok, reqId}` |
+| `JOINPENDING` | `JOINPENDING` | Host polls: `{ok, requests:[{reqId,friendName,appName,…}]}` |
+| `JOINACK` | `JOINACK {"reqId":"…","accept":true,"appId":"…","appName":"…","lanHost":"…"}` | Host Accept/Decline |
+| `JOINSTATUS` | `JOINSTATUS {"reqId":"…"}` | Friend polls: `{ok, status:pending\|accepted\|declined\|expired,…}` |
+| `TRUSTED` | `TRUSTED {"uuid":"<moonlight-client-uuid>"}` | Mark guest as trusted — `INVITEEND` will not unpair them |
 
-Guest co-op: host GameSphere sends `INVITE` while streaming, share-sheets the `joinURL`. The friend's GameSphere opens `gamesphere://join`, pairs against Sunshine, and `JOINPIN`s the Companion Tool so nobody types the PIN. Host Quit sends `INVITEEND` so the friend is unpaired.
+Guest co-op (strangers): host GameSphere sends `INVITE` while streaming, share-sheets the `joinURL`. The friend's GameSphere opens `gamesphere://join`, pairs against Sunshine, and `JOINPIN`s the Companion Tool so nobody types the PIN. Host Quit sends `INVITEEND` so **ephemeral** guests are unpaired.
+
+Trusted friends: stay paired after first successful pair (`TRUSTED`). Later joins use `JOINREQ` → host `JOINPENDING`/`JOINACK` → friend `/resume` as P2 (no new PIN).
 
 Forward **TCP 47998** (this bridge) in addition to Sunshine's UDP 47998 video port if the friend is off-LAN. Never forward Sunshine **47990** (web UI). Set `sunshine_username` / `sunshine_password` in `host_tuning.json` to the Sunshine web login.
 

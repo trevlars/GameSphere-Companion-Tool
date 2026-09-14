@@ -4,11 +4,23 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.4.2] — 2026-09-14
+
+### Added
+- **Trusted-friend join** — bridge verbs `JOINREQ`, `JOINPENDING`, `JOINACK`, `JOINSTATUS`, `TRUSTED`. Friends stay paired; Accept on the host resumes them as P2.
+- **Couch co-op P1/P2** — game-agnostic via Sunshine connect-order and Steam Input (not a per-game `.so`). JOINACK, Sunshine Gamepad 1, and a second session hide Steam `28de:11ff` clones, slot host P1 / guest P2, and write `gamesphere-couch-coop.env`. Gemma DualSense USB sets `BAZZITE_REMOTE_XBOX_P1=never`.
+
 ## [1.4.1] — 2026-09-14
 
 ### Added
 - **Local playtime** — reads Steam `localconfig.vdf` / `sharedconfig.vdf` plus Non-Steam `shortcuts.vdf` `LastPlayTime` (no Web API key). Stamps `_gamesphere_playtime_minutes` / `_gamesphere_last_played` on `apps.json`.
 - **`PLAYTIMES` bridge verb** — JSON `{ "games": [{ name, minutes, lastPlayed, steamAppId, shortAppId, sunshineId }] }` so GameSphere can badge emu / shortcut hours.
+
+## [1.4.0] — 2026-09-14
+
+### Added
+- **Guest invites** — host bridge verbs `INVITE`, `JOINPIN`, `INVITEEND`. Companion Tool posts the friend's Moonlight PIN to Sunshine/Apollo and unpairs that client when the host quits.
+- Product name **GameSphere Companion Tool** (binary and GitHub repo unchanged).
 
 ## [1.3.3] — 2026-09-13
 

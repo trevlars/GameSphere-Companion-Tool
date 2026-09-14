@@ -91,6 +91,13 @@ def prep_start(cfg: Optional[HostTuningConfig] = None) -> Dict[str, Any]:
         ok, msg = display_audio.enable_spatial_audio(cfg.spatial_audio_device, cfg.spatial_audio_format)
         log["actions"].append({"spatial_audio": ok, "message": msg})
 
+    try:
+        from host_tuning import couch_coop
+
+        log["actions"].append({"couch_coop": couch_coop.apply("prep_start")})
+    except Exception as exc:
+        logging.warning("couch_coop prep_start: %s", exc)
+
     return log
 
 

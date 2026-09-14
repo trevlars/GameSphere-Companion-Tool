@@ -2,7 +2,8 @@
 TCP bridge for GameSphere clients (StreamTweak-compatible subset on port 47998).
 
 Supported verbs: CAPS, NETINFO, SETSPEED, RESTORE, STATUS, STATS, TAILSCALE,
-LASTSESSION, SESSIONDATA, APPSTORES, PLAYTIMES, GAMESTATE, LOCKSTATE.
+LASTSESSION, SESSIONDATA, APPSTORES, PLAYTIMES, GAMESTATE, LOCKSTATE,
+INVITE, JOINPIN, INVITEEND, JOINREQ, JOINPENDING, JOINACK, JOINSTATUS, TRUSTED.
 """
 
 from __future__ import annotations
@@ -24,6 +25,9 @@ from host_tuning import link_speed
 from host_tuning import lock_state
 from host_tuning import session_telemetry
 from host_tuning import tailscale
+from host_tuning import invite as guest_invite
+from host_tuning import join_request
+from host_tuning import couch_coop
 
 
 class _BridgeHandler(socketserver.StreamRequestHandler):
@@ -54,7 +58,8 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
             if verb == "CAPS":
                 self._reply(
                     "CAPS NETINFO SETSPEED RESTORE STATUS STATS TAILSCALE "
-                    "LASTSESSION SESSIONDATA APPSTORES PLAYTIMES GAMESTATE LOCKSTATE"
+                    "LASTSESSION SESSIONDATA APPSTORES PLAYTIMES GAMESTATE LOCKSTATE "
+                    "INVITE JOINPIN INVITEEND JOINREQ JOINPENDING JOINACK JOINSTATUS TRUSTED"
                 )
             elif verb == "NETINFO":
                 self._reply(link_speed.netinfo_json(adapter or "", active))
@@ -104,6 +109,73 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                 self._reply(launch_watcher.game_state_json(recent))
             elif verb == "LOCKSTATE":
                 self._reply(lock_state.lock_state_json())
+            elif verb == "INVITE":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    result = guest_invite.mint(payload)
+                    logging.info("INVITE ok=%s lan=%s", result.get("ok"), result.get("lanHost"))
+                    self._reply(json.dumps(result))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "JOINPIN":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    result = guest_invite.submit_pin(payload)
+                    logging.info("JOINPIN ok=%s error=%s", result.get("ok"), result.get("error"))
+                    self._reply(json.dumps(result))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "INVITEEND":
+                token = ""
+                if arg:
+                    try:
+                        payload = json.loads(arg)
+                        if isinstance(payload, dict):
+                            token = str(payload.get("token") or "")
+                        else:
+                            token = arg.strip()
+                    except json.JSONDecodeError:
+                        token = arg.strip()
+                self._reply(json.dumps(guest_invite.end_invite(token)))
+            elif verb == "JOINREQ":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    self._reply(json.dumps(join_request.create(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "JOINPENDING":
+                self._reply(json.dumps(join_request.pending()))
+            elif verb == "JOINACK":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    self._reply(json.dumps(join_request.ack(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "JOINSTATUS":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    self._reply(json.dumps(join_request.status(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "TRUSTED":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    uuid = str(payload.get("uuid") or payload.get("guestUuid") or "").strip()
+                    self._reply(json.dumps(join_request.mark_trusted(uuid)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
             else:
                 self._reply("ERR_UNKNOWN")
         except Exception as exc:
@@ -123,6 +195,7 @@ class GameSphereBridge:
         self._server: Optional[socketserver.ThreadingTCPServer] = None
         self._thread: Optional[threading.Thread] = None
         self.monitor = session_telemetry.SessionLogMonitor("")
+        self._coop_watch: Optional[couch_coop.CouchCoopWatch] = None
         self.app_stores_provider: Optional[Callable[[], str]] = None
         self.playtimes_provider: Optional[Callable[[], str]] = None
 
@@ -147,14 +220,26 @@ class GameSphereBridge:
             steam_vdf = ""
         self.app_stores_provider = lambda: app_stores.app_stores_json(apps_path)
         self.playtimes_provider = lambda: steam_playtime.playtimes_json(apps_path, steam_vdf)
+        def _on_stop(_e):
+            adapter_name = link_speed.find_wired_adapter(cfg.network_adapter) or ""
+            if adapter_name:
+                link_speed.restore_link_speed(adapter_name)
+            guest_invite.on_session_stop()
+
+        def _on_start(_e):
+            couch_coop.arm_late_join()
+            couch_coop.apply("session_start")
+
         self.monitor = session_telemetry.SessionLogMonitor(
             log_path or session_telemetry.detect_sunshine_log_path(cfg.sunshine_log_path),
-            on_start=lambda _e: None,
-            on_stop=lambda _e: link_speed.restore_link_speed(
-                link_speed.find_wired_adapter(cfg.network_adapter) or ""
-            ),
+            on_start=_on_start,
+            on_stop=_on_stop,
+            on_coop_hint=couch_coop.on_sunshine_hint,
         )
         self.monitor.start()
+        self._coop_watch = couch_coop.CouchCoopWatch()
+        self._coop_watch.start()
+        couch_coop.apply("bridge_start")
         class Server(socketserver.ThreadingTCPServer):
             allow_reuse_address = True
             daemon_threads = True
@@ -168,6 +253,9 @@ class GameSphereBridge:
         logging.info("GameSphere host bridge listening on TCP %s", port)
 
     def stop(self) -> None:
+        if self._coop_watch:
+            self._coop_watch.stop()
+            self._coop_watch = None
         if self.monitor:
             self.monitor.stop()
         if self._server:

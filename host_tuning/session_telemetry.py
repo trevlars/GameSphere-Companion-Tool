@@ -29,6 +29,8 @@ _SESSION_END = re.compile(
 _SESSION_UUID_BEGIN = re.compile(r"session_history:\s*begin_session\s+uuid=([a-f0-9-]+)", re.I)
 _SESSION_UUID_END = re.compile(r"session_history:\s*end_session\s+uuid=([a-f0-9-]+)", re.I)
 _EXECUTING = re.compile(r'^Executing:\s*\["([^"]+)"\]', re.I)
+_GAMEPAD_ALLOC = re.compile(r"Gamepad\s+(\d+)\s+will be", re.I)
+_ACTIVE_SESSIONS = re.compile(r"active sessions:\s*(\d+)", re.I)
 
 
 @dataclass
@@ -150,10 +152,12 @@ class SessionLogMonitor:
         log_path: str,
         on_start: Optional[Callable[[SessionEntry], None]] = None,
         on_stop: Optional[Callable[[SessionEntry], None]] = None,
+        on_coop_hint: Optional[Callable[[str], None]] = None,
     ):
         self.log_path = log_path
         self.on_start = on_start
         self.on_stop = on_stop
+        self.on_coop_hint = on_coop_hint
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._watch_thread: Optional[threading.Thread] = None
@@ -225,6 +229,14 @@ class SessionLogMonitor:
                 m_begin = _SESSION_UUID_BEGIN.search(core)
                 self._begin_session(m_begin.group(1) if m_begin else "")
             return
+
+        if self.on_coop_hint and (
+            _GAMEPAD_ALLOC.search(core) or _ACTIVE_SESSIONS.search(core)
+        ):
+            try:
+                self.on_coop_hint(core)
+            except Exception:
+                logging.exception("Session monitor coop hint")
 
         if self._active:
             m = _EXECUTING.search(core)

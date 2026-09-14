@@ -71,6 +71,10 @@ class HostTuningConfig:
     sunshine_log_path: str = ""
     # Tailscale presence in bridge NETINFO/TAILSCALE
     tailscale_enabled: bool = True
+    # Sunshine / Apollo web UI (localhost) — used to inject guest PINs and unpair
+    sunshine_web_url: str = "https://127.0.0.1:47990"
+    sunshine_username: str = ""
+    sunshine_password: str = ""
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HostTuningConfig":
