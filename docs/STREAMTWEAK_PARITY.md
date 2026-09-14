@@ -71,6 +71,7 @@ StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compati
 | Manual entries preserved | ✅ | `custom_games.json` + merge, never wipe Desktop |
 | Host tile replacement | ✅ | Reversible `desktop.png` / `steam.png` swap |
 | Store badges on client (`APPSTORES`) | ✅ 🔌 | From `_gamesphere_store` in `apps.json` |
+| Playtime on client (`PLAYTIMES`) | ✅ 🔌 | Local Steam `localconfig.vdf` + Non-Steam `shortcuts.vdf` |
 
 ---
 
@@ -110,6 +111,7 @@ StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compati
 | `LASTSESSION` | ✅ |
 | `SESSIONDATA` | ✅ |
 | `APPSTORES` | ✅ |
+| `PLAYTIMES` | ✅ | Local Steam `localconfig.vdf` + Non-Steam shortcuts (GameSphere hours badge) |
 | `GAMESTATE` | 🟡 |
 | `LOCKSTATE` | 🟡 |
 | `ENROLL` / `AUTH1` (RSA) | ⬜ | Optional shared secret instead |

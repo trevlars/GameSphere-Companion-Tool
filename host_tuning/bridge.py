@@ -2,7 +2,7 @@
 TCP bridge for GameSphere clients (StreamTweak-compatible subset on port 47998).
 
 Supported verbs: CAPS, NETINFO, SETSPEED, RESTORE, STATUS, STATS, TAILSCALE,
-LASTSESSION, SESSIONDATA, APPSTORES, GAMESTATE, LOCKSTATE.
+LASTSESSION, SESSIONDATA, APPSTORES, PLAYTIMES, GAMESTATE, LOCKSTATE.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from typing import Callable, Optional
 
 from host_tuning.config import load_config
 from host_tuning import app_stores
+from host_tuning import steam_playtime
 from host_tuning import launch_watcher
 from host_tuning import link_speed
 from host_tuning import lock_state
@@ -45,6 +46,7 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
 
             monitor = getattr(self.server, "session_monitor", None)
             app_stores_provider = getattr(self.server, "app_stores_provider", None)
+            playtimes_provider = getattr(self.server, "playtimes_provider", None)
 
             adapter = link_speed.find_wired_adapter(cfg.network_adapter)
             active = monitor.session_active if monitor else False
@@ -52,7 +54,7 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
             if verb == "CAPS":
                 self._reply(
                     "CAPS NETINFO SETSPEED RESTORE STATUS STATS TAILSCALE "
-                    "LASTSESSION SESSIONDATA APPSTORES GAMESTATE LOCKSTATE"
+                    "LASTSESSION SESSIONDATA APPSTORES PLAYTIMES GAMESTATE LOCKSTATE"
                 )
             elif verb == "NETINFO":
                 self._reply(link_speed.netinfo_json(adapter or "", active))
@@ -92,6 +94,11 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                     self._reply(app_stores_provider())
                 else:
                     self._reply("{}")
+            elif verb == "PLAYTIMES":
+                if playtimes_provider:
+                    self._reply(playtimes_provider())
+                else:
+                    self._reply("{\"games\":[]}")
             elif verb == "GAMESTATE":
                 recent = monitor._recent_lines if monitor else []
                 self._reply(launch_watcher.game_state_json(recent))
@@ -117,6 +124,7 @@ class GameSphereBridge:
         self._thread: Optional[threading.Thread] = None
         self.monitor = session_telemetry.SessionLogMonitor("")
         self.app_stores_provider: Optional[Callable[[], str]] = None
+        self.playtimes_provider: Optional[Callable[[], str]] = None
 
     def start(self, port: int = 47998, log_path: str = "", apps_json_path: str = "") -> None:
         cfg = load_config()
@@ -126,13 +134,19 @@ class GameSphereBridge:
             or os.environ.get("sunshine_apps_json_path")
             or ""
         )
-        if not apps_path:
+        steam_vdf = ""
+        try:
             from platform_paths import detect_paths
 
             detected = detect_paths()
             if detected:
-                apps_path = detected.sunshine_apps_json
+                if not apps_path:
+                    apps_path = detected.sunshine_apps_json
+                steam_vdf = detected.steam_library_vdf or ""
+        except Exception:
+            steam_vdf = ""
         self.app_stores_provider = lambda: app_stores.app_stores_json(apps_path)
+        self.playtimes_provider = lambda: steam_playtime.playtimes_json(apps_path, steam_vdf)
         self.monitor = session_telemetry.SessionLogMonitor(
             log_path or session_telemetry.detect_sunshine_log_path(cfg.sunshine_log_path),
             on_start=lambda _e: None,
@@ -148,6 +162,7 @@ class GameSphereBridge:
         self._server = Server(("0.0.0.0", port), _BridgeHandler)
         self._server.session_monitor = self.monitor
         self._server.app_stores_provider = lambda: app_stores.app_stores_json(apps_path)
+        self._server.playtimes_provider = lambda: steam_playtime.playtimes_json(apps_path, steam_vdf)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         logging.info("GameSphere host bridge listening on TCP %s", port)

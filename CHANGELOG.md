@@ -1,8 +1,14 @@
 # Changelog
 
-All notable changes to GameSphere Import Tool are documented here.
+All notable changes to GameSphere Companion Tool (formerly Import Tool) are documented here.
 
 ## [Unreleased]
+
+## [1.4.1] — 2026-09-14
+
+### Added
+- **Local playtime** — reads Steam `localconfig.vdf` / `sharedconfig.vdf` plus Non-Steam `shortcuts.vdf` `LastPlayTime` (no Web API key). Stamps `_gamesphere_playtime_minutes` / `_gamesphere_last_played` on `apps.json`.
+- **`PLAYTIMES` bridge verb** — JSON `{ "games": [{ name, minutes, lastPlayed, steamAppId, shortAppId, sunshineId }] }` so GameSphere can badge emu / shortcut hours.
 
 ## [1.3.3] — 2026-09-13
 

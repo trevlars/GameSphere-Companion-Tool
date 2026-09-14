@@ -41,7 +41,7 @@ gamesphere-import --print-config   # JSON dump of detected paths on this machine
 | Launch format | Windows: `cmd` + `steam://rungameid/…` · Linux/macOS: **`detached`** array per [Sunshine app examples](https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2app__examples.html) |
 | Quit App | Prep-cmd **undo** closes detached Steam / Non-Steam games when the client sends `/cancel` |
 | Restart | Restarts the host when done (Windows exe, Linux `systemctl --user restart sunshine`, Flatpak restart) |
-| Metadata | Each imported entry may include `_gamesphere_store` / `_gamesphere_store_key` for prune + bridge `APPSTORES` |
+| Metadata | Each imported entry may include `_gamesphere_store` / `_gamesphere_store_key` for prune + bridge `APPSTORES`, and `_gamesphere_playtime_minutes` / `_gamesphere_last_played` for `PLAYTIMES` |
 
 Paths are **auto-detected** when `.env` is missing.
 
@@ -261,6 +261,7 @@ gamesphere-import --host-bridge
 | `LASTSESSION` | client → host | Previous session summary |
 | `TAILSCALE` | client → host | Tailscale IPv4 if present |
 | `APPSTORES` | client → host | Map app name → store id from `apps.json` |
+| `PLAYTIMES` | client → host | Local Steam / Non-Steam playtime + last played |
 | `GAMESTATE` | client → host | Launch / running heuristic |
 | `LOCKSTATE` | client → host | Screen lock detection |
 
@@ -313,6 +314,7 @@ Config file:
 
 - Library sync is host-side ([Import Tool](https://github.com/trevlars/Gamesphere-Import-Tool)). GameSphere implements the bridge client in `GSHostCompanionBridge` / `GSHostStoreCatalog`:
   - **`APPSTORES`** — store labels for IGDB platform hints (Steam, Epic, GOG, …)
+  - **`PLAYTIMES`** — local Steam / Non-Steam hours + last played (no Web API key)
   - **`SESSIONDATA`** — telemetry every 15 s during a stream → host session grades
   - **`RESTORE`** — link-speed restore on stream exit (when bridge is active)
 - Wire protocol: [CLIENT_BRIDGE.md](CLIENT_BRIDGE.md)

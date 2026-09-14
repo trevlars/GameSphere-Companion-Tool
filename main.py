@@ -496,6 +496,14 @@ def _repair_steam_app_entry(app: Dict) -> Dict:
     repaired["prep-cmd"] = _merge_steam_prep_cmds(app_id, app.get("prep-cmd"))
     if not repaired["prep-cmd"]:
         repaired.pop("prep-cmd", None)
+    for key in (
+        "_gamesphere_store",
+        "_gamesphere_store_key",
+        "_gamesphere_playtime_minutes",
+        "_gamesphere_last_played",
+    ):
+        if key in app:
+            repaired[key] = app[key]
     return repaired
 
 
@@ -2471,6 +2479,13 @@ def main() -> None:
         if retagged:
             logging.info("Tagged %d Non-Steam app(s) with GameSphere platform suffixes", retagged)
 
+        from host_tuning.steam_playtime import collect_playtimes, stamp_apps
+
+        playtime_records = collect_playtimes(config['STEAM_LIBRARY_VDF_PATH'])
+        playtime_changed = stamp_apps(updated_apps, playtime_records)
+        if playtime_changed:
+            logging.info("Updated local playtime on %d Sunshine app(s)", playtime_changed)
+
         if (
             not removed_steam
             and not removed_epic
@@ -2484,7 +2499,12 @@ def main() -> None:
             and not repaired_steam
             and not retagged
         ):
-            logging.info("No changes needed - all games are up to date")
+            if playtime_changed and not args.dry_run:
+                sunshine_config['apps'] = updated_apps
+                save_sunshine_config(config['SUNSHINE_APPS_JSON_PATH'], sunshine_config)
+                logging.info("Playtime metadata written (Sunshine not restarted)")
+            else:
+                logging.info("No changes needed - all games are up to date")
             return
         
         if args.dry_run:
@@ -2514,6 +2534,7 @@ def main() -> None:
         # Add new custom games
         new_custom_apps = add_custom_games(custom_list, existing_cmds, config['STEAMGRIDDB_API_KEY'], config['SUNSHINE_GRIDS_FOLDER'], shortcuts_folder)
         updated_apps.extend(new_custom_apps)
+        stamp_apps(updated_apps, playtime_records)
         
         # Update and save configuration
         sunshine_config['apps'] = updated_apps

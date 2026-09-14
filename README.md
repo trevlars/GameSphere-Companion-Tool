@@ -1,6 +1,8 @@
-# GameSphere Import Tool
+# GameSphere Companion Tool
 
-**Put your Steam library on Sunshine or Apollo — with cover art — so you can stream from Moonlight, GameSphere, or any Moonlight client.**
+Formerly **GameSphere Import Tool**. Same GitHub repo and `gamesphere-import` command for now.
+
+**Fill Sunshine or Apollo with your game library, then keep the host paired with GameSphere** — cover art, host bridge, mic feeder, and guest invites (Player 2).
 
 No manual `apps.json` editing. Run the tool once (or again after you buy new games) and your titles show up in the host app with artwork.
 
@@ -25,6 +27,7 @@ No manual `apps.json` editing. Run the tool once (or again after you buy new gam
 1. **Finds your games** — Steam library + Non-Steam shortcuts (Eden, emulators, etc.). On Windows it also scans Epic, GOG, Ubisoft, Battle.net, EA, and Xbox / Game Pass.
 2. **Builds your streaming list** — Writes Sunshine-style `apps.json`, downloads box art, keeps your Desktop / Big Picture entries.
 3. **Restarts the host** — Sunshine or Apollo reloads so Moonlight sees everything right away.
+4. **Local playtime** — reads Steam `localconfig.vdf` + Non-Steam shortcut hours (no Web API key) and serves them to GameSphere over the host bridge (`PLAYTIMES`).
 
 Built for [GameSphere](https://github.com/trevlars/GameSphere) and works with **official Moonlight** and other Moonlight-compatible clients.
 
