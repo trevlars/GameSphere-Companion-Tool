@@ -1,10 +1,11 @@
 # Client bridge protocol (TCP 47998)
 
-GameSphere Companion Tool exposes a **TCP** bridge on port **47998** when you run:
+GameSphere Companion Tool exposes a **TCP** bridge on port **47998**. In production this is the always-on **`gamesphere-host-bridge`** daemon (systemd user service, Windows Task Scheduler, or macOS LaunchAgent) — not a window you leave open.
 
 ```bash
-gamesphere-import --host-bridge
-# or: uv run host_tuning_cli.py bridge
+gamesphere-import --host-bridge          # foreground (what the service runs)
+gamesphere-import --host-daemon-install   # enable login/boot autostart
+# or: uv run host_tuning_cli.py daemon install
 ```
 
 This is separate from Moonlight’s **UDP** video traffic on the same port number. TCP and UDP do not conflict.
@@ -45,20 +46,34 @@ NETINFO AUTH:your-secret:
 | `PLAYTIMES` | `PLAYTIMES` | JSON `{ "games": [{ "name", "minutes", "lastPlayed", "steamAppId", "shortAppId", "sunshineId" }] }` from local Steam files |
 | `GAMESTATE` | `GAMESTATE` | JSON launch heuristic |
 | `LOCKSTATE` | `LOCKSTATE` | JSON `{ "locked": true/false }` |
-| `INVITE` | `INVITE {"appId":"...","appName":"...","hostId":"...","lanHost":"10.0.5.42","httpsPort":47984}` | JSON invite token + `gamesphere://join?...` URL |
-| `JOINPIN` | `JOINPIN {"token":"...","pin":"1234","name":"Gemma iPhone"}` | JSON `{ok, guestUuid}` — Companion Tool posts the PIN to Sunshine |
+| `INVITE` | `INVITE {"appId":"...","appName":"...","hostId":"...","lanHost":"192.168.1.50","httpsPort":47984}` | JSON invite token + `gamesphere://join?...` URL |
+| `JOINPIN` | `JOINPIN {"token":"...","pin":"1234","name":"Friend iPhone"}` | JSON `{ok, guestUuid}` — Companion Tool posts the PIN to Sunshine |
 | `INVITEEND` | `INVITEEND {"token":"..."}` | Unpair **ephemeral** guest certs for that invite (host quit). Trusted UUIDs (see `TRUSTED`) stay paired. |
-| `JOINREQ` | `JOINREQ {"friendName":"…","steamId":"…","appId":"…","appName":"…"}` | Friend → PC: mint join request `{ok, reqId}` |
-| `JOINPENDING` | `JOINPENDING` | Host polls: `{ok, requests:[{reqId,friendName,appName,…}]}` |
+| `JOINREQ` | `JOINREQ {"friendName":"…","uuid":"…","sessionId":"…","appId":"…"}` | Friend → PC: mint join request. If `uuid` is session-preauthed, **auto-JOINACK** (`status=accepted`, `preauth=true`). Else `{ok, reqId, preauth:false}` |
+| `JOINPENDING` | `JOINPENDING` | Host polls: `{ok, requests:[{reqId,friendName,appName,…}]}` — auto-accepted preauth joins do **not** appear |
 | `JOINACK` | `JOINACK {"reqId":"…","accept":true,"appId":"…","appName":"…","lanHost":"…"}` | Host Accept/Decline |
 | `JOINSTATUS` | `JOINSTATUS {"reqId":"…"}` | Friend polls: `{ok, status:pending\|accepted\|declined\|expired,…}` |
 | `TRUSTED` | `TRUSTED {"uuid":"<moonlight-client-uuid>"}` | Mark guest as trusted — `INVITEEND` will not unpair them |
+| `HOSTINFO` | `HOSTINFO` | Host SteamID + persona + avatar URL + lan/wan + `wanReady`/`wanStatus` + voice port |
+| `COOPSTATE` | `COOPSTATE` optional `{"hostUnpaused":true}` | P1–P4 seats, pauseRecommended, `wannaPlay` session, client health, `wanReady`, plus `coopChat[]` / `playReplies[]` / `playReply` (guest phrase bubbles, TTL ~30s) |
+| `SLOTSWAP` | `SLOTSWAP {"order":[1,0,2,3]}` | Host-only remap. `order[i]` = old seat that becomes new seat `i`. Example P1↔P2: `[1,0,2,3]` |
+| `WANSETUP` | `WANSETUP` optional `{"map":true}` / `{"unmap":true}` | JSON WAN status (`wanReady`, one-line `status`). Maps game ports via UPnP/NAT-PMP; never 47990 |
+| `VOICE` | `VOICE start\|stop\|status` | UDP voice mixer (port 48020) |
+| `WANNAPLAY` | `WANNAPLAY {"appId":"…","appName":"…","hostId":"…","coverUrl"?}` or `{"end":true}` | Host Swap “Wanna play”: stamp session pre-auth; HTTP/2 APNs to registered tokens; return `playURL` (`gamesphere://play?…&preauth=1`) + `pushStatus` |
+| `PLAYREG` | `PLAYREG {"uuid":"…","name":"Alex iPad","apnsToken":"…","apnsEnvironment":"development"}` | Friend registers as a ping target (also marks TRUSTED). Debug 115 = `development` (sandbox). TestFlight = `production`. |
+| `PLAYPENDING` | `PLAYPENDING {"uuid":"…"}` | Friend polls host-initiated pings for this session |
+| `PLAYCLAIM` | `PLAYCLAIM {"uuid":"…","sessionId":"…"}` | Consume ping. Does **not** assign a pad seat — follow with `JOINREQ` |
+| `PLAYREPLY` | `PLAYREPLY {"uuid":"…","sessionId":"…","phrase":"I'm in","accepted":true,"persona"?,"avatarUrl"?}` | Guest tapped I'm in / You're going down / Can't right now. Echoed on the next `COOPSTATE` as `coopChat` / `playReplies` / `playReply` (last 8, TTL ~30s). Does not gate `/resume` or change seats. |
 
 Guest co-op (strangers): host GameSphere sends `INVITE` while streaming, share-sheets the `joinURL`. The friend's GameSphere opens `gamesphere://join`, pairs against Sunshine, and `JOINPIN`s the Companion Tool so nobody types the PIN. Host Quit sends `INVITEEND` so **ephemeral** guests are unpaired.
 
-Trusted friends: stay paired after first successful pair (`TRUSTED`). Later joins use `JOINREQ` → host `JOINPENDING`/`JOINACK` → friend `/resume` as P2 (no new PIN).
+Trusted friends: stay paired after first successful pair (`TRUSTED` / `PLAYREG`). Later joins use `JOINREQ` → host `JOINPENDING`/`JOINACK` → friend `/resume` as P2–P4 (no new PIN).
 
-Forward **TCP 47998** (this bridge) in addition to Sunshine's UDP 47998 video port if the friend is off-LAN. Never forward Sunshine **47990** (web UI). Set `sunshine_username` / `sunshine_password` in `host_tuning.json` to the Sunshine web login.
+**Wanna play (session pre-auth):** host Swap overlay sends `WANNAPLAY`. Companion stamps every current TRUSTED UUID for **this Sunshine session only** and returns `gamesphere://play?session=…&host=LAN&lan=LAN&wan=WAN&preauth=1`. Registered devices with an `apnsToken` get an HTTP/2 APNs alert (title/body + `mutable-content` cover URL). Those clients `JOINREQ` with `uuid` + `sessionId` and get **auto-JOINACK** — no Accept sheet. A trusted friend who was not pinged still needs Accept. Stream stop (or `WANNAPLAY {"end":true}`) clears pre-auth. Join-order seats stay locked; only host `SLOTSWAP` remaps. Guest phrase taps (`PLAYREPLY`) are fire-and-forget; P1 StreamFrame polls `COOPSTATE` for `coopChat` / `playReplies` / `playReply`.
+
+If the host has no APNs Auth Key (`.p8`), `PLAYPENDING` poll still works while GameSphere is open; `pushStatus` / `wanna` CLI is one sentence that lock-screen needs the key. Setup: [APNS.md](APNS.md). Never use App Store Connect API keys.
+
+Invite / Wanna play / stream start **auto-maps** Sunshine + Companion ports (UPnP IGD / NAT-PMP / PCP) and fills `wan=` from STUN. Mappings drop when the session is idle. Never maps Sunshine **47990**. If the router has no UPnP, `wanReady` is false and `wanStatus` is one sentence. Clients try LAN `serverinfo` first, then WAN — no hairpin. See [WAN.md](WAN.md). Set `sunshine_username` / `sunshine_password` in `host_tuning.json` to the Sunshine web login (never logged or printed).
 
 ### SESSIONDATA sample fields
 
@@ -75,7 +90,34 @@ The host uses these to grade sessions in `sessions.json`:
 }
 ```
 
-`drop_rate` is 0.0–1.0 (not percent).
+`drop_rate` is 0.0–1.0 (not percent). For couch pause, also send:
+
+```json
+{
+  "client": "GameSphere",
+  "client_id": "<moonlight-uuid>",
+  "role": "host",
+  "is_host": true,
+  "drop_rate": 0.01,
+  "client_name": "iPad"
+}
+```
+
+`role` is `"host"` or `"guest"`. Host StreamFrame should poll `COOPSTATE` and `pulsePlayButton` when `pauseRecommended` is true. After the host overlay unpauses, send `COOPSTATE {"hostUnpaused":true}`.
+
+### Wanna-play deep link (iOS sibling)
+
+```
+gamesphere://play?session=TOKEN&preauth=1&token=TOKEN
+  &host=LAN&lan=LAN&wan=PUBLIC&httpsPort=47984
+  &appId=…&hostId=…&name=AppName
+```
+
+Friend: `PLAYPENDING` (or open the URL) → `JOINREQ` with `uuid` + `sessionId` → if `preauth=true` / `status=accepted`, `/resume` immediately. Do not show Accept on the host for that client.
+
+### Voice (UDP 48020)
+
+Only after `HOSTINFO`/`COOPSTATE` shows `voiceRunning`. Header 12 bytes, network order: `GSVC` + ver(1) + slot(1) + seq(2) + samples(2) + rate(2). Payload: 16 kHz s16le mono PCM. Mix is client-to-client only — do not mix into Sunshine HDMI.
 
 ---
 
@@ -94,9 +136,9 @@ Moonlight, StreamLight, or your fork can reuse the same verbs without importing 
 
 ## Host setup checklist
 
-1. Install Import Tool (`install-linux.sh` or Windows GUI).
+1. Install Companion (`install-linux.sh`, Flatpak, or Windows GUI). The host daemon is enabled on install.
 2. Run `host_tuning_cli.py init --enable-all` (enables bridge in config).
-3. Start bridge: `--host-bridge` or systemd user service (see `scripts/systemd/gamesphere-host-bridge.service`).
+3. Confirm the daemon: `systemctl --user status gamesphere-host-bridge.service` or `--host-daemon-status`.
 4. Import library so `apps.json` includes `_gamesphere_store` for `APPSTORES`.
 
 See [HOST_INTEGRATION.md](HOST_INTEGRATION.md) for embedding in Sunshine, Apollo, Vibeshine, and other hosts.

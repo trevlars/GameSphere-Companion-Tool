@@ -2,7 +2,7 @@
 
 This document is for **maintainers of game-streaming hosts and clients** — [Sunshine](https://github.com/LizardByte/Sunshine), [Apollo](https://github.com/ClassicOldSong/Apollo), Vibeshine, Vibepollo, [GameSphere](https://github.com/trevlars/GameSphere), Decky plugins, distro images, or your own fork.
 
-GameSphere Import Tool is a **standalone CLI** today. It does not require changes to your host to work, but wrapping it gives users a one-click “Sync my library” experience and optional StreamTweak-style host tuning.
+GameSphere Import Tool is a **library importer plus an always-on host daemon**. The GUI/CLI import is optional after first setup. `gamesphere-host-bridge` must stay up for JOINPIN, couch coop, WAN maps, and in-stream voice.
 
 **Related docs**
 
@@ -81,9 +81,9 @@ For titles outside Steam’s shortcut system, ship or point users at `custom_gam
 
 Set `CUSTOM_GAMES_JSON_PATH` in `.env` or pass via `--auto-config`. Entries merge like Steam games and survive re-import.
 
-### Bazzite / stream prep hooks
+### Existing host prep hooks
 
-When `~/.local/bin/sunshine-stream-prep.sh` exists, imported Steam apps inherit those prep commands **in addition to** `gamesphere-host-prep.sh` (host tuning). Hosts that ship their own prep scripts should document ordering: global prep → per-game prep → undo on Quit App.
+When `~/.local/bin/sunshine-stream-prep.sh` (or another global prep script) already exists, imported Steam apps inherit those prep commands **in addition to** `gamesphere-host-prep.sh` (host tuning). Hosts that ship their own prep scripts should document ordering: global prep → per-game prep → undo on Quit App. Companion does not require a distro-specific one-off.
 
 ---
 
@@ -113,7 +113,8 @@ std::system("gamesphere-import --no-restart 2>&1 | tee /tmp/gamesphere-import.lo
 | `--no-restart` | Host reloads `apps.json` itself |
 | `--verbose` | Detailed logs in UI |
 | `--host-tuning` | Import + apply tiles / NVIDIA snapshot / prep scripts |
-| `--host-bridge` | Background TCP bridge + session monitor (usually separate service) |
+| `--host-bridge` | Foreground host daemon (systemd / LaunchAgent ExecStart) |
+| `--host-daemon-install` | Enable login/boot autostart and start the daemon |
 
 Exit code `0` = success. Parse stdout for `BANNER:` lines for user-friendly status.
 
@@ -180,7 +181,7 @@ Change `Environment=HOST=` for Apollo vs Sunshine. Override paths with `Environm
 
 ### 4. Package / image bundling
 
-**Linux (Bazzite, Deck, immutable distros):**
+**Linux (SteamOS, Bazzite, immutable distros, generic desktop):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/scripts/install-linux.sh | bash
@@ -218,7 +219,33 @@ config = validate_config(auto_detect=True)
 
 ---
 
-## Host tuning & TCP bridge (optional)
+## Host daemon (always-on Companion)
+
+Import GUI ≠ host daemon. Closing the wizard or a one-shot import must not drop couch-coop.
+
+| OS | How it stays alive |
+|----|--------------------|
+| **Linux** (SteamOS / desktop / Game Mode) | systemd **user** unit `gamesphere-host-bridge.service` (`Restart=always`, journal). Linger so it starts in Game Mode / after reboot without a terminal. Flatpak: host unit runs `flatpak run … --host-bridge` (`--share=network` + background portal talk-names so UPnP + UDP 48020 work). |
+| **Windows** | Not a Windows Service (elevation + session isolation). **Task Scheduler** logon task `GameSphereHostBridge` (hidden, restart on failure) + HKCU Run fallback + hidden tray. Same `GamesphereImportTool.exe --host-daemon`. |
+| **macOS** | CLI-only; `--host-daemon-install` writes LaunchAgent `io.github.trevlars.gamesphere-host-bridge` (`KeepAlive`). No `.app` is shipped. |
+
+Installers (`install-linux.sh`, `install-flatpak.sh`, Windows GUI first launch / `--host-daemon-install`) enable this by default. Opt out: `GAMESPHERE_ENABLE_HOST_BRIDGE=0`.
+
+Linux also ships **udev** `99-gamesphere-hide-steam-clones.rules` + `gamesphere-hide-steam-clones.sh` (Steam Input `28de:11ff`) and a firewall helper (never 47990). Linger is enabled so the unit starts in Game Mode / after reboot.
+
+```bash
+systemctl --user status gamesphere-host-bridge.service   # Linux
+loginctl show-user "$USER" -p Linger
+gamesphere-import --host-daemon-status
+# Restart Companion only — never Sunshine:
+systemctl --user restart gamesphere-host-bridge.service
+```
+
+**Sunshine rule:** restarting or crashing the bridge must not `systemctl restart sunshine` or taskkill `sunshine.exe`.
+
+---
+
+## Host tuning & TCP bridge
 
 Adapted from [StreamTweak](https://github.com/FoggyBytes/StreamTweak). See [STREAMTWEAK_PARITY.md](STREAMTWEAK_PARITY.md) for the full matrix.
 
@@ -240,13 +267,14 @@ After `host_tuning_cli.py init --enable-all` or `install-linux.sh`:
 ~/.local/bin/gamesphere-host-prep.sh stop    # session end
 ```
 
-Hosts that already use prep-cmd (Sunshine examples, Bazzite `sunshine-stream-prep.sh`) can **append** these instead of replacing user entries — the importer merges prep arrays.
+Hosts that already use prep-cmd (Sunshine examples, a distro `sunshine-stream-prep.sh`) can **append** these instead of replacing user entries — the importer merges prep arrays.
 
 ### TCP bridge (port 47998)
 
 ```bash
 gamesphere-import --host-bridge
 # or: uv run host_tuning_cli.py bridge
+# production: OS service (see Host daemon above)
 ```
 
 | Verb | Direction | Purpose |
@@ -264,6 +292,9 @@ gamesphere-import --host-bridge
 | `PLAYTIMES` | client → host | Local Steam / Non-Steam playtime + last played |
 | `GAMESTATE` | client → host | Launch / running heuristic |
 | `LOCKSTATE` | client → host | Screen lock detection |
+| `HOSTINFO` / `COOPSTATE` / `SLOTSWAP` | either | Host identity, P1–P4 seats, host-only remap, `wanReady` |
+| `WANSETUP` / `VOICE` | either | Auto WAN map status (never 47990); UDP 48020 voice mixer (no HDMI AEC) |
+| `WANNAPLAY` / `PLAYREG` / `PLAYPENDING` / `PLAYCLAIM` / `PLAYREPLY` | either | Host-initiated wanna-play + session pre-auth + APNs; guest phrase echo on `COOPSTATE` |
 
 **Client implementers:** connect to `<host-ip>:47998`, one verb per line, JSON payload after a blank line when required. Match StreamTweak wire format where possible so one client implementation serves multiple hosts. Full spec: [CLIENT_BRIDGE.md](CLIENT_BRIDGE.md).
 
@@ -271,6 +302,8 @@ Config file:
 
 - Windows: `%LOCALAPPDATA%\GameSphere\host_tuning.json`
 - Linux: `~/.config/gamesphere-import-tool/host_tuning.json`
+
+Lock-screen Wanna play: APNs Auth Key `.p8` + Key ID — [APNS.md](APNS.md). Never commit the PEM.
 
 ---
 

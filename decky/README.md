@@ -72,7 +72,7 @@ Open **Quick Access → GameSphere Import**.
 
 - Linux import covers **Steam + Non-Steam shortcuts** (Eden, Ryujinx, etc.). Epic/GOG/Xbox scanning is **Windows only**.
 - **Remove all games** keeps only stock Desktop / Big Picture entries — use with care.
-- Bridge toggle needs Import Tool **1.2.1+** and installs `gamesphere-host-bridge.service` if missing.
+- Bridge toggle needs Import Tool **1.2.1+** and installs `gamesphere-host-bridge.service` if missing. New installs enable the daemon automatically; closing Decky or the import CLI does not stop it.
 
 ## Troubleshooting
 

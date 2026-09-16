@@ -226,11 +226,24 @@ def ensure_linux_unattended_update() -> str:
             timeout=20,
             check=False,
         )
+        extra = f" ({linger})" if linger else ""
+        timer_msg = ""
         if enabled.returncode == 0:
-            extra = f" ({linger})" if linger else ""
-            return f"gamesphere-import-update.timer enabled{extra}"
-        err = (enabled.stderr or enabled.stdout or "").strip()
-        return f"timer not enabled: {err or 'systemctl --user failed'}"
+            timer_msg = f"gamesphere-import-update.timer enabled{extra}"
+        else:
+            err = (enabled.stderr or enabled.stdout or "").strip()
+            timer_msg = f"timer not enabled: {err or 'systemctl --user failed'}"
+        try:
+            from host_tuning.host_daemon import ensure_running
+
+            daemon = ensure_running()
+            if daemon.get("skipped"):
+                return f"{timer_msg}; host-bridge skipped"
+            if daemon.get("ok") or daemon.get("enabled"):
+                return f"{timer_msg}; gamesphere-host-bridge enabled"
+            return f"{timer_msg}; host-bridge: {daemon.get('output') or daemon}"
+        except Exception as exc:
+            return f"{timer_msg}; host-bridge skipped: {exc}"
     except Exception as exc:
         return f"timer install skipped: {exc}"
 
@@ -451,7 +464,10 @@ def apply_windows_update(asset: Dict[str, Any]) -> str:
         "  timeout /t 1 /nobreak >nul\r\n"
         "  goto wait\r\n"
         ")\r\n"
+        "rem Stop Companion daemon only (same exe). Never Sunshine/Apollo.\r\n"
+        "taskkill /F /IM GamesphereImportTool.exe >nul 2>&1\r\n"
         "copy /Y \"%SOURCE%\" \"%TARGET%\" >nul\r\n"
+        "start \"\" \"%TARGET%\" --host-daemon\r\n"
         "start \"\" \"%TARGET%\"\r\n"
         "del \"%SOURCE%\" >nul 2>&1\r\n"
         "del \"%~f0\" >nul 2>&1\r\n"
@@ -618,14 +634,22 @@ def apply_update(info: Dict[str, Any]) -> str:
     asset = info.get("asset")
     kind = info.get("kind")
     if platform == "win":
-        return apply_windows_update(asset or {})
-    if platform == "linux":
-        return apply_linux_update(tag, asset, kind=kind)
-    if platform == "mac":
-        return apply_macos_update(tag, asset)
-    raise RuntimeError(
-        f"In-app update is not wired for this platform. Download from {GITHUB_RELEASES_PAGE}"
-    )
+        dest = apply_windows_update(asset or {})
+    elif platform == "linux":
+        dest = apply_linux_update(tag, asset, kind=kind)
+    elif platform == "mac":
+        dest = apply_macos_update(tag, asset)
+    else:
+        raise RuntimeError(
+            f"In-app update is not wired for this platform. Download from {GITHUB_RELEASES_PAGE}"
+        )
+    try:
+        from host_tuning.host_daemon import restart_host_bridge_only
+
+        restart_host_bridge_only()
+    except Exception:
+        pass
+    return dest
 
 
 def format_notice(info: Dict[str, Any]) -> str:

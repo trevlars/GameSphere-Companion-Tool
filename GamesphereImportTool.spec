@@ -30,6 +30,17 @@ hidden_imports = [
     'host_tuning.launch_watcher',
     'host_tuning.lock_state',
     'host_tuning.stream_sockets',
+    'host_tuning.couch_coop',
+    'host_tuning.invite',
+    'host_tuning.join_request',
+    'host_tuning.voice_bridge',
+    'host_tuning.wan_setup',
+    'host_tuning.nat_map',
+    'host_tuning.wanna_play',
+    'host_tuning.coop_pause',
+    'host_tuning.host_identity',
+    'host_tuning.steam_playtime',
+    'host_tuning.host_daemon',
     'mic_setup',
     'vban_feeder',
     'vdf',
@@ -104,11 +115,11 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # No console window for GUI
+    console=False,  # No console window for GUI; --host-daemon stays hidden
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    uac_admin=True,  # Request admin so we can write to Program Files (Sunshine/Apollo config)
+    uac_admin=False,  # Autostart must not UAC every logon; import can still be Run as administrator
 )

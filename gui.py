@@ -885,16 +885,31 @@ def main():
 
         argv = [a for a in sys.argv[1:] if a != "--vban-feeder"]
         raise SystemExit(feeder_main(argv))
+    from host_tuning.host_daemon import DAEMON_FLAGS, handle_argv
+
+    if any(flag in sys.argv for flag in DAEMON_FLAGS):
+        raise SystemExit(handle_argv(sys.argv[1:]) or 0)
     _request_admin_and_rerun()
     if sys.platform != "win32":
         print("This GUI is intended for Windows. On other platforms use: python main.py")
         # Still allow running for testing on Mac
     try:
+        threading.Thread(target=_ensure_host_daemon, daemon=True).start()
         app = SunshineGUI()
         app.run()
     except Exception as e:
         messagebox.showerror("GameSphere Import Tool — Error", f"The application failed to start:\n\n{e}")
         raise
+
+
+def _ensure_host_daemon():
+    """Keep JOINPIN / coop / WAN / voice alive after the import wizard closes."""
+    try:
+        from host_tuning.host_daemon import ensure_running
+
+        ensure_running()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

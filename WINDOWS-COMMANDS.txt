@@ -89,6 +89,12 @@ Output:  dist\GamesphereImportTool.exe
 
   dist\GamesphereImportTool.exe
 
+The GUI also starts the hidden host daemon (Task Scheduler + tray). Closing the window
+does not stop JOINPIN / couch-coop. Status:
+
+  dist\GamesphereImportTool.exe --host-daemon-status
+  dist\GamesphereImportTool.exe --host-daemon-uninstall
+
 No Python required. Copy the .exe (and optionally .env) to share.
 
 =========================================

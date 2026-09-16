@@ -29,3 +29,11 @@ Thumbs.db
 # Project
 sunshine_automation.log
 *.backup
+
+# APNs Auth Key — never commit. Not App Store Connect API keys.
+*.p8
+host_tuning/apns.p8
+host_tuning/apns.json
+apns.p8
+apns.json
+

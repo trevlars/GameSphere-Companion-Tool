@@ -95,11 +95,14 @@ class CouchCoopTests(unittest.TestCase):
         self.assertEqual([s["player"] for s in slots], [1, 2])
         self.assertEqual(len(cc.steam_clones(pads)), 2)
 
-    def test_does_not_treat_ds5_x360_bridge_as_sunshine(self):
+    def test_physical_x360_is_not_sunshine(self):
         pads = cc.parse_input_devices(DEVICES)
         kinds = {p.kind for p in pads}
-        self.assertIn("ds5_x360", kinds)
+        self.assertIn("other", kinds)
         self.assertEqual(len(cc.sunshine_pads(pads)), 2)
+        physical = [p for p in pads if p.vendor == "045e" and p.product == "028e"]
+        self.assertEqual(len(physical), 1)
+        self.assertEqual(physical[0].kind, "other")
 
     def test_junk_and_steamos_filtered(self):
         pads = cc.parse_input_devices(DEVICES)
@@ -115,6 +118,52 @@ class CouchCoopTests(unittest.TestCase):
         result = cc.on_sunshine_hint("Info: Gamepad 1 will be Xbox One controller (default)")
         self.assertIsNotNone(result)
         self.assertTrue(cc.armed())
+
+    def test_stabilize_does_not_swap_live_players(self):
+        lock = ["host-a", "guest-b", None, None]
+        # input_n reordered: guest device now enumerates first
+        live = ["guest-b", "host-a"]
+        out = cc.stabilize_slots(lock, live)
+        self.assertEqual(out, ["host-a", "guest-b", None, None])
+
+    def test_stabilize_does_not_compact_on_blip(self):
+        lock = ["host-a", "guest-b", None, None]
+        live = ["host-a"]
+        out = cc.stabilize_slots(lock, live)
+        self.assertEqual(out[0], "host-a")
+        self.assertIsNone(out[1])
+
+    def test_new_pad_fills_empty_slot(self):
+        lock = ["host-a", None, None, None]
+        live = ["host-a", "guest-b"]
+        out = cc.stabilize_slots(lock, live)
+        self.assertEqual(out, ["host-a", "guest-b", None, None])
+
+    def test_four_players_and_explicit_swap(self):
+        lock = ["a", "b", "c", "d"]
+        out = cc.stabilize_slots(lock, ["d", "c", "b", "a"])
+        self.assertEqual(out, ["a", "b", "c", "d"])
+        swapped = cc.remap_slots(lock, [1, 0, 2, 3])
+        self.assertEqual(swapped, ["b", "a", "c", "d"])
+
+    def test_gamepad_2_and_3_arm(self):
+        result = cc.on_sunshine_hint("Info: Gamepad 2 will be Xbox One controller (default)")
+        self.assertIsNotNone(result)
+        result3 = cc.on_sunshine_hint("Info: Gamepad 3 will be Xbox One controller (default)")
+        self.assertIsNotNone(result3)
+
+    def test_runtime_payload_is_generic(self):
+        self.assertFalse(hasattr(cc, "gemma_dualsense_usb"))
+        pads = cc.parse_input_devices(DEVICES)
+        payload = cc.write_runtime(pads, ["a", "b", None, None])
+        self.assertNotIn("gemma_dualsense_usb", payload)
+        self.assertNotIn("remote_xbox_p1", payload)
+        env_path = cc.runtime_env_path()
+        if os.path.isfile(env_path):
+            with open(env_path, encoding="utf-8") as fh:
+                env = fh.read()
+            self.assertNotIn("BAZZITE_REMOTE", env)
+            self.assertIn("0x28de/0x11ff", env)
 
 
 if __name__ == "__main__":

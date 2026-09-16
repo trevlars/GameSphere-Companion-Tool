@@ -187,4 +187,21 @@ fi
 if [[ "$updated" -eq 0 ]]; then
   echo "==> Already up to date ($TAG), or no Import Tool install found."
 fi
+
+# Refresh the always-on host daemon after a code update. Never restart Sunshine.
+LIB="$INSTALL_DIR/scripts/linux-autoupdate-lib.sh"
+if [[ -f "$LIB" ]]; then
+  # shellcheck disable=SC1090
+  source "$LIB"
+  if [[ "$updated" -eq 1 ]] && command -v gs_enable_host_bridge >/dev/null 2>&1; then
+    gs_enable_host_bridge "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+  elif command -v gs_restart_host_bridge_only >/dev/null 2>&1; then
+    gs_restart_host_bridge_only
+  fi
+elif [[ "$updated" -eq 1 ]] && command -v systemctl >/dev/null 2>&1; then
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user restart gamesphere-host-bridge.service 2>/dev/null \
+    && echo "==> Restarted gamesphere-host-bridge.service (Sunshine untouched)" || true
+fi
+
 exit 0

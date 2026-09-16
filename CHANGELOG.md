@@ -4,11 +4,39 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.4.4] — 2026-09-16
+
+### Added
+- **Steam clone hide helper + udev** — `gamesphere-hide-steam-clones.sh` and `99-gamesphere-hide-steam-clones.rules` are **shipped and enabled by the installer** (not a leftover host-specific script). Steam Input `28de:11ff` clones are hidden from SDL; Sunshine `045e:02ea` pads stay P1–P4.
+- **Host firewall helper** — TCP 47984/47989/48010/47998 and UDP 47998–48000/48002/48010/48020 (never 47990) via firewalld/ufw/Windows Firewall.
+- **Sunshine recommended conf** now includes `gamepad = x360` plus WAN-safe `upnp` / `origin_web_ui_allowed` / `wan_encryption` (still never restarts Sunshine mid-game).
+- **PLAYREPLY echo** — guest I'm in / You're going down / Can't right now is accepted on TCP 47998 and attached to `COOPSTATE` as `coopChat[]` / `playReplies[]` / `playReply` (last 8, TTL ~30s) so P1 sees bubbles.
+- Product branding on GitHub Releases: **GameSphere Companion Tool** (repo/binary IDs unchanged).
+
+### Changed
+- Couch co-op is generic Sunshine x360 + Companion slot lock. Host-specific pad/mic scripts are not part of Companion.
+- **Always-on host daemon** — Companion stays running as `gamesphere-host-bridge` so JOINPIN, TRUSTED/JOINREQ, couch-coop slots, WAN UPnP, voice UDP 48020, and WANNAPLAY survive closing the import GUI. Linux: systemd user service + linger (default on). Windows: Task Scheduler logon task (hidden, restart on failure) + HKCU Run fallback + tray. macOS source checkouts: LaunchAgent. Restarting the bridge never restarts Sunshine. Opt out: `GAMESPHERE_ENABLE_HOST_BRIDGE=0`.
+- **Automagic WAN** — Companion maps Sunshine + JOINPIN ports via UPnP/NAT-PMP/PCP on invite, Wanna play, and stream start; STUN fills `wan=`; unmaps after idle. Never maps 47990. `WANSETUP` / `wan` is one status sentence (enable router UPnP if mapping fails), not a port-forward checklist. Sunshine `upnp=disabled` + `origin_web_ui_allowed=pc` written without restarting a live session.
+- **Wanna-play APNs** — Companion sends lock-screen Apple Push from the host daemon (token auth `.p8`, not Firebase / not ASC upload keys). `PLAYREG` stores `apnsToken` + sandbox vs production. No `.p8` → poll still works; `pushStatus` is one sentence. See [APNS.md](docs/APNS.md).
+
+## [1.4.3] — 2026-09-14
+
+### Fixed
+- **P1–P4 slot stability** — join-order seats are locked. Pad blips, Steam `28de:11ff` clones, and the watcher no longer reshuffle two live players. Host Swap (`SLOTSWAP`) is the only remap.
+
+### Added
+- **COOPSTATE / auto-pause** — when 2–4 GameSphere clients are in one Sunshine session and any connection is dropping frames, the host is told to pause (Start/Menu). Hysteresis + cooldown so hitches don’t pause-loop. Guests get no Resume/Quit chrome.
+- **HOSTINFO** — host SteamID + persona + avatar URL for guest “playing with” chrome.
+- **WAN remote play** — invite URLs carry `host=` + `lan=` + `wan=`. `host_tuning_cli.py wan` / `WANSETUP` prints ports, firewall, hairpin notes. TCP 47984/47989/48010/47998; UDP 47998–48000, 48002, 48010; voice UDP 48020. Never 47990.
+- **In-stream voice mixer** — UDP PCM on 48020. Mixes phone mics only (no HDMI tap / no WebRTC AEC on Sunshine).
+- **Four players** — slots 0–3, JOINACK per guest, frame-drop pause if any client is unhealthy.
+- **Wanna play session pre-auth** — `WANNAPLAY` / `PLAYREG` / `PLAYPENDING` / `PLAYCLAIM`. Pinged TRUSTED UUIDs auto-JOINACK for this Sunshine session only; stream stop clears it.
+
 ## [1.4.2] — 2026-09-14
 
 ### Added
 - **Trusted-friend join** — bridge verbs `JOINREQ`, `JOINPENDING`, `JOINACK`, `JOINSTATUS`, `TRUSTED`. Friends stay paired; Accept on the host resumes them as P2.
-- **Couch co-op P1/P2** — game-agnostic via Sunshine connect-order and Steam Input (not a per-game `.so`). JOINACK, Sunshine Gamepad 1, and a second session hide Steam `28de:11ff` clones, slot host P1 / guest P2, and write `gamesphere-couch-coop.env`. Gemma DualSense USB sets `BAZZITE_REMOTE_XBOX_P1=never`.
+- **Couch co-op P1/P2** — game-agnostic via Sunshine connect-order and Steam Input (not a per-game `.so`). JOINACK, Sunshine Gamepad 1, and a second session hide Steam `28de:11ff` clones, slot host P1 / guest P2, and write `gamesphere-couch-coop.env`.
 
 ## [1.4.1] — 2026-09-14
 

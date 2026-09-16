@@ -1,0 +1,11 @@
+# GameSphere Companion — hide Steam Input x360 clones from the joystick subsystem.
+# VID 28de / PID 11ff are Steam's virtual "Microsoft X-Box 360 pad N" copies of
+# Sunshine gamepads. If they stay visible, SDL treats them as extra pads and
+# steals P2–P4. Steam Input still sees the hidraw devices for slot assignment.
+#
+# Do not match Sunshine virtual pads (045e:02ea). Those are the real P1–P4 seats.
+# Installed by install-linux.sh / --host-daemon-install (not a host-specific one-off).
+
+ACTION=="add|change", SUBSYSTEM=="input", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="11ff", ENV{ID_INPUT_JOYSTICK}="0", MODE="000"
+KERNEL=="js*", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="11ff", MODE="000", GROUP="input"
+KERNEL=="event*", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="11ff", ENV{ID_INPUT_JOYSTICK}=="0", MODE="000"

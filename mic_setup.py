@@ -1,11 +1,13 @@
 """
 GameSphere Mic to PC — one UX, OS-specific under the hood.
 
-Windows: VB-CABLE (VB-Audio donationware) + bundled VBAN→CABLE feeder.
-Linux: PipeWire libpipewire-module-vban-recv (MIT).
+Linux/Bazzite: PipeWire virtual source "GameSphere Mic", fed by Companion
+voice_bridge (GSVC UDP 48020, local slot 0). No VBAN.
 
-Does not change GameSphere iOS VBAN sender. Does not bundle proprietary binaries.
-Does not install VoiceMeeter.
+Windows (legacy until voice→CABLE lands): VB-CABLE + VBAN feeder. Prefer the
+Linux path on Bazzite hosts.
+
+Does not bundle proprietary binaries. Does not install VoiceMeeter.
 """
 
 from __future__ import annotations
@@ -18,8 +20,9 @@ import sys
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-STREAM_NAME = os.environ.get("GAMESPHERE_VBAN_STREAM", "GameSphere")
-PORT = int(os.environ.get("GAMESPHERE_VBAN_PORT", "6980"))
+STREAM_NAME = os.environ.get("GAMESPHERE_PC_MIC_NAME", "GameSphere Mic")
+PORT = int(os.environ.get("GAMESPHERE_VOICE_PORT", "48020"))
+DEVICE_NAME = STREAM_NAME
 
 LogFn = Callable[[str], None]
 
@@ -41,10 +44,10 @@ class MicSetupResult:
         lines = list(self.messages)
         if self.lan_ips:
             lines.append("")
-            lines.append("LAN IP(s) for GameSphere → Send mic to PC:")
+            lines.append("Companion host (paired PC) LAN IP(s):")
             for ip in self.lan_ips:
                 lines.append(f"  {ip}")
-            lines.append(f"Port {self.port} · stream name {self.stream_name}")
+            lines.append(f"Voice mixer UDP {self.port} · Steam mic device: {self.stream_name}")
         if self.recording_device_hint:
             lines.append("")
             lines.append(self.recording_device_hint)
@@ -205,14 +208,12 @@ def setup_mic(
 
     if plat == "darwin":
         result.messages.append(
-            "Mic to PC one-click targets Windows (VB-CABLE + feeder) and Linux (PipeWire). "
-            "On a Mac host, use a Windows/Linux Sunshine PC as the stream host."
+            "Mic to PC targets Linux/Bazzite (PipeWire “GameSphere Mic” via Companion voice) "
+            "and Windows (legacy VB-CABLE). On a Mac host, use a Linux Sunshine PC."
         )
         result.ok = True if info_only else False
         result.error = None if info_only else "macOS host is not supported for one-click mic setup"
-        result.recording_device_hint = (
-            "Use a Windows or Linux Sunshine host for automatic setup."
-        )
+        result.recording_device_hint = "Use a Linux Sunshine host for automatic setup."
         return result
 
     scripts = _scripts_dir()
@@ -225,35 +226,23 @@ def setup_mic(
             return result
 
         result.recording_device_hint = _windows_recording_hint()
+        result.messages.append(
+            "Note: GameSphere iOS now sends co-op voice (UDP 48020) instead of VBAN. "
+            "Windows CABLE+VBAN feeder is legacy — prefer a Linux/Bazzite host for PC mic."
+        )
 
         if info_only:
             proc = _run_ps1(ps1, "-Action", "info", log=log)
             out = (proc.stdout or "") + (proc.stderr or "")
             result.messages.append(out.strip() or "Printed Windows mic defaults.")
-            try:
-                from vban_feeder import cable_input_present, list_feeder_pids
-
-                if cable_input_present():
-                    result.messages.append("CABLE Input: present")
-                else:
-                    result.messages.append("CABLE Input: not found yet (install VB-CABLE, reboot if needed)")
-                pids = list_feeder_pids()
-                if pids:
-                    result.messages.append(f"VBAN feeder: running (pid {pids[0]})")
-                else:
-                    result.messages.append("VBAN feeder: not running")
-            except Exception as exc:
-                result.messages.append(f"(feeder status unavailable: {exc})")
             result.ok = proc.returncode == 0
             return result
 
         if not accept_third_party:
             result.needs_license_accept = True
             result.messages.append(
-                "Windows uses VB-CABLE (VB-Audio donationware) as the virtual mic, "
-                "plus Import Tool’s small VBAN feeder (OSS) that plays the phone into CABLE Input. "
-                "Accept the license to continue; we download VB-CABLE from VB-Audio — "
-                "nothing proprietary is bundled in this repo. VoiceMeeter is not installed."
+                "Windows still uses VB-CABLE (VB-Audio donationware) as a virtual mic. "
+                "Accept the license to continue. Prefer Linux/Bazzite “GameSphere Mic” when possible."
             )
             result.ok = False
             return result
@@ -265,30 +254,44 @@ def setup_mic(
         result.lan_ips = detect_lan_ips() or result.lan_ips
         rc = proc.returncode
         result.reboot_hint = rc == 3010 or "reboot" in out.lower()
-        # 3010 = reboot required after driver install; still treat as success.
         result.ok = rc in (0, 3010)
         if result.ok:
             started = _start_windows_feeder(log)
             if started:
-                result.messages.append("VBAN feeder started and set to run at logon.")
+                result.messages.append("Legacy VBAN feeder started (iOS no longer sends VBAN by default).")
             else:
-                result.messages.append(
-                    "VB-CABLE is set up, but the VBAN feeder did not stay running. "
-                    "Reboot if CABLE Input is missing, then click Set up mic again."
-                )
+                result.messages.append("VB-CABLE installed but feeder did not stay running.")
         if rc not in (0, 3010):
             result.error = f"Windows mic setup exited with code {rc}"
         return result
 
-    # Linux / Bazzite / Steam Deck desktop
-    sh = os.path.join(scripts, "gamesphere-vban-setup.sh")
+    # Linux / Bazzite / Steam Deck desktop — PipeWire GameSphere Mic (no VBAN)
+    sh = os.path.join(scripts, "gamesphere-pc-mic-setup.sh")
     if not os.path.isfile(sh):
-        which = shutil.which("gamesphere-vban-setup.sh")
+        sh = os.path.join(scripts, "gamesphere-vban-setup.sh")
+    if not os.path.isfile(sh):
+        which = shutil.which("gamesphere-pc-mic-setup.sh") or shutil.which("gamesphere-vban-setup.sh")
         sh = which or sh
     if not os.path.isfile(sh):
-        result.error = f"Missing helper script: {sh}"
-        result.messages.append(result.error)
-        return result
+        # Inline ensure via voice_bridge when scripts are missing from a frozen build.
+        try:
+            from host_tuning import voice_bridge
+
+            mic = voice_bridge.ensure_pc_mic_device()
+            result.messages.append(str(mic))
+            result.ok = bool(mic.get("ok"))
+            result.recording_device_hint = (
+                f'In Steam / Discord: set microphone to “{DEVICE_NAME}”. '
+                "Start a GameSphere stream (or Send mic to PC) so Companion VOICE feeds it."
+            )
+            result.lan_ips = detect_lan_ips() or result.lan_ips
+            if not result.ok:
+                result.error = mic.get("error") or "pc mic ensure failed"
+            return result
+        except Exception as exc:
+            result.error = f"Missing helper script and voice_bridge ensure failed: {exc}"
+            result.messages.append(result.error)
+            return result
 
     action = "info" if info_only else "install"
     proc = _run_bash(sh, action, log=log)
@@ -298,7 +301,8 @@ def setup_mic(
     result.lan_ips = detect_lan_ips() or result.lan_ips
     result.ok = proc.returncode == 0
     result.recording_device_hint = (
-        'Pick “GameSphere Mic (VBAN)” (or similar PipeWire source) as the recording device.'
+        f'In Steam / Discord / games: set microphone to “{DEVICE_NAME}”. '
+        "Companion host-bridge feeds it from phone co-op voice (no VBAN)."
     )
     if proc.returncode != 0:
         result.error = f"Linux mic setup exited with code {proc.returncode}"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install GameSphere Import Tool on Linux (Bazzite, Steam Deck, generic).
+# Install GameSphere Companion Tool on Linux (Bazzite, Steam Deck, generic).
 set -euo pipefail
 
 INSTALL_DIR="${GAMESPHERE_IMPORT_DIR:-$HOME/.local/share/gamesphere-import-tool}"
@@ -7,7 +7,7 @@ BIN_LINK="${GAMESPHERE_IMPORT_BIN:-$HOME/.local/bin/gamesphere-import}"
 # Pin to a release tag when auto-updating (e.g. GAMESPHERE_IMPORT_REF=v1.0.2).
 REF="${GAMESPHERE_IMPORT_REF:-}"
 
-echo "==> GameSphere Import Tool — Linux setup"
+echo "==> GameSphere Companion Tool — Linux setup"
 echo "    Install dir: $INSTALL_DIR"
 if [[ -n "$REF" ]]; then
   echo "    Ref: $REF"
@@ -95,9 +95,11 @@ HOST_PREP_LINK="${GAMESPHERE_HOST_PREP_BIN:-$HOME/.local/bin/gamesphere-host-pre
 install -m 755 "$INSTALL_DIR/scripts/gamesphere-host-prep.sh" "$HOST_PREP_LINK"
 echo "==> Installed $HOST_PREP_LINK (StreamTweak-style host tuning prep hooks)"
 
+PCMIC_LINK="${GAMESPHERE_PC_MIC_SETUP_BIN:-$HOME/.local/bin/gamesphere-pc-mic-setup.sh}"
+install -m 755 "$INSTALL_DIR/scripts/gamesphere-pc-mic-setup.sh" "$PCMIC_LINK"
 VBAN_LINK="${GAMESPHERE_VBAN_SETUP_BIN:-$HOME/.local/bin/gamesphere-vban-setup.sh}"
 install -m 755 "$INSTALL_DIR/scripts/gamesphere-vban-setup.sh" "$VBAN_LINK"
-echo "==> Installed $VBAN_LINK (GameSphere mic → PipeWire VBAN recv; run: gamesphere-vban-setup.sh)"
+echo "==> Installed $PCMIC_LINK (GameSphere Mic PipeWire source; no VBAN)"
 
 echo "==> Initializing host tuning config..."
 uv run python3 host_tuning_cli.py init --enable-all || true
@@ -123,12 +125,27 @@ elif command -v systemctl >/dev/null 2>&1 && [[ -f "$UNIT_DIR/gamesphere-import-
   systemctl --user enable --now gamesphere-import-update.timer 2>/dev/null || true
 fi
 
-if [[ "${GAMESPHERE_ENABLE_HOST_BRIDGE:-}" == "1" ]]; then
-  mkdir -p "$UNIT_DIR"
-  install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-host-bridge.service" "$UNIT_DIR/gamesphere-host-bridge.service"
-  systemctl --user daemon-reload 2>/dev/null || true
-  systemctl --user enable --now gamesphere-host-bridge.service 2>/dev/null || true
-  echo "==> Enabled gamesphere-host-bridge.service (TCP 47998 — set GAMESPHERE_ENABLE_HOST_BRIDGE=1)"
+if command -v gs_enable_host_bridge >/dev/null 2>&1; then
+  gs_enable_host_bridge "$UNIT_DIR"
+else
+  WRAPPER="${GAMESPHERE_HOST_BRIDGE_BIN:-$HOME/.local/bin/gamesphere-host-bridge}"
+  if [[ -f "$INSTALL_DIR/scripts/gamesphere-host-bridge.sh" ]]; then
+    mkdir -p "$(dirname "$WRAPPER")"
+    install -m 755 "$INSTALL_DIR/scripts/gamesphere-host-bridge.sh" "$WRAPPER"
+  fi
+  if [[ "${GAMESPHERE_ENABLE_HOST_BRIDGE:-1}" != "0" ]] \
+    && [[ -f "$INSTALL_DIR/scripts/systemd/gamesphere-host-bridge.service" ]]; then
+    mkdir -p "$UNIT_DIR"
+    install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-host-bridge.service" \
+      "$UNIT_DIR/gamesphere-host-bridge.service"
+    systemctl --user daemon-reload 2>/dev/null || true
+    systemctl --user enable --now gamesphere-host-bridge.service 2>/dev/null || true
+    echo "==> Enabled gamesphere-host-bridge.service (Companion host daemon)"
+  fi
+fi
+
+if command -v gs_install_linux_host_stack >/dev/null 2>&1; then
+  gs_install_linux_host_stack "$INSTALL_DIR"
 fi
 
 VER=""
@@ -144,6 +161,9 @@ echo "  gamesphere-import --check-update"
 echo "  gamesphere-import --apply-update"
 echo ""
 echo "Auto-update: gamesphere-import-update.timer (opt out: GAMESPHERE_AUTO_UPDATE=0)"
+echo "Host daemon: gamesphere-host-bridge.service (opt out: GAMESPHERE_ENABLE_HOST_BRIDGE=0)"
+echo "  systemctl --user status gamesphere-host-bridge.service"
+echo "Couch co-op: Steam 28de:11ff clones hidden via udev + gamesphere-hide-steam-clones.sh"
 echo "Optional DeckyLoader plugin: see decky/README.md"
 
 DECKY_PLUGINS="${DECKY_PLUGINS_DIR:-$HOME/homebrew/plugins}"

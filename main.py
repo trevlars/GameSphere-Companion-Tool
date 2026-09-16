@@ -1327,8 +1327,8 @@ def load_steam_nonsteam_shortcuts(library_vdf_path: str) -> Dict[str, Dict[str, 
     for short_appid, info in by_short.items():
         result[_shortcut_rungameid(short_appid)] = info
 
-    # Collapse duplicate display names across Steam users (e.g. same emu title
-    # added on Trevor + Gemma). Prefer Ryujinx over Eden for Switch titles.
+    # Collapse duplicate display names across Steam users on the same PC.
+    # Prefer Ryujinx over Eden for Switch titles.
     by_name: Dict[str, Tuple[str, Dict[str, str]]] = {}
     for bpid, info in result.items():
         key = (info.get("name") or "").strip().casefold()
@@ -2199,7 +2199,7 @@ def remove_all_apps_from_config(
 def main() -> None:
     """Main application function."""
     parser = argparse.ArgumentParser(description='Sunshine Steam Game Automation')
-    parser.add_argument('--version', action='version', version=f'GameSphere Import Tool {__version__}')
+    parser.add_argument('--version', action='version', version=f'GameSphere Companion Tool {__version__}')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     parser.add_argument('--no-restart', action='store_true', help='Skip starting Steam (if not running) and skip restarting Sunshine/Apollo')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be done without making changes')
@@ -2210,16 +2210,20 @@ def main() -> None:
     parser.add_argument('--apply-update', action='store_true', help='Install the newest GitHub Release for this platform')
     parser.add_argument('--host-tuning', action='store_true', help='Apply host tuning after import (tiles, prep scripts, NVIDIA snapshot)')
     parser.add_argument('--host-tuning-only', action='store_true', help='Apply host tuning and exit (no library import)')
-    parser.add_argument('--host-bridge', action='store_true', help='Run GameSphere TCP bridge (port 47998) and session monitor')
+    parser.add_argument('--host-bridge', action='store_true', help='Run GameSphere Companion host daemon in the foreground (TCP 47998)')
+    parser.add_argument('--host-daemon', action='store_true', help='Same as --host-bridge (always-on host daemon; no GUI)')
+    parser.add_argument('--host-daemon-install', action='store_true', help='Install login/boot autostart for the host daemon and start it')
+    parser.add_argument('--host-daemon-uninstall', action='store_true', help='Stop the host daemon and remove autostart')
+    parser.add_argument('--host-daemon-status', action='store_true', help='Print host daemon status JSON')
     parser.add_argument(
         '--setup-mic',
         action='store_true',
-        help='Set up Mic to PC (VBAN receive): VB-CABLE + feeder on Windows, PipeWire on Linux',
+        help='Set up Mic to PC: PipeWire “GameSphere Mic” on Linux (no VBAN); legacy VB-CABLE on Windows',
     )
     parser.add_argument(
         '--setup-mic-info',
         action='store_true',
-        help='Print Mic to PC LAN IP / defaults without installing',
+        help='Print Mic to PC device / LAN defaults without installing',
     )
     parser.add_argument(
         '--accept-vbaudio-license',
@@ -2240,6 +2244,12 @@ def main() -> None:
     
     # Setup logging
     setup_logging(args.verbose)
+
+    from host_tuning.host_daemon import handle_argv as _host_daemon_argv
+
+    daemon_code = _host_daemon_argv(sys.argv[1:])
+    if daemon_code is not None:
+        sys.exit(daemon_code)
 
     if args.vban_feeder or args.vban_feeder_stop:
         from vban_feeder import main as feeder_main, stop_feeder
@@ -2269,36 +2279,13 @@ def main() -> None:
         from gs_updater import cli_check
         sys.exit(cli_check(apply=args.apply_update))
 
-    if args.host_tuning_only or args.host_bridge:
+    if args.host_tuning_only:
         from host_tuning.service import apply_host_tuning, write_prep_scripts
-        if args.host_bridge:
-            from host_tuning.bridge import GameSphereBridge
-            from host_tuning import session_telemetry
-            from host_tuning.config import load_config
-            cfg = load_config()
-            write_prep_scripts()
-            apply_detected_paths()
-            apps_json = (
-                os.environ.get("SUNSHINE_APPS_JSON_PATH")
-                or os.environ.get("sunshine_apps_json_path")
-                or ""
-            )
-            bridge = GameSphereBridge()
-            log_path = session_telemetry.detect_sunshine_log_path(cfg.sunshine_log_path)
-            bridge.start(port=cfg.bridge_port, log_path=log_path, apps_json_path=apps_json)
-            logging.info("Host bridge on TCP %s — Ctrl+C to stop", cfg.bridge_port)
-            try:
-                while True:
-                    time.sleep(3600)
-            except KeyboardInterrupt:
-                bridge.stop()
-            return
         config = validate_config()
         write_prep_scripts()
         results = apply_host_tuning(sunshine_apps_json=config.get('SUNSHINE_APPS_JSON_PATH', ''))
         logging.info("Host tuning: %s", results)
-        if args.host_tuning_only:
-            return
+        return
 
     if args.print_config:
         detected = detect_paths()
@@ -2322,6 +2309,14 @@ def main() -> None:
             if timer_msg:
                 logging.info("Linux auto-update: %s", timer_msg)
                 print(f"Auto-update: {timer_msg}")
+        try:
+            from host_tuning.host_daemon import ensure_running
+
+            daemon_msg = ensure_running()
+            logging.info("Host daemon: %s", daemon_msg)
+            print(f"Host daemon: {json.dumps(daemon_msg)}")
+        except Exception as exc:
+            logging.warning("Host daemon autostart skipped: %s", exc)
         return
 
     logging.info("Starting Sunshine Steam Game Automation")

@@ -110,6 +110,8 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
     app_name = str(payload.get("appName") or "").strip()
     client_name = str(payload.get("clientName") or "").strip()
     host_id = str(payload.get("hostId") or "").strip()
+    client_uuid = str(payload.get("uuid") or payload.get("guestUuid") or "").strip()
+    session_id = str(payload.get("sessionId") or payload.get("session") or payload.get("token") or "").strip()
     lan_hint = guest_invite._strip_host_port(str(payload.get("lanHost") or "").strip())
 
     req = {
@@ -122,6 +124,8 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
         "appName": app_name,
         "clientName": client_name,
         "hostId": host_id,
+        "uuid": client_uuid,
+        "sessionId": session_id,
         "lanHost": lan_hint or guest_invite._local_lan_ip(),
         "httpsPort": int(payload.get("httpsPort") or 47984),
         "status": "pending",  # pending | accepted | declined | expired
@@ -134,11 +138,10 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
                 if r.get("status") == "pending":
                     r["status"] = "expired"
                 continue
-            # One pending request per steam/friend name — replace older
-            if (
-                r.get("status") == "pending"
-                and steam_id
-                and r.get("steamId") == steam_id
+            # One pending request per steam id or Moonlight uuid — replace older
+            if r.get("status") == "pending" and (
+                (steam_id and r.get("steamId") == steam_id)
+                or (client_uuid and r.get("uuid") == client_uuid)
             ):
                 r["status"] = "expired"
                 continue
@@ -146,8 +149,56 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
         requests.append(req)
         data["requests"] = requests[-30:]
         _save(data)
-    logging.info("JOINREQ id=%s friend=%s app=%s", req_id, friend_name, app_name or app_id)
-    return {"ok": True, "reqId": req_id, "expiresIn": JOIN_TTL_SECONDS}
+    logging.info(
+        "JOINREQ id=%s friend=%s app=%s uuid=%s session=%s",
+        req_id,
+        friend_name,
+        app_name or app_id,
+        client_uuid or "-",
+        session_id or "-",
+    )
+    try:
+        from host_tuning import wanna_play
+
+        if wanna_play.is_preauthorized(uuid=client_uuid, session_id=session_id):
+            auto = ack(
+                {
+                    "reqId": req_id,
+                    "accept": True,
+                    "appId": app_id,
+                    "appName": app_name,
+                    "httpsPort": req["httpsPort"],
+                    "hostId": host_id,
+                    "lanHost": req["lanHost"],
+                }
+            )
+            if not auto.get("ok"):
+                # Host Accept raced auto-JOINACK — still a grant, not a reject.
+                st = status({"reqId": req_id})
+                if str(st.get("status") or "") == "accepted":
+                    auto = dict(st)
+                    auto["ok"] = True
+                    auto["accept"] = True
+            if auto.get("ok") and str(auto.get("status") or "") == "accepted":
+                auto["preauth"] = True
+                auto["reqId"] = req_id
+                logging.info(
+                    "JOINREQ auto-JOINACK id=%s uuid=%s ok=%s status=%s",
+                    req_id,
+                    client_uuid,
+                    auto.get("ok"),
+                    auto.get("status"),
+                )
+                return auto
+            logging.warning(
+                "JOINREQ auto-JOINACK incomplete id=%s err=%s status=%s — leaving pending",
+                req_id,
+                auto.get("error"),
+                auto.get("status"),
+            )
+    except Exception:
+        logging.exception("JOINREQ preauth check")
+    return {"ok": True, "reqId": req_id, "expiresIn": JOIN_TTL_SECONDS, "preauth": False}
 
 
 def pending() -> Dict[str, Any]:
@@ -178,6 +229,70 @@ def pending() -> Dict[str, Any]:
     return {"ok": True, "requests": out}
 
 
+def _identity_fields() -> Dict[str, Any]:
+    """Cache-only — JOINREQ/JOINACK must return before STUN / Steam XML / pad sync."""
+    ident: Dict[str, Any] = {}
+    try:
+        from host_tuning import host_identity
+
+        ident = host_identity.cached_snapshot() or {}
+    except Exception:
+        ident = {}
+    lan = guest_invite._local_lan_ip()
+    wan = ""
+    try:
+        from host_tuning import wan_setup
+
+        hosts = wan_setup.cached_hosts()
+        wan = str(hosts.get("wanHost") or "")
+        lan = str(hosts.get("lanHost") or "") or lan
+    except Exception:
+        pass
+    return {
+        "hostSteamId": ident.get("hostSteamId") or "",
+        "hostPersona": ident.get("hostPersona") or "",
+        "hostAvatarUrl": ident.get("hostAvatarUrl") or "",
+        "wanHost": wan,
+        "lanHost": lan,
+        "maxPlayers": 4,
+    }
+
+
+def _schedule_couch_coop(req_id: str, name: str) -> None:
+    def _run() -> None:
+        try:
+            from host_tuning import couch_coop
+
+            couch_coop.on_join_accepted(client_id=req_id, name=name)
+        except Exception:
+            logging.exception("couch_coop after JOINACK")
+
+    threading.Thread(target=_run, daemon=True, name="gs-joinack-coop").start()
+
+
+def _ack_payload_from_row(row: Dict[str, Any], *, accept: bool, ident: Dict[str, Any]) -> Dict[str, Any]:
+    lan = str(row.get("lanHost") or ident.get("lanHost") or "")
+    result = {
+        "ok": True,
+        "reqId": row.get("reqId") or "",
+        "accept": accept,
+        "status": row.get("status") or ("accepted" if accept else "declined"),
+        "appId": row.get("appId") or "",
+        "appName": row.get("appName") or "",
+        "lanHost": lan,
+        "httpsPort": int(row.get("httpsPort") or 47984),
+        "hostId": row.get("hostId") or "",
+        "playerSlot": int(row.get("playerSlot") or 0),
+        "friendName": row.get("friendName") or "",
+        "wanHost": ident.get("wanHost") or "",
+        "maxPlayers": 4,
+        "hostSteamId": ident.get("hostSteamId") or "",
+        "hostPersona": ident.get("hostPersona") or "",
+        "hostAvatarUrl": ident.get("hostAvatarUrl") or "",
+    }
+    return result
+
+
 def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Host Accept/Decline."""
     req_id = str(payload.get("reqId") or "").strip()
@@ -192,6 +307,9 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not req_id:
         return {"ok": False, "error": "missing_reqId"}
     now = time.time()
+    ident = _identity_fields()
+    schedule_coop = False
+    coop_name = "Guest"
     with _lock:
         data = _load()
         found = None
@@ -201,8 +319,13 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
                 break
         if not found:
             return {"ok": False, "error": "not_found"}
-        if found.get("status") != "pending":
-            return {"ok": False, "error": "already_" + str(found.get("status") or "done")}
+        current = str(found.get("status") or "pending")
+        if current != "pending":
+            if accept and current == "accepted":
+                # Idempotent Accept / auto-JOINACK race with host JOINACK.
+                logging.info("JOINACK id=%s already accepted — returning grant", req_id)
+                return _ack_payload_from_row(found, accept=True, ident=ident)
+            return {"ok": False, "error": "already_" + current}
         if float(found.get("expires") or 0) < now:
             found["status"] = "expired"
             _save(data)
@@ -220,26 +343,19 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
                 found["lanHost"] = lan_host
             # Give friend a bit more time to poll + resume
             found["expires"] = now + JOIN_TTL_SECONDS
-        _save(data)
-        result = {
-            "ok": True,
-            "reqId": req_id,
-            "accept": accept,
-            "status": found["status"],
-            "appId": found.get("appId") or "",
-            "appName": found.get("appName") or "",
-            "lanHost": found.get("lanHost") or lan_host,
-            "httpsPort": found.get("httpsPort") or https_port,
-            "hostId": found.get("hostId") or host_id,
-        }
-    logging.info("JOINACK id=%s accept=%s", req_id, accept)
-    if accept:
-        try:
-            from host_tuning import couch_coop
+            try:
+                from host_tuning import couch_coop
 
-            couch_coop.on_join_accepted()
-        except Exception:
-            logging.exception("couch_coop after JOINACK")
+                found["playerSlot"] = couch_coop.next_empty_slot()
+            except Exception:
+                found["playerSlot"] = 1
+            schedule_coop = True
+            coop_name = str(found.get("friendName") or found.get("clientName") or "Guest")
+        _save(data)
+        result = _ack_payload_from_row(found, accept=accept, ident=ident)
+    logging.info("JOINACK id=%s accept=%s", req_id, accept)
+    if schedule_coop:
+        _schedule_couch_coop(req_id, coop_name)
     return result
 
 
@@ -249,6 +365,8 @@ def status(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not req_id:
         return {"ok": False, "error": "missing_reqId"}
     now = time.time()
+    row = None
+    st_out = ""
     with _lock:
         data = _load()
         for r in data.get("requests", []):
@@ -259,14 +377,25 @@ def status(payload: Dict[str, Any]) -> Dict[str, Any]:
                 r["status"] = "expired"
                 st = "expired"
                 _save(data)
-            return {
-                "ok": True,
-                "reqId": req_id,
-                "status": st,
-                "appId": r.get("appId") or "",
-                "appName": r.get("appName") or "",
-                "lanHost": r.get("lanHost") or "",
-                "httpsPort": int(r.get("httpsPort") or 47984),
-                "hostId": r.get("hostId") or "",
-            }
-    return {"ok": False, "error": "not_found", "status": "not_found"}
+            row = dict(r)
+            st_out = st
+            break
+    if not row:
+        return {"ok": False, "error": "not_found", "status": "not_found"}
+    ident = _identity_fields()
+    return {
+        "ok": True,
+        "reqId": req_id,
+        "status": st_out,
+        "appId": row.get("appId") or "",
+        "appName": row.get("appName") or "",
+        "lanHost": row.get("lanHost") or ident.get("lanHost") or "",
+        "wanHost": ident.get("wanHost") or "",
+        "httpsPort": int(row.get("httpsPort") or 47984),
+        "hostId": row.get("hostId") or "",
+        "playerSlot": int(row.get("playerSlot") or 0),
+        "maxPlayers": 4,
+        "hostSteamId": ident.get("hostSteamId") or "",
+        "hostPersona": ident.get("hostPersona") or "",
+        "hostAvatarUrl": ident.get("hostAvatarUrl") or "",
+    }

@@ -10,6 +10,9 @@ finish-args:
   - --share=network
   - --filesystem=home
   - --talk-name=org.freedesktop.systemd1
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.impl.portal.Background
+  - --talk-name=org.freedesktop.portal.NetworkMonitor
 
 modules:
   - name: gamesphere-import-tool

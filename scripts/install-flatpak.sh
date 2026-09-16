@@ -137,7 +137,33 @@ fi
 
 gs_enable_update_timer "$UNIT_DIR"
 
+if command -v gs_enable_host_bridge >/dev/null 2>&1; then
+  gs_enable_host_bridge "$UNIT_DIR"
+else
+  WRAPPER="${GAMESPHERE_HOST_BRIDGE_BIN:-$HOME/.local/bin/gamesphere-host-bridge}"
+  mkdir -p "$(dirname "$WRAPPER")" "$UNIT_DIR"
+  if curl -fsSL "${BASE}/gamesphere-host-bridge.sh" -o "$WRAPPER" 2>/dev/null \
+    || curl -fsSL "${RAW}/scripts/gamesphere-host-bridge.sh" -o "$WRAPPER"; then
+    chmod +x "$WRAPPER"
+  fi
+  if curl -fsSL "${BASE}/gamesphere-host-bridge.service" \
+       -o "$UNIT_DIR/gamesphere-host-bridge.service" 2>/dev/null \
+    || curl -fsSL "${RAW}/scripts/systemd/gamesphere-host-bridge.service" \
+       -o "$UNIT_DIR/gamesphere-host-bridge.service" 2>/dev/null; then
+    chmod 644 "$UNIT_DIR/gamesphere-host-bridge.service"
+  fi
+  if [[ "${GAMESPHERE_ENABLE_HOST_BRIDGE:-1}" =~ ^(0|false|no|off)$ ]]; then
+    echo "==> Host daemon skipped (GAMESPHERE_ENABLE_HOST_BRIDGE=0)"
+  elif command -v systemctl >/dev/null 2>&1 && [[ -f "$UNIT_DIR/gamesphere-host-bridge.service" ]]; then
+    systemctl --user daemon-reload 2>/dev/null || true
+    systemctl --user enable --now gamesphere-host-bridge.service 2>/dev/null || true
+    echo "==> Enabled gamesphere-host-bridge.service"
+  fi
+fi
+
 echo ""
 echo "Installed. Preview: flatpak run io.github.trevlars.GamesphereImportTool --dry-run"
 echo "Import:       flatpak run io.github.trevlars.GamesphereImportTool"
 echo "Updates:      gamesphere-import-update.timer (opt out: GAMESPHERE_AUTO_UPDATE=0)"
+echo "Host daemon:  gamesphere-host-bridge.service (opt out: GAMESPHERE_ENABLE_HOST_BRIDGE=0)"
+echo "Couch co-op:  udev + gamesphere-hide-steam-clones.sh (Steam 28de:11ff clones)"

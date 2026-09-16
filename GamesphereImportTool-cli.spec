@@ -27,6 +27,17 @@ hidden_imports = [
     "host_tuning.launch_watcher",
     "host_tuning.lock_state",
     "host_tuning.stream_sockets",
+    "host_tuning.couch_coop",
+    "host_tuning.invite",
+    "host_tuning.join_request",
+    "host_tuning.voice_bridge",
+    "host_tuning.wan_setup",
+    "host_tuning.nat_map",
+    "host_tuning.wanna_play",
+    "host_tuning.coop_pause",
+    "host_tuning.host_identity",
+    "host_tuning.steam_playtime",
+    "host_tuning.host_daemon",
     "mic_setup",
     "vban_feeder",
     "vdf",
@@ -51,6 +62,7 @@ if os.path.isdir(_scripts):
         "gamesphere-steam-close.py",
         "gamesphere-host-prep.sh",
         "gamesphere-vban-setup.sh",
+        "gamesphere-host-bridge.sh",
     ):
         p = os.path.join(_scripts, name)
         if os.path.isfile(p):

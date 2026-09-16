@@ -1,87 +1,49 @@
 # Mic to PC
 
-GameSphere can send your **phone mic to the streaming PC** so Discord, OBS, and games on the host hear you. One Import Tool action sets this up — same button / flag on every OS.
+GameSphere sends your **phone mic to the streaming PC** so Steam, Discord, OBS, and games on the host hear you. On Linux/Bazzite this is a normal PipeWire capture device — **no VBAN**.
 
 | Setting | Value |
 |---------|--------|
-| Stream name | `GameSphere` |
-| Port | `6980` (UDP) |
-| Sample rate | `44100` Hz (mono PCM, converted to stereo on Windows) |
+| Device name | `GameSphere Mic` |
+| Transport | Companion co-op voice (GSVC UDP **48020**) |
+| Slot published | **0** (local / host seat) — guests stay party-only |
+| Sample rate | 16 kHz mono PCM → PipeWire |
 
-**How it works:** the GameSphere app sends VBAN (documented network audio). Stock Sunshine / Apollo / Moonlight still has **no** official client→host mic channel. Import Tool provides the host receiver:
-
-- **Windows:** VB-CABLE virtual cable + a small OSS feeder that plays VBAN into **CABLE Input**. Apps pick **CABLE Output**.
-- **Linux:** PipeWire `vban-recv` source named **GameSphere Mic (VBAN)**.
+**How it works:** while Companion `VOICE` is running, `voice_bridge` mixes phone↔phone party audio **and** writes slot 0 into a PipeWire null-sink / remap-source named **GameSphere Mic**. Stock Sunshine still has no official client→host mic channel — apps on the host pick the virtual device.
 
 ---
 
-## One-click (recommended)
-
-### Windows GUI
-
-1. Open **GameSphere Import Tool**.
-2. Click **Set up mic for GameSphere**.
-3. Accept **VB-Audio Cable** terms when prompted (donationware — we download it; we do **not** ship their driver).
-4. When finished, note the **LAN IP** shown (also opens a small status page). Reboot once if Windows has not listed CABLE devices yet.
-5. On the phone: GameSphere → **Send mic to PC** → enter that IP (port `6980`, stream `GameSphere`).
-6. Start a stream → **Mic** chip on. In Discord/OBS, pick **CABLE Output**.
-
-No VoiceMeeter. The feeder starts at logon after setup.
-
-### CLI (any platform)
+## One-click (Linux / Bazzite)
 
 ```bash
-# Preview IPs / defaults only
-gamesphere-import --setup-mic-info
-
-# Linux / Bazzite — PipeWire OSS receiver
 gamesphere-import --setup-mic
-
-# Windows — installs VB-CABLE + starts the VBAN feeder (requires license accept)
-gamesphere-import --setup-mic --accept-vbaudio-license
+# or:
+gamesphere-pc-mic-setup.sh install
 ```
 
-PowerShell (Windows, from a checkout):
+Creates the virtual source (idempotent), removes any legacy `50-gamesphere-vban-recv.conf`, and prints the device name.
 
-```powershell
-.\scripts\gamesphere-vban-setup.ps1 -Action setup -AcceptLicense
-# then start the feeder (Import Tool does this automatically):
-python vban_feeder.py
-```
+The always-on **host-bridge** also creates/feeds the device when a client sends `VOICE start` (solo or party stream).
 
-Linux helper (after `install-linux.sh`):
+### Steam / Discord
 
-```bash
-gamesphere-vban-setup.sh          # same as --setup-mic
-gamesphere-vban-setup.sh info
-```
+1. Start a GameSphere stream (Pro) — co-op voice starts automatically — **or** open **Send mic to PC** and Start.
+2. On the PC: set microphone input to **GameSphere Mic**.
+3. Mic level / mute in GameSphere control the same uplink Steam hears.
 
 ---
 
-## What happens under the hood
+## Windows (legacy)
 
-Same UX; different engines:
-
-| Host OS | Receiver | Virtual mic | License |
-|---------|----------|-------------|---------|
-| **Windows** | Bundled OSS VBAN feeder (`vban_feeder.py`) → **CABLE Input** + firewall UDP `6980` | **CABLE Output** | VB-CABLE is VB-Audio **donationware** (user accepts; not bundled). Feeder is OSS in this repo. |
-| **Linux / Bazzite** | PipeWire `libpipewire-module-vban-recv` | “GameSphere Mic (VBAN)” source | **MIT** (OSS) |
-
-Firewall: allow **UDP 6980** inbound on the host (the Windows script tries to add this automatically).
+Windows still offers VB-CABLE + a VBAN feeder for older builds. Current iOS sends **co-op voice**, not VBAN — prefer a Linux/Bazzite Sunshine host for PC mic. A future Windows feeder can play GSVC slot 0 into CABLE Input the same way Linux uses PipeWire.
 
 ---
 
 ## Sunshine / Apollo note
 
-Stock **Sunshine does not ingest GameSphere’s VBAN mic**. Apps on the host (Discord, in-game voice, OBS) must select the **virtual recording device** (CABLE Output or PipeWire). Experimental Moonlight/Apollo/Foundation mic passthrough is a different stack and is **not** what GameSphere uses today.
+Stock **Sunshine does not ingest** this mic. Apps on the host must select **GameSphere Mic**. Do **not** attach WebRTC AEC to HDMI and do **not** change Sunshine hevc/av1 codecs for mic work.
 
----
-
-## Why VB-CABLE instead of VoiceMeeter?
-
-VoiceMeeter is a full mixer UI. Testers should not have to learn it. VB-CABLE is one virtual cable — the same pattern VoidLink / Moonlight V+ Windows testers already use — plus a tiny feeder so GameSphere can keep its existing phone VBAN sender (works with stock Sunshine on Bazzite, not only Foundation hosts).
-
-Creating a Windows **recording device** still needs a signed virtual audio driver. There is no mature, license-clean OSS package that both receives VBAN and registers a mic. Embedding VB-CABLE would violate VB-Audio distribution rules — so Import Tool **downloads the official zip** with an explicit license prompt, then runs our OSS feeder.
+In-stream couch voice (phone ↔ phone) and PC mic share the same uplink for seat 0.
 
 ---
 
@@ -89,21 +51,7 @@ Creating a Windows **recording device** still needs a signed virtual audio drive
 
 | Symptom | Fix |
 |---------|-----|
-| Phone can’t connect | Confirm LAN IP, UDP `6980`, same Wi‑Fi/Ethernet segment; check firewall |
-| CABLE Output missing | Reboot after VB-CABLE install; confirm **CABLE Input** exists in Windows sound playback devices |
-| Discord hears nothing | Discord input = **CABLE Output**; feeder running (`GamesphereImportTool.exe --vban-feeder` or logon autostart); Mic chip on in GameSphere |
-| Feeder log | `%LOCALAPPDATA%\GameSphere\vban-feeder.log` |
-| Linux no device | Update PipeWire; confirm `libpipewire-module-vban-recv` exists; re-run `gamesphere-vban-setup.sh` |
-| Download failed | Install from [vb-audio.com/Cable](https://vb-audio.com/Cable/), reboot, then **Set up mic** again |
-
----
-
-## License cheat sheet
-
-| Piece | Status |
-|-------|--------|
-| VBAN protocol (PCM) | Public / free to implement ([spec PDF](https://vb-audio.com/Voicemeeter/VBANProtocol_Specifications.pdf)) |
-| VB-CABLE | Proprietary donationware — **not** bundled here; official zip downloaded at setup |
-| Import Tool VBAN feeder | OSS in this repo (`vban_feeder.py`) |
-| PipeWire `vban-recv` | MIT |
-| [quiniouben/vban](https://github.com/quiniouben/vban) | GPL-3.0 (optional Linux CLI alt) |
+| Device missing | `gamesphere-pc-mic-setup.sh install` or start a stream (`VOICE start`) |
+| Steam hears silence | Mic unmuted in GameSphere; seat is slot 0; `pactl list short sources \| grep gamesphere` |
+| Party works, Steam silent | Confirm input is **GameSphere Mic**, not HDMI / DualSense / Built-in |
+| Legacy VBAN still listed | Re-run `--setup-mic` (removes `50-gamesphere-vban-recv.conf`) |

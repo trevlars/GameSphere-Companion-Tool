@@ -3,7 +3,9 @@ TCP bridge for GameSphere clients (StreamTweak-compatible subset on port 47998).
 
 Supported verbs: CAPS, NETINFO, SETSPEED, RESTORE, STATUS, STATS, TAILSCALE,
 LASTSESSION, SESSIONDATA, APPSTORES, PLAYTIMES, GAMESTATE, LOCKSTATE,
-INVITE, JOINPIN, INVITEEND, JOINREQ, JOINPENDING, JOINACK, JOINSTATUS, TRUSTED.
+INVITE, JOINPIN, INVITEEND, JOINREQ, JOINPENDING, JOINACK, JOINSTATUS, TRUSTED,
+HOSTINFO, COOPSTATE, SLOTSWAP, WANSETUP, VOICE, WANNAPLAY, PLAYREG, PLAYPENDING,
+PLAYCLAIM, PLAYREPLY, PROFILE.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import socket
 import socketserver
 import subprocess
 import threading
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 from host_tuning.config import load_config
 from host_tuning import app_stores
@@ -57,9 +59,11 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
 
             if verb == "CAPS":
                 self._reply(
-                    "CAPS NETINFO SETSPEED RESTORE STATUS STATS TAILSCALE "
-                    "LASTSESSION SESSIONDATA APPSTORES PLAYTIMES GAMESTATE LOCKSTATE "
-                    "INVITE JOINPIN INVITEEND JOINREQ JOINPENDING JOINACK JOINSTATUS TRUSTED"
+            "CAPS NETINFO SETSPEED RESTORE STATUS STATS TAILSCALE "
+            "LASTSESSION SESSIONDATA APPSTORES PLAYTIMES GAMESTATE LOCKSTATE "
+            "INVITE JOINPIN INVITEEND JOINREQ JOINPENDING JOINACK JOINSTATUS TRUSTED "
+            "HOSTINFO COOPSTATE SLOTSWAP WANSETUP VOICE "
+            "WANNAPLAY PLAYREG PLAYPENDING PLAYCLAIM PLAYREPLY PROFILE"
                 )
             elif verb == "NETINFO":
                 self._reply(link_speed.netinfo_json(adapter or "", active))
@@ -91,6 +95,12 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                 try:
                     batch = json.loads(arg or "{}")
                     session_telemetry.append_client_telemetry(batch)
+                    try:
+                        from host_tuning import coop_pause
+
+                        coop_pause.note_sample(batch)
+                    except Exception:
+                        logging.debug("coop_pause sample failed", exc_info=True)
                     self._reply("OK")
                 except json.JSONDecodeError:
                     self._reply("ERR")
@@ -141,6 +151,18 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                     except json.JSONDecodeError:
                         token = arg.strip()
                 self._reply(json.dumps(guest_invite.end_invite(token)))
+                try:
+                    from host_tuning import couch_coop
+
+                    couch_coop.clear_stream_active()
+                except Exception:
+                    pass
+                try:
+                    from host_tuning import wanna_play
+
+                    wanna_play.end_session()
+                except Exception:
+                    pass
             elif verb == "JOINREQ":
                 try:
                     payload = json.loads(arg or "{}") if arg else {}
@@ -174,6 +196,97 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                         payload = {}
                     uuid = str(payload.get("uuid") or payload.get("guestUuid") or "").strip()
                     self._reply(json.dumps(join_request.mark_trusted(uuid)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "HOSTINFO":
+                self._reply(json.dumps(_hostinfo_json()))
+            elif verb == "COOPSTATE":
+                self._reply(json.dumps(_coopstate_json(arg)))
+            elif verb == "SLOTSWAP":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    self._reply(json.dumps(_slotswap(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "WANSETUP":
+                from host_tuning import wan_setup
+
+                payload = {}
+                if arg:
+                    try:
+                        parsed = json.loads(arg)
+                        if isinstance(parsed, dict):
+                            payload = parsed
+                    except json.JSONDecodeError:
+                        payload = {}
+                if payload.get("map") or payload.get("ensure"):
+                    result = wan_setup.ensure(reason="wansetup")
+                elif payload.get("unmap") or payload.get("release"):
+                    result = wan_setup.release(reason="cli")
+                else:
+                    result = wan_setup.status()
+                self._reply(json.dumps(result))
+            elif verb == "VOICE":
+                self._reply(json.dumps(_voice_cmd(arg)))
+            elif verb == "WANNAPLAY":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    self._reply(json.dumps(_wannaplay(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "PLAYREG":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    from host_tuning import wanna_play
+
+                    self._reply(json.dumps(wanna_play.register_device(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "PLAYPENDING":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    from host_tuning import wanna_play
+
+                    uuid = str(payload.get("uuid") or payload.get("guestUuid") or "").strip()
+                    self._reply(json.dumps(wanna_play.pending_for(uuid)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "PLAYCLAIM":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    from host_tuning import wanna_play
+
+                    self._reply(json.dumps(wanna_play.claim(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "PLAYREPLY":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    from host_tuning import play_reply
+
+                    self._reply(json.dumps(play_reply.record(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "PROFILE":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    from host_tuning import device_profiles
+
+                    self._reply(json.dumps(device_profiles.handle(payload)))
                 except json.JSONDecodeError:
                     self._reply(json.dumps({"ok": False, "error": "bad_json"}))
             else:
@@ -225,10 +338,18 @@ class GameSphereBridge:
             if adapter_name:
                 link_speed.restore_link_speed(adapter_name)
             guest_invite.on_session_stop()
+            couch_coop.clear_stream_active()
 
         def _on_start(_e):
+            couch_coop.mark_stream_active()
             couch_coop.arm_late_join()
             couch_coop.apply("session_start")
+            try:
+                from host_tuning import wan_setup
+
+                wan_setup.on_session_start()
+            except Exception:
+                logging.debug("wan map on stream start", exc_info=True)
 
         self.monitor = session_telemetry.SessionLogMonitor(
             log_path or session_telemetry.detect_sunshine_log_path(cfg.sunshine_log_path),
@@ -240,6 +361,18 @@ class GameSphereBridge:
         self._coop_watch = couch_coop.CouchCoopWatch()
         self._coop_watch.start()
         couch_coop.apply("bridge_start")
+        try:
+            from host_tuning import nat_map
+
+            nat_map.revoke_web_ui_if_mapped()
+        except Exception:
+            logging.debug("revoke 47990 on bridge start", exc_info=True)
+        try:
+            from host_tuning import voice_bridge
+
+            voice_bridge.start()
+        except Exception:
+            logging.exception("voice_bridge start")
         class Server(socketserver.ThreadingTCPServer):
             allow_reuse_address = True
             daemon_threads = True
@@ -252,16 +385,191 @@ class GameSphereBridge:
         self._thread.start()
         logging.info("GameSphere host bridge listening on TCP %s", port)
 
+    def is_alive(self) -> bool:
+        return bool(self._thread and self._thread.is_alive() and self._server)
+
     def stop(self) -> None:
         if self._coop_watch:
             self._coop_watch.stop()
             self._coop_watch = None
+        try:
+            from host_tuning import voice_bridge
+
+            voice_bridge.stop()
+        except Exception:
+            pass
         if self.monitor:
             self.monitor.stop()
         if self._server:
             self._server.shutdown()
             self._server.server_close()
         self._server = None
+
+
+def _push_fields() -> Dict[str, Any]:
+    try:
+        from host_tuning import apns
+
+        info = apns.status_public()
+        return {
+            "pushReady": bool(info.get("pushReady")),
+            "pushStatus": str(info.get("pushStatus") or ""),
+        }
+    except Exception:
+        return {
+            "pushReady": False,
+            "pushStatus": (
+                "Lock-screen Wanna play needs an APNs Auth Key (.p8) on this PC — "
+                "friends still get the ping if GameSphere is open."
+            ),
+        }
+
+
+def _hostinfo_json() -> str:
+    from host_tuning import host_identity
+    from host_tuning import wan_setup
+    from host_tuning import voice_bridge
+
+    ident = host_identity.snapshot()
+    wan = wan_setup.status()
+    voice = voice_bridge.status()
+    push = _push_fields()
+    payload = {
+        "ok": True,
+        "maxPlayers": 4,
+        "lanHost": wan.get("lanHost") or "",
+        "wanHost": wan.get("wanHost") or "",
+        "wanReady": bool(wan.get("wanReady")),
+        "wanStatus": wan.get("status") or "",
+        "voicePort": voice.get("port") or 48020,
+        "voiceRunning": bool(voice.get("running")),
+        "tailscaleHost": wan.get("tailscaleHost") or "",
+        **push,
+        **ident,
+    }
+    try:
+        from host_tuning import device_profiles
+
+        host_profile = device_profiles.host_profile()
+        profiles = device_profiles.public_list()
+        if host_profile:
+            payload["hostProfile"] = host_profile
+            if host_profile.get("avatarUrl"):
+                payload["profileAvatarUrl"] = host_profile.get("avatarUrl")
+            if host_profile.get("name"):
+                payload["profileName"] = host_profile.get("name")
+        if profiles:
+            payload["profiles"] = profiles
+    except Exception:
+        logging.debug("device_profiles hostinfo failed", exc_info=True)
+    return payload
+
+
+def _coopstate_json(arg: str) -> Dict:
+    from host_tuning import coop_pause
+    from host_tuning import host_identity
+    from host_tuning import wan_setup
+    from host_tuning import voice_bridge
+
+    if arg:
+        try:
+            payload = json.loads(arg)
+            if isinstance(payload, dict) and payload.get("hostUnpaused"):
+                coop_pause.host_unpaused()
+        except json.JSONDecodeError:
+            pass
+    pause = coop_pause.snapshot()
+    ident = host_identity.snapshot()
+    wan = wan_setup.status()
+    voice = voice_bridge.status()
+    coop = couch_coop.status()
+    try:
+        from host_tuning import wanna_play
+
+        wp = wanna_play.public_session()
+    except Exception:
+        wp = None
+    try:
+        from host_tuning import play_reply
+
+        chat = play_reply.coopstate_fields()
+    except Exception:
+        chat = {
+            "coopChat": [],
+            "playReplies": [],
+            "playReply": None,
+            "lastReply": None,
+        }
+    out = {
+        "ok": True,
+        "maxPlayers": 4,
+        "players": coop.get("players") or [],
+        "slot_lock": coop.get("slot_lock") or [],
+        "streamActive": bool(couch_coop.stream_active()),
+        "pauseRecommended": pause.get("pauseRecommended"),
+        "paused": pause.get("paused"),
+        "reason": pause.get("reason") or "",
+        "clientCount": pause.get("clientCount") or 0,
+        "multiplayer": pause.get("multiplayer"),
+        "clients": pause.get("clients") or [],
+        "voicePort": voice.get("port") or 48020,
+        "voiceRunning": bool(voice.get("running")),
+        "lanHost": wan.get("lanHost") or "",
+        "wanHost": wan.get("wanHost") or "",
+        "wanReady": bool(wan.get("wanReady")),
+        "wanStatus": wan.get("status") or "",
+        "wannaPlay": wp,
+        **chat,
+        **_push_fields(),
+        **ident,
+    }
+    try:
+        from host_tuning import device_profiles
+
+        host_profile = device_profiles.host_profile()
+        profiles = device_profiles.public_list()
+        if host_profile:
+            out["hostProfile"] = host_profile
+        if profiles:
+            out["profiles"] = profiles
+    except Exception:
+        logging.debug("device_profiles coopstate failed", exc_info=True)
+    return out
+
+
+def _slotswap(payload: Dict) -> Dict:
+    order = payload.get("order") or payload.get("slots") or []
+    if not isinstance(order, list) or len(order) < 2:
+        return {"ok": False, "error": "missing_order"}
+    ints = []
+    for item in order:
+        try:
+            ints.append(int(item))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad_order"}
+    return couch_coop.host_swap(ints)
+
+
+def _wannaplay(payload: Dict) -> Dict:
+    from host_tuning import wanna_play
+
+    if payload.get("end") or str(payload.get("action") or "").lower() == "end":
+        wanna_play.end_session()
+        return {"ok": True, "ended": True}
+    return wanna_play.start(payload)
+
+
+def _voice_cmd(arg: str) -> Dict:
+    from host_tuning import voice_bridge
+
+    cmd = (arg or "status").strip().split()
+    action = (cmd[0] if cmd else "status").lower()
+    if action == "start":
+        return voice_bridge.start()
+    if action == "stop":
+        voice_bridge.stop()
+        return {"ok": True, "stopped": True}
+    return voice_bridge.status()
 
 
 def _host_stats_json() -> str:

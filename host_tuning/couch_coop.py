@@ -1,18 +1,13 @@
-"""Game-agnostic couch co-op P1/P2 via Sunshine connect-order + Steam Input.
+"""Game-agnostic couch co-op P1–P4 via Sunshine connect-order + Steam Input.
 
-Sunshine (`gamepad = x360`) allocates Gamepad 0 (host) then Gamepad 1 (guest).
-Steam Input clones those as VID 28de / PID 11ff "Microsoft X-Box 360 pad 0/1"
+Sunshine (`gamepad = x360`) allocates Gamepad 0 (host) then 1–3 as guests join.
+Steam Input clones those as VID 28de / PID 11ff "Microsoft X-Box 360 pad N"
 — those *are* Steam player slots. The clones also show up as extra SDL pads and
-steal Player 2 unless they are hidden from the joystick subsystem.
+steal later players unless they are hidden from the joystick subsystem.
 
-Companion applies this automatically on JOINACK, Sunshine Gamepad 1, a second
-session, and pad arrival. No per-title LD_PRELOAD.
-
-HarbourMasters (SpaghettiKart / SOH / 2S2H) maps every SDL pad to Port 1.
-Steam Input cannot fix that engine. Steam-facing titles get connect-order P1/P2.
-
-Gemma DualSense USB: never let Sunshine/Link x360 steal emu P1
-(`BAZZITE_REMOTE_XBOX_P1=never`). Do not claim DualSense in VirtualHere here.
+Slots are assigned once on join (connect-order). Re-apply never swaps two live
+players when a pad blips, Steam clones reappear, or the watcher fires. Host Swap
+is the only explicit remap.
 """
 
 from __future__ import annotations
@@ -28,12 +23,10 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
-GEMMA_ACCOUNT_ID = "708606858"
 STEAM_CLONE_VENDOR = "28de"
 STEAM_CLONE_PRODUCT = "11ff"
 SUNSHINE_XBOX_ONE = ("045e", "02ea")
-DS5_X360_BRIDGE = ("045e", "028e")
-DUALSENSE = ("054c", "0ce6")
+PHYSICAL_X360 = ("045e", "028e")
 
 _JUNK_NAMES = (
     "asrock led controller",
@@ -45,11 +38,15 @@ _RUNTIME_JSON = "gamesphere-couch-coop.json"
 _RUNTIME_ENV = "gamesphere-couch-coop.env"
 _ARM_SECONDS = 180.0
 _APPLY_DEBOUNCE = 0.8
+MAX_PLAYERS = 4
 
 _lock = threading.Lock()
 _armed_until = 0.0
 _last_apply = 0.0
 _last_sig = ""
+_slot_lock: List[Optional[str]] = [None] * MAX_PLAYERS
+_slot_meta: List[Dict[str, Any]] = [{} for _ in range(MAX_PLAYERS)]
+_last_live_keys: List[str] = []
 
 
 @dataclass
@@ -60,7 +57,7 @@ class Pad:
     handlers: List[str] = field(default_factory=list)
     sysfs: str = ""
     uniq: str = ""
-    kind: str = ""  # sunshine | steam_clone | dualsense | ds5_x360 | junk | other
+    kind: str = ""  # sunshine | steam_clone | junk | other
 
     @property
     def input_n(self) -> int:
@@ -138,14 +135,9 @@ def _classify(name: str, vendor: str, product: str, handlers: List[str]) -> str:
         return "junk"
     if vendor == STEAM_CLONE_VENDOR and product == STEAM_CLONE_PRODUCT:
         return "steam_clone"
-    if vendor == DUALSENSE[0] and product == DUALSENSE[1]:
-        return "dualsense"
-    if "dualsense" in low or "playstation 5" in low:
-        return "dualsense"
-    if vendor == DS5_X360_BRIDGE[0] and product == DS5_X360_BRIDGE[1]:
-        # Gemma DS5→x360 bridge — not a Sunshine stream pad.
-        if "sunshine" not in low:
-            return "ds5_x360"
+    if vendor == PHYSICAL_X360[0] and product == PHYSICAL_X360[1] and "sunshine" not in low:
+        # Physical / OS x360 pad — not a Sunshine virtual stream pad (045e:02ea).
+        return "other"
     if "sunshine" in low:
         return "sunshine"
     if vendor == SUNSHINE_XBOX_ONE[0] and product == SUNSHINE_XBOX_ONE[1] and "virtual" in low:
@@ -191,24 +183,32 @@ def _active_steam_account_id() -> str:
     return ""
 
 
-def _lsusb_has(vid_pid: str) -> bool:
+def _stream_flag_path() -> str:
+    return os.path.join(_runtime_dir(), "gamesphere-stream-active")
+
+
+def mark_stream_active() -> None:
+    path = _stream_flag_path()
     try:
-        out = subprocess.check_output(["lsusb"], text=True, timeout=3)
-    except (subprocess.SubprocessError, OSError, FileNotFoundError):
-        return False
-    return vid_pid.lower() in out.lower()
+        with open(path, "a", encoding="utf-8"):
+            pass
+    except OSError:
+        pass
 
 
-def gemma_dualsense_usb() -> bool:
-    """Gemma profile + hardwired DualSense — physical pad owns P1."""
-    if _active_steam_account_id() != GEMMA_ACCOUNT_ID:
-        return False
-    return _lsusb_has("054c:0ce6")
+def clear_stream_active() -> None:
+    try:
+        os.remove(_stream_flag_path())
+    except OSError:
+        pass
 
 
 def stream_active() -> bool:
-    flag = os.path.join(_runtime_dir(), "bazzite-sunshine-stream-active")
-    return os.path.isfile(flag)
+    runtime = _runtime_dir()
+    for name in ("gamesphere-stream-active", "sunshine-stream-active"):
+        if os.path.isfile(os.path.join(runtime, name)):
+            return True
+    return False
 
 
 def arm_late_join(seconds: float = _ARM_SECONDS) -> None:
@@ -255,18 +255,12 @@ def _chmod_000(path: str) -> bool:
 
 
 def hide_steam_clones(pads: Optional[List[Pad]] = None) -> int:
-    """Hide Steam Input 28de:11ff clones from SDL. Do not touch DualSense or Sunshine."""
+    """Hide Steam Input 28de:11ff clones from SDL. Do not touch Sunshine virtual pads."""
     hidden = 0
-    visible = False
     for pad in steam_clones(pads):
         for node in pad.nodes:
-            if _mode(node) not in (0, -1):
-                visible = True
             if _chmod_000(node):
                 hidden += 1
-    script = os.path.expanduser("~/.local/bin/bazzite-hide-steam-x360-clones.sh")
-    if visible and os.path.isfile(script) and os.access(script, os.X_OK):
-        _run([script])
     return hidden
 
 
@@ -283,37 +277,66 @@ def hide_junk_joysticks(pads: Optional[List[Pad]] = None) -> int:
 
 
 def ensure_clone_watch() -> bool:
-    if os.name == "nt":
-        return False
-    flag = os.path.join(_runtime_dir(), "bazzite-sunshine-stream-active")
-    try:
-        with open(flag, "a", encoding="utf-8"):
-            pass
-    except OSError:
-        return False
-    try:
-        out = subprocess.check_output(["pgrep", "-f", "bazzite-steam-clone-watch.sh"], text=True, timeout=2)
-        if out.strip():
-            return True
-    except (subprocess.SubprocessError, OSError):
-        pass
-    watch = os.path.expanduser("~/.local/bin/bazzite-steam-clone-watch.sh")
-    if not (os.path.isfile(watch) and os.access(watch, os.X_OK)):
-        return False
-    try:
-        subprocess.Popen(
-            [watch],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        return True
-    except OSError:
-        return False
+    """CouchCoopWatch in the host daemon is the product clone hider (plus udev)."""
+    return os.name != "nt"
 
 
 def _steam_slot_name(index: int) -> str:
     return f"Microsoft X-Box 360 pad {index}"
+
+
+def pad_key(pad: Pad) -> str:
+    """Identity for slot lock. Prefer uniq; else event nodes + name (not input_n)."""
+    if pad.uniq:
+        return f"u:{pad.uniq}"
+    events = ",".join(pad.event_nodes) or ",".join(pad.nodes)
+    return f"n:{events}|{pad.vendor}:{pad.product}|{pad.name}"
+
+
+def stabilize_slots(
+    lock: List[Optional[str]],
+    live_keys: List[str],
+    max_players: int = MAX_PLAYERS,
+) -> List[Optional[str]]:
+    """Keep occupied live players in their seats. Fill empty seats. Never swap two live keys."""
+    size = max(1, int(max_players))
+    new_lock: List[Optional[str]] = list(lock[:size]) if lock else []
+    while len(new_lock) < size:
+        new_lock.append(None)
+    new_lock = new_lock[:size]
+    live = [k for k in live_keys if k]
+    live_set = set(live)
+    occupied: Dict[str, int] = {}
+    for i, key in enumerate(new_lock):
+        if key and key in live_set:
+            occupied[key] = i
+        else:
+            new_lock[i] = None
+    unmatched = [k for k in live if k not in occupied]
+    empties = [i for i, k in enumerate(new_lock) if not k]
+    for key, slot in zip(unmatched, empties):
+        new_lock[slot] = key
+    return new_lock
+
+
+def remap_slots(lock: List[Optional[str]], order: List[int], max_players: int = MAX_PLAYERS) -> List[Optional[str]]:
+    """Explicit host Swap. `order[i]` is the old slot that should become new slot i."""
+    size = max(1, int(max_players))
+    src = list(lock[:size]) if lock else []
+    while len(src) < size:
+        src.append(None)
+    out: List[Optional[str]] = [None] * size
+    seen = set()
+    for new_i, old_i in enumerate(order[:size]):
+        try:
+            idx = int(old_i)
+        except (TypeError, ValueError):
+            continue
+        if idx < 0 or idx >= size or idx in seen:
+            continue
+        seen.add(idx)
+        out[new_i] = src[idx]
+    return out
 
 
 def steam_slots_from_clones(pads: Optional[List[Pad]] = None) -> List[Dict[str, Any]]:
@@ -367,30 +390,56 @@ def _write_player_slot_led(account_id: str, slot: int) -> bool:
     return changed
 
 
-def write_runtime(pads: List[Pad], gemma_ds: bool) -> Dict[str, Any]:
+def _pads_by_key(pads: List[Pad]) -> Dict[str, Pad]:
+    return {pad_key(p): p for p in sunshine_pads(pads)}
+
+
+def _ordered_sunshine(pads: List[Pad], lock: List[Optional[str]]) -> List[tuple]:
+    by_key = _pads_by_key(pads)
+    ordered = []
+    for i, key in enumerate(lock):
+        pad = by_key.get(key) if key else None
+        ordered.append((i, key, pad))
+    return ordered
+
+
+def write_runtime(pads: List[Pad], lock: Optional[List[Optional[str]]] = None) -> Dict[str, Any]:
     sun = sunshine_pads(pads)
     clones = steam_clones(pads)
+    slot_lock = list(lock if lock is not None else _slot_lock)
+    while len(slot_lock) < MAX_PLAYERS:
+        slot_lock.append(None)
+    ordered = _ordered_sunshine(pads, slot_lock)
     event_pin = []
-    for pad in sun:
-        event_pin.extend(pad.event_nodes)
+    sunshine_rows = []
+    for i, key, pad in ordered:
+        meta = _slot_meta[i] if i < len(_slot_meta) else {}
+        row = {
+            "player": i + 1,
+            "slot": i,
+            "key": key,
+            "name": pad.name if pad else (meta.get("name") or ""),
+            "input": pad.input_n if pad else None,
+            "nodes": pad.nodes if pad else [],
+            "present": pad is not None,
+            "clientId": meta.get("clientId") or "",
+            "clientName": meta.get("name") or ("Host" if i == 0 else ""),
+            "role": meta.get("role") or ("host" if i == 0 else ("guest" if key else "")),
+        }
+        sunshine_rows.append(row)
+        if pad:
+            event_pin.extend(pad.event_nodes)
+    filled = sum(1 for _i, key, pad in ordered if pad)
     payload: Dict[str, Any] = {
-        "v": 1,
-        "mechanism": "sunshine_connect_order + steam_input_slots + hide_28de_11ff",
-        "gemma_dualsense_usb": gemma_ds,
-        "remote_xbox_p1": "never" if gemma_ds else "auto",
+        "v": 2,
+        "mechanism": "sunshine_connect_order + steam_input_slots + hide_28de_11ff + sticky_slots",
+        "max_players": MAX_PLAYERS,
         "sunshine_count": len(sun),
         "steam_clone_count": len(clones),
-        "sunshine": [
-            {
-                "name": p.name,
-                "player": i + 1,
-                "input": p.input_n,
-                "nodes": p.nodes,
-            }
-            for i, p in enumerate(sun)
-        ],
+        "slot_lock": slot_lock,
+        "sunshine": sunshine_rows,
         "steam_slots": steam_slots_from_clones(pads),
-        "sdl_joystick_device": ":".join(event_pin) if (len(sun) >= 2 and not gemma_ds) else "",
+        "sdl_joystick_device": ":".join(event_pin) if filled >= 2 else "",
         "harbourmasters_exception": (
             "SpaghettiKart / SOH / 2S2H map every SDL pad to Port 1. "
             "Steam Input cannot rematerialize HM ports. Use 2P GAME if the engine offers it."
@@ -403,19 +452,15 @@ def write_runtime(pads: List[Pad], gemma_ds: bool) -> Dict[str, Any]:
         logging.warning("couch_coop: write json failed: %s", exc)
 
     env_lines = [
-        "# Written by GameSphere Companion (host_tuning.couch_coop). Game-agnostic P1/P2.",
+        "# Written by GameSphere Companion (host_tuning.couch_coop). Game-agnostic P1-P4.",
         "export GAMESPHERE_COUCH_COOP=1",
         "export SDL_GAMECONTROLLER_IGNORE_DEVICES=0x28de/0x11ff",
         "export SDL_HIDAPI_IGNORE_DEVICES=0x28de/0x11ff",
         "export SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD=0",
         "export SDL_JOYSTICK_HIDAPI_STEAMXBOX=0",
     ]
-    if gemma_ds:
-        env_lines.append("export BAZZITE_REMOTE_XBOX_P1=never")
-        env_lines.append("export BAZZITE_INCLUDE_VIRTUAL_XBOX=never")
-    elif len(sun) >= 2 and event_pin:
+    if filled >= 2 and event_pin:
         env_lines.append(f"export SDL_JOYSTICK_DEVICE={':'.join(event_pin)}")
-        env_lines.append("export BAZZITE_REMOTE_XBOX_P1=auto")
     try:
         with open(runtime_env_path(), "w", encoding="utf-8") as fh:
             fh.write("\n".join(env_lines) + "\n")
@@ -429,32 +474,50 @@ def _signature(pads: List[Pad]) -> str:
     return "|".join(parts)
 
 
+def _live_keys(pads: List[Pad]) -> List[str]:
+    return [pad_key(p) for p in sunshine_pads(pads)]
+
+
+def _should_sync_player_order(reason: str) -> bool:
+    return reason in ("joinack", "host_swap", "cli")
+
+
 def apply(reason: str = "manual", force: bool = False) -> Dict[str, Any]:
-    """Hide Steam clones, pin connect-order Sunshine pads, write runtime state."""
-    global _last_apply, _last_sig
+    """Hide Steam clones and pin locked Sunshine slots. Never swap two live players."""
+    global _last_apply, _last_sig, _slot_lock, _last_live_keys
     if os.name == "nt":
         return {"ok": True, "skipped": "windows", "reason": reason}
 
     now = time.time()
     pads = read_live_pads()
+    live = _live_keys(pads)
     sig = _signature(pads)
     with _lock:
         if not force and sig == _last_sig and (now - _last_apply) < _APPLY_DEBOUNCE:
             return {"ok": True, "debounced": True, "reason": reason}
+        prev_lock = list(_slot_lock)
+        new_lock = stabilize_slots(_slot_lock, live)
+        lock_changed = new_lock != prev_lock
+        clones_only = (not lock_changed) and live == _last_live_keys and reason in (
+            "pad_arrival",
+            "sunshine_log",
+            "bridge_start",
+        )
         _last_apply = now
         _last_sig = sig
+        _slot_lock = new_lock
+        _last_live_keys = live
 
-    gemma_ds = gemma_dualsense_usb()
+    if reason in ("session_start", "prep_start"):
+        mark_stream_active()
     hidden_clones = hide_steam_clones(pads)
     hidden_junk = hide_junk_joysticks(pads)
     watch = ensure_clone_watch() if (stream_active() or armed() or sunshine_pads(pads)) else False
-    if not gemma_ds:
-        _write_player_slot_led(_active_steam_account_id(), 0)
-    sync = os.path.expanduser("~/.local/bin/bazzite-sync-emulator-player-order.py")
     synced = False
-    if os.path.isfile(sync) and os.access(sync, os.X_OK) and not gemma_ds:
-        synced = _run(["python3", sync])
-    payload = write_runtime(pads, gemma_ds)
+    if (not clones_only) and _should_sync_player_order(reason):
+        if reason == "host_swap":
+            _write_player_slot_led(_active_steam_account_id(), 0)
+    payload = write_runtime(pads, _slot_lock)
     payload.update(
         {
             "ok": True,
@@ -463,37 +526,87 @@ def apply(reason: str = "manual", force: bool = False) -> Dict[str, Any]:
             "hidden_junk": hidden_junk,
             "clone_watch": watch,
             "player_order_sync": synced,
+            "lock_changed": lock_changed,
+            "clones_only": clones_only,
         }
     )
     logging.info(
-        "couch_coop apply reason=%s sunshine=%s clones=%s hidden=%s gemma_ds=%s",
+        "couch_coop apply reason=%s sunshine=%s clones=%s hidden=%s lock=%s swapped=%s",
         reason,
         payload.get("sunshine_count"),
         payload.get("steam_clone_count"),
         hidden_clones,
-        gemma_ds,
+        _slot_lock,
+        False,
     )
     return payload
 
 
-def on_join_accepted() -> Dict[str, Any]:
+def note_client(slot: int, client_id: str = "", name: str = "", role: str = "") -> None:
+    if slot < 0 or slot >= MAX_PLAYERS:
+        return
+    meta = dict(_slot_meta[slot])
+    if client_id:
+        meta["clientId"] = client_id
+    if name:
+        meta["name"] = name
+    if role:
+        meta["role"] = role
+    elif slot == 0:
+        meta.setdefault("role", "host")
+        meta.setdefault("name", "Host")
+    _slot_meta[slot] = meta
+
+
+def next_empty_slot() -> int:
+    """Guests occupy seats 1–3. Slot 0 is always host."""
+    for i in range(1, MAX_PLAYERS):
+        if not _slot_lock[i]:
+            return i
+    return MAX_PLAYERS - 1
+
+
+def on_join_accepted(client_id: str = "", name: str = "") -> Dict[str, Any]:
     arm_late_join()
+    slot = next_empty_slot()
+    if client_id or name:
+        note_client(slot, client_id=client_id, name=name, role="guest")
+    note_client(0, role="host", name="Host")
     return apply("joinack", force=True)
+
+
+def host_swap(order: List[int]) -> Dict[str, Any]:
+    """Host-only explicit P1–P4 remap. The one time swapping live players is allowed."""
+    global _slot_lock, _slot_meta
+    with _lock:
+        new_lock = remap_slots(_slot_lock, order)
+        new_meta = [{} for _ in range(MAX_PLAYERS)]
+        for new_i, old_i in enumerate(list(order)[:MAX_PLAYERS]):
+            try:
+                idx = int(old_i)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= idx < MAX_PLAYERS:
+                new_meta[new_i] = dict(_slot_meta[idx])
+        _slot_lock = new_lock
+        _slot_meta = new_meta
+    logging.info("couch_coop host_swap order=%s lock=%s", order, _slot_lock)
+    return apply("host_swap", force=True)
 
 
 def on_sunshine_hint(line: str) -> Optional[Dict[str, Any]]:
     low = line.lower()
-    if "gamepad 1" in low or re.search(r"active sessions:\s*[2-9]", low):
+    if re.search(r"gamepad\s+[1-3]\b", low) or re.search(r"active sessions:\s*[2-9]", low):
         arm_late_join()
         return apply("sunshine_log")
     if "gamepad 0" in low and (stream_active() or armed()):
+        # Host pad blip — hide clones / fill empty only; do not reshuffle.
         return apply("sunshine_log")
     return None
 
 
 def status() -> Dict[str, Any]:
     pads = read_live_pads()
-    gemma_ds = gemma_dualsense_usb()
     saved: Dict[str, Any] = {}
     path = runtime_json_path()
     if os.path.isfile(path):
@@ -506,25 +619,36 @@ def status() -> Dict[str, Any]:
         "ok": True,
         "stream_active": stream_active(),
         "armed": armed(),
-        "gemma_dualsense_usb": gemma_ds,
+        "max_players": MAX_PLAYERS,
+        "slot_lock": list(_slot_lock),
+        "players": [
+            {
+                "player": i + 1,
+                "slot": i,
+                "key": _slot_lock[i] if i < len(_slot_lock) else None,
+                "name": (_slot_meta[i].get("name") if i < len(_slot_meta) else "") or "",
+                "role": (_slot_meta[i].get("role") if i < len(_slot_meta) else "") or "",
+                "clientId": (_slot_meta[i].get("clientId") if i < len(_slot_meta) else "") or "",
+            }
+            for i in range(MAX_PLAYERS)
+        ],
         "sunshine": [
-            {"name": p.name, "player": i + 1, "nodes": p.nodes, "input": p.input_n}
-            for i, p in enumerate(sunshine_pads(pads))
+            {"name": p.name, "key": pad_key(p), "nodes": p.nodes, "input": p.input_n}
+            for p in sunshine_pads(pads)
         ],
         "steam_slots": steam_slots_from_clones(pads),
         "junk": [{"name": p.name, "nodes": p.js_nodes} for p in pads if p.kind == "junk"],
         "runtime": saved,
         "verify": (
-            "Sunshine pads = connect-order P1/P2. Steam clones 28de:11ff "
-            "should be mode 000 (ls -l /dev/input/js*). evtest the Sunshine event "
-            "nodes. Steam-facing games use 'X-Box 360 pad 0/1' slots. "
+            "Sunshine pads stay in join-order seats (P1–P4). Steam clones 28de:11ff "
+            "should be mode 000 (ls -l /dev/input/js*). Host Swap is the only remap. "
             "HarbourMasters still binds all SDL pads to Port 1."
         ),
     }
 
 
 class CouchCoopWatch:
-    """Re-apply mapping when Gamepad 1 appears after the game already launched."""
+    """Hide clones and fill empty seats. Never reshuffle occupied P1–P4."""
 
     def __init__(self, interval: float = 1.0):
         self.interval = interval
@@ -546,18 +670,17 @@ class CouchCoopWatch:
         self._thread = None
 
     def _run(self) -> None:
-        last_sun = -1
-        last_clones = -1
+        last_keys: List[str] = []
         while not self._stop.is_set():
             try:
                 if stream_active() or armed():
                     pads = read_live_pads()
-                    sun = len(sunshine_pads(pads))
-                    clones = len(steam_clones(pads))
-                    if sun != last_sun or clones != last_clones:
+                    keys = _live_keys(pads)
+                    if keys != last_keys:
+                        # New/missing pad: fill empty or mark empty. Do not swap occupied seats.
                         apply("pad_arrival", force=True)
-                        last_sun, last_clones = sun, clones
-                    elif clones:
+                        last_keys = keys
+                    else:
                         hide_steam_clones(pads)  # no-op when clones already mode 000
             except Exception:
                 logging.exception("couch_coop watcher")

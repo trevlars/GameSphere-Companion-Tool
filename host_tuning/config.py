@@ -75,6 +75,13 @@ class HostTuningConfig:
     sunshine_web_url: str = "https://127.0.0.1:47990"
     sunshine_username: str = ""
     sunshine_password: str = ""
+    # Auto UPnP/NAT-PMP for remote join (never maps 47990). Idle unmap.
+    wan_auto_map: bool = True
+    # APNs Auth Key (.p8) — lock-screen Wanna play. Never store the PEM here.
+    apns_key_id: str = ""
+    apns_team_id: str = "ABG342Z7V2"
+    apns_bundle_id: str = "com.moonlight.gamesphere"
+    apns_key_path: str = ""
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HostTuningConfig":

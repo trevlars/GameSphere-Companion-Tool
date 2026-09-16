@@ -19,6 +19,8 @@ BIN_CANDIDATES = [
 BRIDGE_UNIT_NAME = "gamesphere-host-bridge.service"
 BRIDGE_UNIT_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-host-bridge.service")
 BRIDGE_UNIT_DST = os.path.expanduser(f"~/.config/systemd/user/{BRIDGE_UNIT_NAME}")
+BRIDGE_WRAPPER_SRC = os.path.join(INSTALL_DIR, "scripts/gamesphere-host-bridge.sh")
+BRIDGE_WRAPPER_DST = os.path.expanduser("~/.local/bin/gamesphere-host-bridge")
 UPDATE_UNIT_NAME = "gamesphere-import-update.timer"
 UPDATE_SERVICE_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-import-update.service")
 UPDATE_TIMER_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-import-update.timer")
@@ -138,7 +140,12 @@ def _ensure_bridge_unit() -> tuple[bool, str]:
     if not os.path.isfile(BRIDGE_UNIT_SRC):
         return False, f"Missing unit template: {BRIDGE_UNIT_SRC}"
     os.makedirs(os.path.dirname(BRIDGE_UNIT_DST), exist_ok=True)
+    os.makedirs(os.path.dirname(BRIDGE_WRAPPER_DST), exist_ok=True)
     shutil.copy2(BRIDGE_UNIT_SRC, BRIDGE_UNIT_DST)
+    if os.path.isfile(BRIDGE_WRAPPER_SRC):
+        shutil.copy2(BRIDGE_WRAPPER_SRC, BRIDGE_WRAPPER_DST)
+        os.chmod(BRIDGE_WRAPPER_DST, 0o755)
+    _enable_linger()
     _run_systemctl(["daemon-reload"])
     return True, BRIDGE_UNIT_DST
 
@@ -310,6 +317,20 @@ class Plugin:
         decky.logger.info("GameSphere Import Decky plugin loaded")
         ok, msg = await asyncio.get_event_loop().run_in_executor(None, _ensure_update_timer)
         decky.logger.info("Auto-update timer: %s %s", ok, msg)
+        if os.environ.get("GAMESPHERE_ENABLE_HOST_BRIDGE", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        ):
+            ok, msg = await asyncio.get_event_loop().run_in_executor(None, _ensure_bridge_unit)
+            decky.logger.info("Host daemon unit: %s %s", ok, msg)
+            if ok:
+                st_ok, output = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: _run_systemctl(["enable", "--now", BRIDGE_UNIT_NAME]),
+                )
+                decky.logger.info("Host daemon enable: %s %s", st_ok, output)
 
     async def _unload(self):
         pass

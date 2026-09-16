@@ -46,6 +46,14 @@ def _save(data: Dict[str, Any]) -> None:
 
 def _public_ip() -> str:
     try:
+        from host_tuning import wan_setup
+
+        ip = wan_setup.public_ip()
+        if ip:
+            return ip
+    except Exception:
+        pass
+    try:
         with urllib.request.urlopen("https://api.ipify.org", timeout=2.5) as resp:
             ip = resp.read().decode("utf-8", errors="replace").strip()
             if ip and len(ip) < 64:
@@ -120,7 +128,7 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
             "error": "missing_sunshine_credentials",
             "hint": "Set sunshine_username and sunshine_password in host_tuning.json (Sunshine web UI login).",
         }
-    token = secrets.token_urlsafe(12).replace("-", "")[:16]
+    token = secrets.token_urlsafe(16)
     now = time.time()
     lan_host = _strip_host_port(str(payload.get("lanHost") or payload.get("host") or "").strip())
     if not lan_host or not _is_private_ipv4(lan_host):
@@ -131,7 +139,17 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
     app_id = str(payload.get("appId") or "")
     app_name = str(payload.get("appName") or "")
     host_id = str(payload.get("hostId") or "")
-    wan_host = _public_ip()
+    wan_ready = False
+    wan_status = ""
+    try:
+        from host_tuning import wan_setup
+
+        mapped = wan_setup.ensure(reason="invite")
+        wan_host = str(mapped.get("wanHost") or "") or _public_ip()
+        wan_ready = bool(mapped.get("wanReady"))
+        wan_status = str(mapped.get("status") or "")
+    except Exception:
+        wan_host = _public_ip()
     clients_before = [c["uuid"] for c in sunshine_admin.list_clients()]
     invite = {
         "token": token,
@@ -156,7 +174,8 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
     _save(data)
 
     # Prefer LAN in host= so same-house iPads stream even if they ignore lan=.
-    # Remote guests still get wan= for fallback.
+    # Remote guests still get wan= for fallback. Never put only the public IP in host=
+    # when a LAN address exists — hairpin NAT from LAN to public IP usually fails.
     join_host = lan_host or wan_host
     query = (
         f"token={token}&host={join_host}&httpsPort={https_port}"
@@ -166,15 +185,28 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
         query += f"&lan={_q(lan_host)}"
     if wan_host:
         query += f"&wan={_q(wan_host)}"
-    logging.info("INVITE minted lan=%s wan=%s app=%s", lan_host, wan_host, app_name)
+    ident = {}
+    try:
+        from host_tuning import host_identity
+
+        ident = host_identity.snapshot()
+    except Exception:
+        ident = {}
+    logging.info("INVITE minted lan=%s wan=%s ready=%s app=%s", lan_host, wan_host, wan_ready, app_name)
     return {
         "ok": True,
         "token": token,
         "expiresIn": INVITE_TTL_SECONDS,
         "lanHost": lan_host,
         "wanHost": wan_host,
+        "wanReady": wan_ready,
+        "wanStatus": wan_status,
         "httpsPort": https_port,
         "joinURL": f"gamesphere://join?{query}",
+        "hostSteamId": ident.get("hostSteamId") or "",
+        "hostPersona": ident.get("hostPersona") or "",
+        "hostAvatarUrl": ident.get("hostAvatarUrl") or "",
+        "maxPlayers": 4,
     }
 
 
@@ -257,6 +289,24 @@ def on_session_stop() -> None:
         end_invite("")
     except Exception as exc:
         logging.debug("invite on_session_stop: %s", exc)
+    try:
+        from host_tuning import wanna_play
+
+        wanna_play.end_session()
+    except Exception as exc:
+        logging.debug("wanna_play on_session_stop: %s", exc)
+    try:
+        from host_tuning import couch_coop
+
+        couch_coop.clear_stream_active()
+    except Exception as exc:
+        logging.debug("couch_coop clear_stream_active: %s", exc)
+    try:
+        from host_tuning import wan_setup
+
+        wan_setup.on_session_stop()
+    except Exception as exc:
+        logging.debug("wan_setup on_session_stop: %s", exc)
 
 
 def _find(token: str) -> Optional[Dict[str, Any]]:

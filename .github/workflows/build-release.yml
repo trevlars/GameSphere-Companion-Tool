@@ -37,6 +37,8 @@ jobs:
           uv run main.py --version
           uv run main.py --help
           uv run python -m py_compile main.py host_tuning/*.py host_tuning_cli.py store_scanners.py store_covers.py platform_paths.py
+          uv run python -m unittest tests.test_host_daemon
+          uv run python -m unittest tests.test_host_daemon
 
   build-linux-portable:
     runs-on: ubuntu-latest
@@ -127,14 +129,14 @@ jobs:
           TAG="${{ steps.tag.outputs.name }}"
           {
             echo "#!/usr/bin/env bash"
-            echo "# GameSphere Import Tool ${TAG} — pinned release installer (advanced)"
+            echo "# GameSphere Companion Tool ${TAG} — pinned release installer (advanced)"
             echo "export GAMESPHERE_IMPORT_REF=${TAG}"
             tail -n +2 scripts/install-linux.sh
           } > install-linux.sh
           chmod +x install-linux.sh
           {
             echo "#!/usr/bin/env bash"
-            echo "# GameSphere Import Tool ${TAG} — Flatpak bundle installer"
+            echo "# GameSphere Companion Tool ${TAG} — Flatpak bundle installer"
             echo "export GAMESPHERE_IMPORT_REF=${TAG}"
             tail -n +2 scripts/install-flatpak.sh
           } > install-flatpak.sh
@@ -185,23 +187,21 @@ jobs:
           curl -fsSL ${BASE}/install-linux.sh | bash
           \`\`\`
 
-          Optional host bridge on boot: \`GAMESPHERE_ENABLE_HOST_BRIDGE=1\` before the curl command.
-
-          Linux installers enable \`gamesphere-import-update.timer\` (and linger when needed) so later GitHub Releases apply without SSH. Opt out: \`GAMESPHERE_AUTO_UPDATE=0\`.
+          Enables \`gamesphere-host-bridge.service\` (always-on Companion daemon) and \`gamesphere-import-update.timer\`. Opt out: \`GAMESPHERE_ENABLE_HOST_BRIDGE=0\` / \`GAMESPHERE_AUTO_UPDATE=0\`.
 
           ### Windows
 
           1. Download **GamesphereImportTool.exe** below.
-          2. Run as Administrator.
+          2. Run as Administrator to import into Program Files (optional for the daemon).
           3. Choose Sunshine or Apollo → Save config → Run importer.
 
-          The GUI checks GitHub on launch (**Check for updates**). Set \`GAMESPHERE_AUTO_UPDATE=apply\` to download without a prompt; \`GAMESPHERE_AUTO_UPDATE=0\` disables the check.
+          First launch registers a **hidden host daemon** (Task Scheduler logon task + tray). Closing the wizard does not stop JOINPIN / couch-coop. The GUI checks GitHub on launch (**Check for updates**). Set \`GAMESPHERE_AUTO_UPDATE=apply\` to download without a prompt; \`GAMESPHERE_AUTO_UPDATE=0\` disables the check.
 
           ### macOS
 
-          CLI from source: \`git clone\` → \`uv sync\` → \`uv run main.py --auto-config\` → \`uv run main.py\`
+          CLI from source: \`git clone\` → \`uv sync\` → \`uv run main.py --auto-config\` → \`uv run main.py --host-daemon-install\` → \`uv run main.py\`
 
-          No \`.app\` or launchd timer is shipped. Updates: \`uv run main.py --apply-update\`.
+          No \`.app\` is shipped. LaunchAgent: \`--host-daemon-install\`. Updates: \`uv run main.py --apply-update\`.
 
           ---
 
@@ -211,7 +211,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
-          name: GameSphere Import Tool ${{ steps.tag.outputs.name }}
+          name: GameSphere Companion Tool ${{ steps.tag.outputs.name }}
           body_path: RELEASE-NOTES.md
           generate_release_notes: true
           make_latest: true
@@ -225,5 +225,7 @@ jobs:
             scripts/linux-autoupdate-lib.sh
             scripts/systemd/gamesphere-import-update.service
             scripts/systemd/gamesphere-import-update.timer
+            scripts/systemd/gamesphere-host-bridge.service
+            scripts/gamesphere-host-bridge.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

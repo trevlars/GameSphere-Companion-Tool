@@ -1,6 +1,32 @@
 # User guide
 
-Plain-language help for **GameSphere Import Tool**. If you just want download links, start with the [README](../README.md).
+Plain-language help for **GameSphere Companion Tool** (the import wizard plus the always-on host daemon). If you just want download links, start with the [README](../README.md).
+
+---
+
+## First-run checklist
+
+Any Sunshine (or Apollo) PC. You do not SSH into a specific host, and you do not copy leftover helper scripts by hand.
+
+1. **Download** the latest [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
+2. **Install**
+   - Windows: `GamesphereImportTool.exe` → Run as administrator. Daemon registers at logon (`--host-daemon-install`).
+   - Linux: `install-linux.sh` or `install-flatpak.sh` (not AppImage alone). Enables `gamesphere-host-bridge.service` + linger.
+3. **Confirm the daemon** (leave it running; closing the importer is fine)
+   - Linux: `systemctl --user status gamesphere-host-bridge.service`
+   - Any: `gamesphere-import --host-daemon-status` or `GamesphereImportTool.exe --host-daemon-status`
+   - Restart Companion only: `systemctl --user restart gamesphere-host-bridge.service` — **never** restart Sunshine to refresh the bridge.
+4. **Import** once so `apps.json` has your library + artwork.
+5. **Sunshine recommended config** (Companion writes this; applies on the next Sunshine restart, never mid-game): `gamepad = x360`, `upnp = disabled` (Companion maps ports instead), `origin_web_ui_allowed = pc`, opportunistic WAN encryption. **Never forward 47990.**
+6. **Router:** turn on UPnP or NAT-PMP. Companion maps game ports when you Invite / Wanna play / start a stream, then unmaps after idle. STUN fills `wan=`.
+7. **Host firewall** (installer tries this): TCP 47984, 47989, 48010, 47998; UDP 47998–48000, 48002, 48010, 48020. Never 47990. See [WAN.md](WAN.md).
+8. **Pair GameSphere** on the LAN, then try Invite. Off-LAN: guest uses cellular; LAN `serverinfo` first, then `wan=`.
+9. **Couch P2–P4:** join-order seats lock. Linux installer ships and enables udev + `gamesphere-hide-steam-clones.sh` so Steam Input `28de:11ff` clones do not steal pads. Host Swap (`SLOTSWAP`) is the only remap.
+10. **Voice:** UDP 48020 mixes GameSphere mics only — no HDMI tap, no WebRTC AEC on Sunshine. Optional **Mic to PC** (VBAN 6980) is a separate Discord/OBS path — [MIC-TO-PC.md](MIC-TO-PC.md).
+11. **Optional APNs:** drop `apns.p8` in the Companion config dir — [APNS.md](APNS.md). Wanna play poll still works without it.
+12. **Sunshine web login** in `host_tuning.json` (`sunshine_username` / `sunshine_password`) so JOINPIN can post to localhost:47990. Status / WAN / logs never print that password.
+
+Verbs the daemon serves: JOINPIN, INVITE, JOINREQ / JOINACK, WANNAPLAY, PLAYREG / PLAYPENDING / PLAYCLAIM / PLAYREPLY, HOSTINFO / PROFILE, COOPSTATE, SLOTSWAP, SESSIONDATA, WANSETUP, VOICE. Spec: [CLIENT_BRIDGE.md](CLIENT_BRIDGE.md).
 
 ---
 
@@ -18,6 +44,9 @@ Plain-language help for **GameSphere Import Tool**. If you just want download li
 - Turn on **Dry run (preview only)** to see what would change without writing files.
 - Paths are pre-filled for a normal Steam + Sunshine/Apollo install. Use **Browse…** only if yours is different.
 - **Check for updates** in the app (also runs on launch) downloads a newer `.exe` when a release is available. Set `GAMESPHERE_AUTO_UPDATE=apply` to skip the prompt; `GAMESPHERE_AUTO_UPDATE=0` turns the check off.
+- Closing the importer does **not** stop Companion. A hidden host daemon (`GamesphereImportTool.exe --host-daemon`) is registered at logon via Task Scheduler (restart on crash) plus HKCU Run. A tray icon stays in the notification area. This is the Windows host daemon — not a Windows Service (those need elevation and would not see your user Sunshine/Steam files).
+
+Opt out: `GAMESPHERE_ENABLE_HOST_BRIDGE=0`, or `GamesphereImportTool.exe --host-daemon-uninstall`.
 
 ### Which host button?
 
@@ -38,7 +67,7 @@ One command installs from the GitHub release bundle:
 curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-flatpak.sh | bash
 ```
 
-That command also enables **`gamesphere-import-update.timer`**. Downloading only the `.flatpak` bundle does not; use the install script for unattended updates.
+That command also enables **`gamesphere-import-update.timer`** and the **`gamesphere-host-bridge`** user service (login/boot, restart on crash, journal logs). Downloading only the `.flatpak` bundle does not; use the install script for unattended updates and the always-on daemon.
 
 Run the tool:
 
@@ -76,23 +105,18 @@ gamesphere-import --dry-run
 gamesphere-import
 ```
 
-The installer enables **`gamesphere-import-update.timer`** (and linger when needed) so later GitHub Releases apply without SSH. Opt out: `GAMESPHERE_AUTO_UPDATE=0`.
+The installer enables **`gamesphere-import-update.timer`** and **`gamesphere-host-bridge.service`** (and linger when needed) so later GitHub Releases apply without SSH and couch-coop / JOINPIN keep working after you close the terminal. Opt out: `GAMESPHERE_AUTO_UPDATE=0` and/or `GAMESPHERE_ENABLE_HOST_BRIDGE=0`.
 
-**Optional — GameSphere bridge on boot** (session stats / store badges for GameSphere clients):
-
-```bash
-GAMESPHERE_ENABLE_HOST_BRIDGE=1 curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-linux.sh | bash
-```
-
-Check bridge status:
+Leave Companion running is no longer a chore — **it runs as a user service**. Check:
 
 ```bash
 systemctl --user status gamesphere-host-bridge.service
+journalctl --user -u gamesphere-host-bridge.service -e
 ```
 
 ### What Linux detects automatically
 
-On typical Bazzite / SteamOS / desktop setups you should **not** need a `.env` file:
+On typical SteamOS / Bazzite / desktop setups you should **not** need a `.env` file:
 
 - Native or Flatpak Steam
 - Sunshine or Apollo config (`apps.json`, covers folder)
@@ -134,13 +158,20 @@ uv run main.py
 
 Requires [uv](https://github.com/astral-sh/uv) and Python 3.12+.
 
-There is **no `.app` bundle and no launchd / calendar timer**. To pick up a new GitHub Release:
+There is **no `.app` bundle**. Source checkouts can install a **LaunchAgent** so the host daemon stays up after Terminal quits:
+
+```bash
+uv run main.py --host-daemon-install
+launchctl print "gui/$(id -u)/io.github.trevlars.gamesphere-host-bridge"
+```
+
+To pick up a new GitHub Release:
 
 ```bash
 uv run main.py --apply-update
 ```
 
-(`git pull` on your clone also works.) There is no unattended macOS timer.
+(`git pull` on your clone also works.) There is no unattended macOS GitHub timer.
 
 ---
 
@@ -167,7 +198,7 @@ Same button on every OS: **Set up mic for GameSphere** (Windows GUI) or `gamesph
 GameSphere sends the phone mic over VBAN (stream `GameSphere`, UDP `6980`). The Import Tool configures the PC receiver and shows your LAN IP — then you paste that IP in GameSphere → **Send mic to PC**.
 
 - **Windows:** installs VB-CABLE (VB-Audio donationware; you accept the license) and starts a small OSS feeder into **CABLE Input**. Discord uses **CABLE Output**. No VoiceMeeter.
-- **Linux / Bazzite:** PipeWire OSS VBAN module.
+- **Linux:** PipeWire OSS VBAN module.
 
 Full detail: **[MIC-TO-PC.md](MIC-TO-PC.md)**.
 
@@ -180,13 +211,25 @@ Advanced host-side tweaks (link speed, HDR/audio prep, session logs, custom tile
 ```bash
 gamesphere-import --host-tuning-only   # apply tuning without re-importing games
 gamesphere-import --host-tuning          # import + tuning
-gamesphere-import --host-bridge          # TCP bridge on port 47998 (GameSphere clients)
+gamesphere-import --host-bridge          # foreground host daemon (systemd/LaunchAgent use this)
+gamesphere-import --host-daemon-status
+gamesphere-import --host-daemon-install   # enable login/boot service (all OS)
+uv run python3 host_tuning_cli.py wan    # Auto WAN map status (UPnP/NAT-PMP; never 47990)
+uv run python3 host_tuning_cli.py coop   # P1–P4 slot status (never reshuffles live players)
 ```
+
+The import GUI is optional. **Leave this running** is handled by the OS service — you do not keep a terminal or wizard window open.
+
+WAN remote play (off-LAN friends): Companion auto-maps ports and fills `wan=` — [WAN.md](WAN.md). In-stream voice mixes phone mics on UDP 48020 and does **not** tap HDMI / does **not** attach WebRTC AEC to HDMI.
+
+Wanna play (trusted friends already paired): host GameSphere Swap overlay sends `WANNAPLAY`. Companion pre-auths those UUIDs for **this stream only** so they skip Accept. CLI: `uv run python3 host_tuning_cli.py wanna start --app-name "Celeste"`. Lock-screen push: drop an APNs Auth Key on the host — [APNS.md](APNS.md). See [CLIENT_BRIDGE.md](CLIENT_BRIDGE.md).
 
 Config file:
 
 - Linux: `~/.config/gamesphere-import-tool/host_tuning.json`
 - Windows: `%LOCALAPPDATA%\GameSphere\host_tuning.json`
+
+Wanna-play lock-screen: APNs Auth Key `.p8` — [APNS.md](APNS.md).
 
 Details: [HOST_INTEGRATION.md](HOST_INTEGRATION.md) · parity vs StreamTweak: [STREAMTWEAK_PARITY.md](STREAMTWEAK_PARITY.md)
 
@@ -248,6 +291,8 @@ Disable the Linux timer: `systemctl --user disable --now gamesphere-import-updat
 | **Wrong paths** | `gamesphere-import --print-config`, then edit `.env` or open a GitHub issue. |
 | **Flatpak can’t restart Sunshine** | Ensure `systemctl --user status sunshine` works; try native install or `--no-restart` then restart manually. |
 | **Discord hears nothing (Windows mic)** | Discord input = **CABLE Output**. Re-run **Set up mic for GameSphere**. Reboot once after VB-CABLE install. |
+| **Invite / WAN / JOINPIN dead** | Daemon must be up (`--host-daemon-status`). Router UPnP on. Never forward 47990. Restart the **bridge only**. |
+| **Guest pad steals host / extra Xbox pads (Linux)** | Confirm udev `99-gamesphere-hide-steam-clones.rules` and `gamesphere-hide-steam-clones.sh`. Steam `28de:11ff` nodes should be mode 000. |
 
 Log file (CLI): `sunshine_automation.log` in the working directory.
 
@@ -268,6 +313,9 @@ gamesphere-import --apply-update
 gamesphere-import --host-tuning
 gamesphere-import --host-tuning-only
 gamesphere-import --host-bridge
+gamesphere-import --host-daemon-install
+gamesphere-import --host-daemon-status
+gamesphere-import --host-daemon-uninstall
 gamesphere-import --setup-mic-info
 gamesphere-import --setup-mic                                    # Linux PipeWire
 gamesphere-import --setup-mic --accept-vbaudio-license           # Windows VB-CABLE + feeder

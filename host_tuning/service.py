@@ -98,6 +98,13 @@ def prep_start(cfg: Optional[HostTuningConfig] = None) -> Dict[str, Any]:
     except Exception as exc:
         logging.warning("couch_coop prep_start: %s", exc)
 
+    try:
+        from host_tuning import wan_setup
+
+        log["actions"].append({"wan": wan_setup.on_session_start()})
+    except Exception as exc:
+        logging.warning("wan map prep_start: %s", exc)
+
     return log
 
 
@@ -122,6 +129,21 @@ def prep_stop(cfg: Optional[HostTuningConfig] = None) -> Dict[str, Any]:
     if adapter and cfg.link_speed_enabled:
         ok, msg = link_speed.restore_link_speed(adapter)
         log["actions"].append({"link_restore": ok, "message": msg})
+
+    try:
+        from host_tuning import wan_setup
+
+        wan_setup.on_session_stop()
+        log["actions"].append({"wan": "hold_then_unmap"})
+    except Exception as exc:
+        logging.warning("wan map prep_stop: %s", exc)
+
+    try:
+        from host_tuning import couch_coop
+
+        couch_coop.clear_stream_active()
+    except Exception:
+        pass
 
     return log
 
