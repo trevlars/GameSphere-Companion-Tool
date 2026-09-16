@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.6] — 2026-09-16
+
+### Fixed
+- **Host quit closes the PC game** — `SESSIONEND {"reason":"host_quit"}` now spawns `gamesphere-steam-close` for Sunshine’s `currentgame` when the phone tears down a stream (backup when Moonlight `/cancel` fails or never arrives).
+
 ## [1.5.5] — 2026-09-16
 
 ### Fixed

@@ -98,6 +98,13 @@ def session_end(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         couch_coop.clear_stream_active()
     except Exception:
         pass
+    if reason in ("host_quit", "quit", "user_quit"):
+        try:
+            from host_tuning import sunshine_quit
+
+            sunshine_quit.close_current_game_async()
+        except Exception:
+            _log.debug("sunshine_quit on session_end failed", exc_info=True)
     return {"ok": True, "reason": reason, "endedAt": now}
 
 
