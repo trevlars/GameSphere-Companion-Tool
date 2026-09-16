@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.7] — 2026-09-16
+
+### Fixed
+- **Invite-link guests auto-join** — `JOINREQ` with a live `gamesphere://join?token=` (within 15-minute INVITE TTL) auto-`JOINACK`s like Wanna-play preauth. Buddy long-press / untrusted paths still require host Accept.
+
 ## [1.5.6] — 2026-09-16
 
 ### Fixed

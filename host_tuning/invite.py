@@ -358,6 +358,16 @@ def on_session_stop() -> None:
         logging.debug("wan_setup on_session_stop: %s", exc)
 
 
+def is_active_invite_token(token: str) -> bool:
+    """True for a live gamesphere://join token (not ended, still within INVITE TTL)."""
+    invite = _find((token or "").strip())
+    if not invite or invite.get("ended"):
+        return False
+    if time.time() > float(invite.get("expires") or 0):
+        return False
+    return True
+
+
 def _find(token: str) -> Optional[Dict[str, Any]]:
     if not token:
         return None

@@ -100,6 +100,24 @@ def trusted_uuids() -> List[str]:
     return _load_trusted()
 
 
+def _should_auto_joinack(payload: Dict[str, Any], client_uuid: str, session_id: str) -> bool:
+    """Wanna-play preauth, or a fresh gamesphere://join invite token within TTL."""
+    try:
+        from host_tuning import wanna_play
+
+        if wanna_play.is_preauthorized(uuid=client_uuid, session_id=session_id):
+            return True
+    except Exception:
+        logging.exception("JOINREQ wanna_play preauth check")
+    invite_token = str(
+        payload.get("token") or payload.get("inviteToken") or session_id or ""
+    ).strip()
+    if invite_token and guest_invite.is_active_invite_token(invite_token):
+        logging.info("JOINREQ invite auto-accept token=%s", invite_token[:10] + "…" if len(invite_token) > 10 else invite_token)
+        return True
+    return False
+
+
 def create(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Friend posts a join request. Host polls JOINPENDING."""
     now = time.time()
@@ -162,9 +180,7 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
         session_id or "-",
     )
     try:
-        from host_tuning import wanna_play
-
-        if wanna_play.is_preauthorized(uuid=client_uuid, session_id=session_id):
+        if _should_auto_joinack(payload, client_uuid, session_id):
             auto = ack(
                 {
                     "reqId": req_id,
