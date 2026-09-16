@@ -181,7 +181,8 @@ def start(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         from host_tuning import wan_setup
 
-        mapped = wan_setup.ensure(reason="wanna")
+        # Same fast path as INVITE — never block the bridge on UPnP/STUN (iOS times out ~8s).
+        mapped = wan_setup.hosts_for_join(reason="wanna")
         wan = str(mapped.get("wanHost") or "")
         wan_ready = bool(mapped.get("wanReady"))
         wan_status = str(mapped.get("status") or "")
