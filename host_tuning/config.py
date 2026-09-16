@@ -77,6 +77,8 @@ class HostTuningConfig:
     sunshine_password: str = ""
     # Auto UPnP/NAT-PMP for remote join (never maps 47990). Idle unmap.
     wan_auto_map: bool = True
+    # Manual router port forwards (TCP/UDP 47984–48010 to this PC). wanReady without UPnP.
+    wan_manual_forward: bool = False
     # APNs Auth Key (.p8) — lock-screen Wanna play. Never store the PEM here.
     apns_key_id: str = ""
     apns_team_id: str = "ABG342Z7V2"

@@ -20,9 +20,11 @@ uv run python3 host_tuning_cli.py wan unmap
 - WAN-safe Sunshine keys in `sunshine.conf` (`gamepad = x360`, `upnp = disabled` so Sunshine itself does not publish 47990, `origin_web_ui_allowed = pc`, opportunistic WAN encryption). Applied on disk; Companion **never restarts Sunshine** mid-game.
 - Hairpin-safe URLs: `host=` and `lan=` stay private; only `wan=` is the public IP.
 
-**Still needed once on the router:** UPnP or NAT-PMP **enabled**. If the router has no IGD, Companion status is one sentence — it will not print a port-forward table, and it will never tell anyone to forward 47990.
+**Still needed once on the router:** either UPnP/NAT-PMP **enabled**, or **manual port forwards** to this PC. On eero, manual forwards are usually more reliable than UPnP.
 
-Carrier-grade NAT (no public IPv4) cannot be published with UPnP. Tailscale is optional: if it is already running, status mentions its `100.x` address. Companion will not require a hand-installed tunnel as the only path.
+Set `wan_manual_forward: true` in Companion `host_tuning.json` after you forward **TCP and UDP 47984–48010** to the PC’s LAN address (e.g. `10.0.5.42`). Companion then reports `wanReady` from STUN without waiting on UPnP. It will never tell anyone to forward 47990.
+
+Carrier-grade NAT (no public IPv4) cannot be published with UPnP or manual forwards alone. ZeroTier or Tailscale is optional fallback: if either is running, status mentions its overlay address.
 
 ## Ports Companion maps (never 47990)
 
@@ -73,7 +75,7 @@ UDP **48020** mixes GameSphere client mics only. It does **not** tap HDMI / Suns
 
 **Same Wi-Fi (hairpin check):** invite a second device on the house LAN. It must use `lan=` / `host=` (private). If it tried only the public IP, many consumer routers fail hairpin NAT.
 
-**Off-LAN (cellular):** disable Wi-Fi on the guest phone, open the same invite / Wanna play URL. Pairing + JOINPIN + stream should work when `wanReady` is true. If status says UPnP isn’t available, turn on router UPnP and `wan map` (or Invite again) — do not add manual forwards.
+**Off-LAN (cellular):** disable Wi-Fi on the guest phone, open the same invite / Wanna play URL. Pairing + JOINPIN + stream should work when `wanReady` is true (UPnP mapped **or** `wan_manual_forward` with router forwards in place). GameSphere tries the public `wan=` address first, matching stock Moonlight — ZeroTier is optional.
 
 **gamesphere-host-bridge** is a user service (not a window you leave open). Linger is enabled by the Linux installer so it starts after reboot / Game Mode:
 

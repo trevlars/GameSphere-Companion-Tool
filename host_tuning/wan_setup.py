@@ -74,7 +74,50 @@ def public_ip() -> str:
     return ip
 
 
+def _manual_forward_enabled() -> bool:
+    return bool(getattr(load_config(), "wan_manual_forward", False))
+
+
+def _refresh_manual_forward_state() -> None:
+    """When router forwards are configured manually, report wanReady from STUN — no UPnP required."""
+    if not _manual_forward_enabled():
+        return
+    lan = lan_ip()
+    wan = public_ip()
+    cgnat = bool(wan) and nat_map.is_cgnat_ipv4(wan)
+    ready = bool(wan) and not cgnat
+    if ready:
+        sentence = (
+            "Remote join uses manual router port forwards (TCP and UDP 47984–48010 to this PC)."
+        )
+    elif cgnat:
+        sentence = (
+            "Manual port forwards are enabled but this network is behind carrier NAT — "
+            "try ZeroTier or Tailscale."
+        )
+    else:
+        sentence = (
+            "Manual port forwards are enabled — Companion is still detecting your public IP."
+        )
+    with _lock:
+        _state.update(
+            {
+                "mapped": False,
+                "mapper": "manual",
+                "wanHost": wan or str(_state.get("wanHost") or ""),
+                "lanHost": lan or str(_state.get("lanHost") or ""),
+                "wanReady": ready,
+                "status": sentence,
+                "error": "" if ready else "manual_forward_no_public_ip",
+            }
+        )
+
+
 def _sentence(*, ready: bool, mapper: str, error: str, cgnat: bool, tailscale_ip: str) -> str:
+    if ready and mapper == "manual":
+        return (
+            "Remote join uses manual router port forwards (TCP and UDP 47984–48010 to this PC)."
+        )
     if ready:
         how = {"upnp": "UPnP", "natpmp": "NAT-PMP", "pcp": "PCP"}.get(mapper, mapper or "the router")
         return f"Remote join is on — game ports mapped via {how} for this session only."
@@ -216,6 +259,10 @@ def _tick() -> None:
 def ensure(reason: str = "session", *, voice: Optional[bool] = None) -> Dict[str, Any]:
     """Map Sunshine + Companion ports. Safe to call often. Never maps 47990."""
     cfg = load_config()
+    if _manual_forward_enabled():
+        _refresh_manual_forward_state()
+        if not getattr(cfg, "wan_auto_map", True):
+            return status()
     if not getattr(cfg, "wan_auto_map", True):
         return status()
 
@@ -264,16 +311,19 @@ def ensure(reason: str = "session", *, voice: Optional[bool] = None) -> Dict[str
         wan = stun or igd_ip
     mapped_rows = [{"port": p, "proto": proto} for p, proto in result.mapped]
     failed_rows = [{"port": p, "proto": proto} for p, proto in result.failed]
-    ready = bool(result.ok) and _critical_ok(mapped_rows) and bool(wan) and not nat_map.is_cgnat_ipv4(wan)
+    upnp_ready = bool(result.ok) and _critical_ok(mapped_rows) and bool(wan) and not nat_map.is_cgnat_ipv4(wan)
+    manual_ready = _manual_forward_enabled() and bool(wan) and not nat_map.is_cgnat_ipv4(wan)
+    ready = upnp_ready or manual_ready
     cgnat = bool(wan) and nat_map.is_cgnat_ipv4(wan)
     ts = _tailscale_ip()
-    sentence = _sentence(ready=ready, mapper=result.mapper, error=result.error, cgnat=cgnat, tailscale_ip=ts)
+    mapper = result.mapper if upnp_ready else ("manual" if manual_ready else result.mapper)
+    sentence = _sentence(ready=ready, mapper=mapper, error=result.error, cgnat=cgnat, tailscale_ip=ts)
 
     with _lock:
         _state.update(
             {
                 "mapped": bool(result.ok),
-                "mapper": result.mapper,
+                "mapper": mapper,
                 "wanHost": wan,
                 "lanHost": lan,
                 "mappedPorts": mapped_rows,
@@ -408,6 +458,8 @@ def cached_hosts() -> Dict[str, str]:
 
 def status(*, fast: bool = False) -> Dict[str, Any]:
     """WAN snapshot for bridge polls. ``fast=True`` skips live STUN/Tailscale — use on COOPSTATE/HOSTINFO."""
+    if _manual_forward_enabled() and not fast:
+        _refresh_manual_forward_state()
     lan = lan_ip()
     with _lock:
         wan = str(_state.get("wanHost") or "")

@@ -170,6 +170,8 @@ class WanSetupStatusTests(unittest.TestCase):
         ), mock.patch("host_tuning.wan_setup._tailscale_ip", return_value=""), mock.patch(
             "host_tuning.wan_setup._voice_wanted", return_value=False
         ), mock.patch(
+            "host_tuning.wan_setup._manual_forward_enabled", return_value=False
+        ), mock.patch(
             "host_tuning.sunshine_wan.apply_recommended", return_value={"ok": True, "changed": []}
         ), mock.patch("host_tuning.nat_map.revoke_web_ui_if_mapped"), mock.patch(
             "host_tuning.nat_map.map_ports", return_value=result
@@ -179,6 +181,29 @@ class WanSetupStatusTests(unittest.TestCase):
         self.assertIn("UPnP", data["status"])
         self.assertNotIn("47990", data["status"])
         self.assertNotIn("eero", data["status"].lower())
+
+    def test_manual_forward_ready_without_upnp(self):
+        from host_tuning import nat_map
+        from host_tuning import wan_setup
+
+        result = nat_map.MapResult()
+        result.ok = False
+        result.error = "no_igd"
+        with mock.patch("host_tuning.wan_setup.lan_ip", return_value="10.0.5.42"), mock.patch(
+            "host_tuning.wan_setup.public_ip", return_value="50.36.49.13"
+        ), mock.patch("host_tuning.wan_setup._tailscale_ip", return_value=""), mock.patch(
+            "host_tuning.wan_setup._voice_wanted", return_value=False
+        ), mock.patch(
+            "host_tuning.wan_setup._manual_forward_enabled", return_value=True
+        ), mock.patch(
+            "host_tuning.sunshine_wan.apply_recommended", return_value={"ok": True, "changed": []}
+        ), mock.patch("host_tuning.nat_map.revoke_web_ui_if_mapped"), mock.patch(
+            "host_tuning.nat_map.map_ports", return_value=result
+        ):
+            data = wan_setup.ensure(reason="invite")
+        self.assertTrue(data["wanReady"])
+        self.assertEqual(data["wanHost"], "50.36.49.13")
+        self.assertIn("manual router port forwards", data["status"])
 
 
 class SunshineWanTests(unittest.TestCase):
