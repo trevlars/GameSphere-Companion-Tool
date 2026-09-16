@@ -240,9 +240,8 @@ class InviteTokenTests(unittest.TestCase):
         ), mock.patch("host_tuning.sunshine_admin.list_clients", return_value=[]), mock.patch(
             "host_tuning.invite._local_lan_ip", return_value="10.0.5.42"
         ), mock.patch(
-            "host_tuning.wan_setup.ensure",
+            "host_tuning.wan_setup.hosts_for_join",
             return_value={
-                "ok": True,
                 "wanReady": True,
                 "wanHost": "203.0.113.9",
                 "zerotierHost": "10.147.19.213",

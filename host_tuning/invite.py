@@ -142,23 +142,17 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
     wan_ready = False
     wan_status = ""
     zt_host = ""
+    wan_host = ""
     try:
         from host_tuning import wan_setup
 
-        mapped = wan_setup.ensure(reason="invite")
+        mapped = wan_setup.hosts_for_join(reason="invite")
         wan_host = str(mapped.get("wanHost") or "") or _public_ip()
         wan_ready = bool(mapped.get("wanReady"))
         wan_status = str(mapped.get("status") or "")
         zt_host = str(mapped.get("zerotierHost") or "")
     except Exception:
         wan_host = _public_ip()
-    if not zt_host:
-        try:
-            from host_tuning import zerotier
-
-            zt_host = str((zerotier.status() or {}).get("zerotierHost") or "")
-        except Exception:
-            zt_host = ""
     clients_before = [c["uuid"] for c in sunshine_admin.list_clients()]
     invite = {
         "token": token,

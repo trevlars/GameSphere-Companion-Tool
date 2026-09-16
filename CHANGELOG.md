@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.5] — 2026-09-16
+
+### Fixed
+- **INVITE no longer blocks on WAN map** — `INVITE` returns the LAN join URL in under a second; UPnP/NAT-PMP/PCP mapping runs async (`hosts_for_join` + `ensure_async`). Fixes multi-minute bridge hangs when the router is slow or UPnP is off.
+
 ## [1.5.3] — 2026-09-16
 
 ### Added

@@ -330,16 +330,48 @@ def release(reason: str = "stop") -> Dict[str, Any]:
     return status()
 
 
-def on_session_start() -> Dict[str, Any]:
-    """Kick off WAN mapping without blocking Sunshine prep-cmd (15s cap)."""
+def ensure_async(reason: str = "session", *, voice: Optional[bool] = None) -> None:
+    """Map WAN ports in background — never block bridge verbs on UPnP/STUN."""
 
     def _bg() -> None:
         try:
-            ensure(reason="stream", voice=_voice_wanted())
+            ensure(reason=reason, voice=_voice_wanted() if voice is None else bool(voice))
         except Exception:
-            _log.debug("WAN map on_session_start", exc_info=True)
+            _log.debug("WAN ensure_async %s failed", reason, exc_info=True)
 
-    threading.Thread(target=_bg, name="gs-wan-map-start", daemon=True).start()
+    threading.Thread(target=_bg, name=f"gs-wan-{reason}", daemon=True).start()
+
+
+def hosts_for_join(reason: str = "invite") -> Dict[str, Any]:
+    """LAN/WAN/ZT for join URLs immediately; WAN map continues async."""
+    ensure_async(reason)
+    cached = cached_hosts()
+    lan = cached.get("lanHost") or lan_ip()
+    wan = cached.get("wanHost") or ""
+    if not wan:
+        wan = public_ip()
+    zt_host = ""
+    try:
+        from host_tuning import zerotier
+
+        zt_host = str((zerotier.status() or {}).get("zerotierHost") or "")
+    except Exception:
+        pass
+    with _lock:
+        ready = bool(_state.get("wanReady"))
+        sentence = str(_state.get("status") or "")
+    return {
+        "lanHost": lan,
+        "wanHost": wan,
+        "zerotierHost": zt_host,
+        "wanReady": ready,
+        "status": sentence,
+    }
+
+
+def on_session_start() -> Dict[str, Any]:
+    """Kick off WAN mapping without blocking Sunshine prep-cmd (15s cap)."""
+    ensure_async(reason="stream", voice=_voice_wanted())
     return status()
 
 
