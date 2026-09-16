@@ -40,9 +40,9 @@ def _save_runtime(extra: Dict[str, Any]) -> None:
 
 
 def handle(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if payload.get("query") or payload.get("status"):
+        return status()
     with _lock:
-        if payload.get("query") or payload.get("status"):
-            return status()
         if "merge" in payload:
             _state["merge"] = bool(payload.get("merge"))
         if payload.get("buddySlot") is not None:

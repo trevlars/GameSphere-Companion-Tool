@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-09-16
+
+### Fixed
+- **INPUTRELAY query deadlock** — `{"query":true}` / status probes no longer acquire `_lock` in `input_relay.py`, so bridge workers cannot hang while another thread holds the lock.
+
 ## [1.5.0] — 2026-09-16
 
 ### Added
