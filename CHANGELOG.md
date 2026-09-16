@@ -4,6 +4,13 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.10] — 2026-09-16
+
+### Fixed
+- **Co-op `SESSIONEND` must not kill the host game** — `sunshine_quit` skips `gamesphere-steam-close` when Sunshine is still `SERVER_BUSY` or couch_coop shows 2+ virtual pads (guest still streaming).
+- **JOINREQ storms during live share** — guests without `session=` / preauth get `no_session` (or reuse the same pending `reqId`) while a stream is active instead of minting endless pending rows.
+- **Bridge stop timeout** — voice WAN unmap runs in a background thread so `systemd` stop stays under `TimeoutStopSec`.
+
 ## [1.5.9] — 2026-09-16
 
 ### Fixed

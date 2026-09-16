@@ -367,11 +367,17 @@ def stop() -> None:
         except OSError:
             pass
     if _thread:
-        _thread.join(timeout=2)
+        _thread.join(timeout=1)
     try:
         from host_tuning import wan_setup
 
-        wan_setup.ensure_voice(False)
+        def _unmap() -> None:
+            try:
+                wan_setup.ensure_voice(False)
+            except Exception:
+                pass
+
+        threading.Thread(target=_unmap, daemon=True, name="gs-voice-wan-unmap").start()
     except Exception:
         pass
 

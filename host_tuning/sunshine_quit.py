@@ -70,7 +70,28 @@ def close_app_id(app_id: str) -> bool:
         return False
 
 
+def _other_stream_clients_connected() -> bool:
+    """True when co-op guests are still attached — do not close the host game."""
+    try:
+        from host_tuning import couch_coop
+
+        pads = couch_coop.status().get("sunshine") or []
+        if len(pads) >= 2:
+            return True
+    except Exception:
+        _log.debug("sunshine_quit couch_coop status failed", exc_info=True)
+    info = _serverinfo()
+    state = (info.get("state") or "").upper()
+    if "BUSY" in state and info.get("currentgame", "0") not in ("", "0"):
+        # Sunshine still serving a session — host phone may have dropped first.
+        return True
+    return False
+
+
 def close_current_game() -> bool:
+    if _other_stream_clients_connected():
+        _log.info("sunshine_quit: skipped — other stream clients still connected")
+        return False
     info = _serverinfo()
     state = info.get("state", "")
     app_id = info.get("currentgame", "0")

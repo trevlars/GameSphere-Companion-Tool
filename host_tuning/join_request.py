@@ -159,6 +159,13 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
     if role not in ("guest", "buddy"):
         role = "guest"
 
+    try:
+        from host_tuning import couch_coop
+
+        stream_live = couch_coop.stream_active()
+    except Exception:
+        stream_live = False
+
     req_id = ""
     with _lock:
         data = _load()
@@ -173,6 +180,25 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
                 client_uuid or "-",
             )
             return grant
+
+        if stream_live and not session_id and not _should_auto_joinack(payload, client_uuid, session_id):
+            if existing and str(existing.get("status") or "") == "pending":
+                logging.info(
+                    "JOINREQ stream active — reusing pending id=%s uuid=%s (no session)",
+                    existing.get("reqId"),
+                    client_uuid or "-",
+                )
+                return {
+                    "ok": True,
+                    "reqId": existing.get("reqId"),
+                    "expiresIn": max(0, int(float(existing.get("expires") or 0) - now)),
+                    "preauth": False,
+                }
+            logging.info(
+                "JOINREQ rejected no_session uuid=%s (stream active, not preauth)",
+                client_uuid or "-",
+            )
+            return {"ok": False, "error": "no_session"}
 
         requests: List[Dict[str, Any]] = []
         for r in data.get("requests", []):
