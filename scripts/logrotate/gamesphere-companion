@@ -1,0 +1,8 @@
+~/.local/share/gamesphere-import/*.log ~/.local/share/gamesphere-import/logs/*.log {
+    weekly
+    rotate 4
+    compress
+    missingok
+    notifempty
+    copytruncate
+}

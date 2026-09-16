@@ -4,6 +4,17 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.3] — 2026-09-16
+
+### Added
+- **ROM `raHash` on HOSTINFO catalog** — each `romHashes[]` entry now includes 32-char lowercase hex `raHash` + `raHashKind: md5` (RetroAchievements convention; iOS may normalize N64/NDS locally). Delta launch URLs stay SHA1-only.
+- **Optional `steamId64` on HOSTINFO** — read from `loginusers.vdf` (most recent Steam login); no network call.
+- **Disk-backed ROM hash cache** — `metadata_catalog_cache.json` avoids re-hashing unchanged ROMs; apps.json launch lines are scanned first.
+
+### Fixed
+- **`--doctor` mic check** — idle HTPC passes when GameSphere Mic is not hot yet (session-scoped; never system default); real failures still fail during an active voice/stream session.
+- **`--setup` logrotate** — installs `~/.config/logrotate.d/gamesphere-companion` from shipped config (user-level, no sudo).
+
 ## [1.5.2] — 2026-09-16
 
 ### Added

@@ -72,7 +72,7 @@ NETINFO AUTH:your-secret:
 | `BUDDYSET` | `BUDDYSET {"slot":2,"buddy":true}` or `{"uuid":"…","role":"buddy"}` | Toggle seat role (`buddy` vs `guest`); starts UDP **48021** buddy relay on demand. |
 | `PROFILE` | `PROFILE {"action":"…"}` | Device profile CRUD (avatar/name for COOPSTATE). |
 
-`HOSTINFO` also returns `zerotierHost`, `zerotierStatus`, `catalogReady`, `ownedApps[]`, `romHashes[]` (background scan — first response may be empty).
+`HOSTINFO` also returns `zerotierHost`, `zerotierStatus`, `catalogReady`, `ownedApps[]`, `romHashes[]` (background scan — first response may be empty). Each `romHashes[]` row may include `raHash` (32-char lowercase MD5 hex), `raHashKind: "md5"`, plus legacy uppercase `hash`. Optional `steamId64` mirrors `hostSteamId` from `loginusers.vdf` (no Web API).
 
 `COOPSTATE` adds `inputRelay`, `inputRelayBuddySlot`, `buddyPort`, `buddyRelayRunning`, `sessionEvents[]`, `sessionEndedAt`, `sessionEndReason`.
 

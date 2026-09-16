@@ -127,6 +127,7 @@ def snapshot(force: bool = False) -> Dict[str, Any]:
     sid = steamid64()
     payload: Dict[str, Any] = {
         "hostSteamId": sid,
+        "steamId64": sid,
         "hostPersona": "",
         "hostAvatarUrl": "",
     }

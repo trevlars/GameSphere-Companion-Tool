@@ -89,16 +89,40 @@ def _bridge_listening() -> bool:
         return False
 
 
-def _mic_ok() -> bool:
+def _mic_check() -> Dict[str, Any]:
+    """GameSphere Mic is session-scoped — idle hosts pass when the bridge is up."""
     if sys.platform == "win32":
-        return True
+        return {"ok": True, "detail": "Windows VB-CABLE path (no PipeWire GameSphere Mic)"}
     try:
+        from host_tuning import couch_coop
         from host_tuning import voice_bridge
 
         st = voice_bridge.status()
-        return bool(st.get("pcMicReady")) or bool(st.get("running"))
-    except Exception:
-        return False
+        voice_running = bool(st.get("running"))
+        pc_ready = bool(st.get("pcMicReady"))
+        clients = int(st.get("clients") or 0)
+        streaming = bool(couch_coop.stream_active())
+
+        if not streaming and clients == 0:
+            if pc_ready:
+                return {
+                    "ok": True,
+                    "detail": "GameSphere Mic ready (idle — not system default)",
+                }
+            return {
+                "ok": True,
+                "detail": "GameSphere Mic idle — virtual device appears when a voice session starts (not system default)",
+                "info": True,
+            }
+
+        if voice_running and pc_ready:
+            return {"ok": True, "detail": "GameSphere Mic / voice bridge active"}
+        if not voice_running:
+            return {"ok": False, "detail": "Voice bridge UDP not running"}
+        err = st.get("pcMicError") or "PipeWire GameSphere Mic source missing"
+        return {"ok": False, "detail": f"GameSphere Mic not ready during session: {err}"}
+    except Exception as exc:
+        return {"ok": False, "detail": f"mic check failed: {exc}"}
 
 
 def diagnose(*, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
@@ -125,7 +149,7 @@ def diagnose(*, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
         {"id": "steam", "ok": _steam_ready(), "detail": "Steam client running (launch reliability)"},
         {"id": "apps_json", "ok": _apps_json_ok(), "detail": "Sunshine apps.json present"},
         {"id": "bridge", "ok": _bridge_listening(), "detail": "TCP 47998 host-bridge listening"},
-        {"id": "mic", "ok": _mic_ok(), "detail": "GameSphere Mic / voice bridge"},
+        {"id": "mic", **_mic_check()},
         {"id": "wan", "ok": bool(wan.get("lanHost")), "detail": f"LAN {wan.get('lanHost') or '?'} WAN {wan.get('wanHost') or '?'}"},
         {"id": "zerotier", "ok": not zt.get("lanRouteConflict"), "detail": zt.get("zerotierStatus") or ""},
         {"id": "host_identity", "ok": bool(ident.get("hostSteamId")), "detail": ident.get("hostPersona") or "Steam persona"},
@@ -168,9 +192,15 @@ def diagnose(*, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
 
 
 def _ensure_logrotate(log: Optional[Callable[[str], None]] = None) -> None:
+    """Install user-level logrotate drop-in (no sudo). System logrotate may need
+    ``LOGROTATE_USER=1`` or a user timer — doctor only checks the file exists."""
     dest = os.path.expanduser("~/.config/logrotate.d/gamesphere-companion")
     src = os.path.join(ROOT, "scripts", "logrotate", "gamesphere-companion")
-    if not os.path.isfile(src):
+    content = ""
+    if os.path.isfile(src):
+        with open(src, encoding="utf-8") as fh:
+            content = fh.read()
+    if not content.strip():
         content = """~/.local/share/gamesphere-import/*.log ~/.local/share/gamesphere-import/logs/*.log {
     weekly
     rotate 4
@@ -180,16 +210,17 @@ def _ensure_logrotate(log: Optional[Callable[[str], None]] = None) -> None:
     copytruncate
 }
 """
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with open(dest, "w", encoding="utf-8") as fh:
-            fh.write(content)
-        if log:
-            log(f"wrote {dest}")
-        return
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    shutil.copy2(src, dest)
+    with open(dest, "w", encoding="utf-8") as fh:
+        fh.write(content)
     if log:
         log(f"installed logrotate {dest}")
+        if not shutil.which("logrotate"):
+            log(
+                "note: logrotate binary not on PATH — install with "
+                "`sudo dnf install logrotate` (Fedora/Bazzite) or equivalent; "
+                "user configs live in ~/.config/logrotate.d/"
+            )
 
 
 def run_setup(*, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
