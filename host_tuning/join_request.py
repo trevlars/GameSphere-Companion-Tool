@@ -100,6 +100,31 @@ def trusted_uuids() -> List[str]:
     return _load_trusted()
 
 
+def _find_active_request(
+    data: Dict[str, Any], client_uuid: str, steam_id: str, now: float
+) -> Optional[Dict[str, Any]]:
+    """Return the newest non-expired pending/accepted row for this guest."""
+    best: Optional[Dict[str, Any]] = None
+    best_created = 0.0
+    for row in data.get("requests") or []:
+        if float(row.get("expires") or 0) < now:
+            continue
+        st = str(row.get("status") or "pending")
+        if st not in ("pending", "accepted"):
+            continue
+        if client_uuid and str(row.get("uuid") or "") == client_uuid:
+            created = float(row.get("created") or 0)
+            if created >= best_created:
+                best = row
+                best_created = created
+        elif steam_id and str(row.get("steamId") or "") == steam_id:
+            created = float(row.get("created") or 0)
+            if created >= best_created:
+                best = row
+                best_created = created
+    return best
+
+
 def _should_auto_joinack(payload: Dict[str, Any], client_uuid: str, session_id: str) -> bool:
     """Wanna-play preauth, or a fresh gamesphere://join invite token within TTL."""
     try:
@@ -121,7 +146,6 @@ def _should_auto_joinack(payload: Dict[str, Any], client_uuid: str, session_id: 
 def create(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Friend posts a join request. Host polls JOINPENDING."""
     now = time.time()
-    req_id = secrets.token_urlsafe(10).replace("-", "")[:14]
     friend_name = str(payload.get("friendName") or payload.get("name") or "Friend").strip() or "Friend"
     steam_id = str(payload.get("steamId") or "").strip()
     app_id = str(payload.get("appId") or "").strip()
@@ -135,42 +159,78 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
     if role not in ("guest", "buddy"):
         role = "guest"
 
-    req = {
-        "reqId": req_id,
-        "created": now,
-        "expires": now + JOIN_TTL_SECONDS,
-        "friendName": friend_name,
-        "steamId": steam_id,
-        "appId": app_id,
-        "appName": app_name,
-        "clientName": client_name,
-        "hostId": host_id,
-        "uuid": client_uuid,
-        "sessionId": session_id,
-        "lanHost": lan_hint or guest_invite._local_lan_ip(),
-        "httpsPort": int(payload.get("httpsPort") or 47984),
-        "role": role,  # guest (own P2–P4 pad) | buddy (shares host P1 via buddy_relay)
-        "status": "pending",  # pending | accepted | declined | expired
-    }
+    req_id = ""
     with _lock:
         data = _load()
+        existing = _find_active_request(data, client_uuid, steam_id, now)
+        if existing and str(existing.get("status") or "") == "accepted":
+            ident = _identity_fields()
+            grant = _ack_payload_from_row(existing, accept=True, ident=ident)
+            grant["preauth"] = True
+            logging.info(
+                "JOINREQ idempotent accepted id=%s uuid=%s",
+                existing.get("reqId"),
+                client_uuid or "-",
+            )
+            return grant
+
         requests: List[Dict[str, Any]] = []
         for r in data.get("requests", []):
             if float(r.get("expires") or 0) < now:
                 if r.get("status") == "pending":
                     r["status"] = "expired"
                 continue
-            # One pending request per steam id or Moonlight uuid — replace older
-            if r.get("status") == "pending" and (
-                (steam_id and r.get("steamId") == steam_id)
-                or (client_uuid and r.get("uuid") == client_uuid)
-            ):
-                r["status"] = "expired"
-                continue
             requests.append(r)
-        requests.append(req)
-        data["requests"] = requests[-30:]
-        _save(data)
+
+        if existing and str(existing.get("status") or "") == "pending":
+            req = existing
+            req_id = str(req.get("reqId") or "")
+            req["friendName"] = friend_name
+            if steam_id:
+                req["steamId"] = steam_id
+            if app_id:
+                req["appId"] = app_id
+            if app_name:
+                req["appName"] = app_name
+            if client_name:
+                req["clientName"] = client_name
+            if host_id:
+                req["hostId"] = host_id
+            if session_id:
+                req["sessionId"] = session_id
+            if lan_hint:
+                req["lanHost"] = lan_hint
+            req["expires"] = now + JOIN_TTL_SECONDS
+            data["requests"] = requests[-30:]
+            _save(data)
+            logging.info(
+                "JOINREQ idempotent pending id=%s uuid=%s session=%s",
+                req_id,
+                client_uuid or "-",
+                session_id or "-",
+            )
+        else:
+            req_id = secrets.token_urlsafe(10).replace("-", "")[:14]
+            req = {
+                "reqId": req_id,
+                "created": now,
+                "expires": now + JOIN_TTL_SECONDS,
+                "friendName": friend_name,
+                "steamId": steam_id,
+                "appId": app_id,
+                "appName": app_name,
+                "clientName": client_name,
+                "hostId": host_id,
+                "uuid": client_uuid,
+                "sessionId": session_id,
+                "lanHost": lan_hint or guest_invite._local_lan_ip(),
+                "httpsPort": int(payload.get("httpsPort") or 47984),
+                "role": role,
+                "status": "pending",
+            }
+            requests.append(req)
+            data["requests"] = requests[-30:]
+            _save(data)
     logging.info(
         "JOINREQ id=%s friend=%s app=%s uuid=%s session=%s",
         req_id,

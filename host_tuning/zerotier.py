@@ -165,11 +165,12 @@ def guard_once() -> Dict[str, Any]:
             if dest.startswith(bare) or dest == bare:
                 if dev:
                     rc, _ = _run(["ip", "route", "del", dest, "dev", dev])
+                    if rc != 0:
+                        rc, _ = _run(["sudo", "-n", "ip", "route", "del", dest, "dev", dev])
                     if rc == 0:
                         removed.append(f"{dest} dev {dev}")
                         _log.warning("ZT guard removed route %s dev %s", dest, dev)
                     else:
-                        # Unprivileged daemon: report so --doctor can tell the user to fix it.
                         failed.append(f"{dest} dev {dev}")
                         _log.warning("ZT guard could not remove %s dev %s (needs root)", dest, dev)
     with _lock:

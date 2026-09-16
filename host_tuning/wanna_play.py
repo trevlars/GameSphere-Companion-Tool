@@ -429,30 +429,19 @@ def claim(payload: Dict[str, Any]) -> Dict[str, Any]:
 def is_preauthorized(uuid: str = "", session_id: str = "") -> bool:
     """True if this Moonlight uuid was pinged for the live WANNAPLAY session.
 
-    session_id is required. Invite-path JOINREQ (no session=) must never auto-JOINACK —
-    host Accept is mandatory. Session mismatch also refuses auto-accept.
+    session_id is ignored for preauth — pinged friends may JOINREQ from the shared
+    shelf, PLAYREPLY, or a stale invite token while the live session is active.
+    Strangers are never preauthorized (not in preauthUuids).
     """
     uuid = (uuid or "").strip()
-    session_id = (session_id or "").strip()
-    if not uuid or not session_id:
+    if not uuid:
         return False
     now = time.time()
     with _lock:
         session = (_load().get("session") or {})
         if not session or float(session.get("expires") or 0) < now:
             return False
-        if uuid not in (session.get("preauthUuids") or []):
-            return False
-        live = str(session.get("sessionId") or "")
-        if live and session_id != live:
-            logging.info(
-                "WANNAPLAY preauth uuid=%s session mismatch have=%s got=%s — require Accept",
-                uuid,
-                live,
-                session_id,
-            )
-            return False
-        return True
+        return uuid in (session.get("preauthUuids") or [])
 
 
 def current_session() -> Dict[str, Any]:

@@ -4,6 +4,13 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.9] — 2026-09-16
+
+### Fixed
+- **Wanna-play JOINREQ without session** — pinged friends auto-`JOINACK` again when they tap a shared shelf title or send PLAYREPLY without `session=` (or with a stale invite token) while a live WANNAPLAY session is active.
+- **JOINREQ retry storm** — duplicate `JOINREQ` from the same Moonlight uuid reuses the pending `reqId` instead of expiring it, so guest `JOINSTATUS` polls stay valid.
+- **ZeroTier LAN guard** — tries passwordless `sudo ip route del` when the bridge user cannot delete stolen `10.0.5.0/24` routes directly.
+
 ## [1.5.8] — 2026-09-16
 
 ### Fixed
