@@ -64,6 +64,17 @@ NETINFO AUTH:your-secret:
 | `PLAYPENDING` | `PLAYPENDING {"uuid":"…"}` | Friend polls host-initiated pings for this session |
 | `PLAYCLAIM` | `PLAYCLAIM {"uuid":"…","sessionId":"…"}` | Consume ping. Does **not** assign a pad seat — follow with `JOINREQ` |
 | `PLAYREPLY` | `PLAYREPLY {"uuid":"…","sessionId":"…","phrase":"I'm in","accepted":true,"persona"?,"avatarUrl"?}` | Guest tapped I'm in / You're going down / Can't right now. Echoed on the next `COOPSTATE` as `coopChat` / `playReplies` / `playReply` (last 8, TTL ~30s). Does not gate `/resume` or change seats. |
+| `LAUNCHRESULT` | `LAUNCHRESULT` | JSON launch status: `state` (`idle`/`starting`/`running`/`attention`/`failed`), `game`, `steamReady`, `message`, `attempts` |
+| `GAMESTATE` | `GAMESTATE` | JSON launch heuristic (subset of LAUNCHRESULT) |
+| `INPUTRELAY` | `INPUTRELAY {"merge":true,"buddySlot":2}` or `{"query":true}` | Buddy mode merges guest input into host P1 when `merge=true`. Persisted in runtime JSON — no Sunshine restart. |
+| `COOPKICK` | `COOPKICK {"uuid":"…","reason":"host_kick"}` or `{"slot":2}` | Kick guest; clears pending join requests; event on next `COOPSTATE`. |
+| `SESSIONEND` | `SESSIONEND {"reason":"host_quit"}` | Broadcast session end; clears stream-active + wanna-play pre-auth. |
+| `BUDDYSET` | `BUDDYSET {"slot":2,"buddy":true}` or `{"uuid":"…","role":"buddy"}` | Toggle seat role (`buddy` vs `guest`); starts UDP **48021** buddy relay on demand. |
+| `PROFILE` | `PROFILE {"action":"…"}` | Device profile CRUD (avatar/name for COOPSTATE). |
+
+`HOSTINFO` also returns `zerotierHost`, `zerotierStatus`, `catalogReady`, `ownedApps[]`, `romHashes[]` (background scan — first response may be empty).
+
+`COOPSTATE` adds `inputRelay`, `inputRelayBuddySlot`, `buddyPort`, `buddyRelayRunning`, `sessionEvents[]`, `sessionEndedAt`, `sessionEndReason`.
 
 Guest co-op (strangers): host GameSphere sends `INVITE` while streaming, share-sheets the `joinURL`. The friend's GameSphere opens `gamesphere://join`, pairs against Sunshine, and `JOINPIN`s the Companion Tool so nobody types the PIN. Host Quit sends `INVITEEND` so **ephemeral** guests are unpaired.
 

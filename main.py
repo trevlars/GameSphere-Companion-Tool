@@ -2215,6 +2215,8 @@ def main() -> None:
     parser.add_argument('--host-daemon-install', action='store_true', help='Install login/boot autostart for the host daemon and start it')
     parser.add_argument('--host-daemon-uninstall', action='store_true', help='Stop the host daemon and remove autostart')
     parser.add_argument('--host-daemon-status', action='store_true', help='Print host daemon status JSON')
+    parser.add_argument('--setup', action='store_true', help='Idempotent first-run / repair: ZeroTier LAN guard, host tuning, firewall, PC mic, host daemon, logrotate, then --doctor')
+    parser.add_argument('--doctor', action='store_true', help='Print a JSON health report (Sunshine, Steam, bridge 47998, mic, WAN, ZeroTier, catalog) and exit 0 only if all checks pass')
     parser.add_argument(
         '--setup-mic',
         action='store_true',
@@ -2278,6 +2280,14 @@ def main() -> None:
     if args.check_update or args.apply_update:
         from gs_updater import cli_check
         sys.exit(cli_check(apply=args.apply_update))
+
+    if args.setup or args.doctor:
+        from host_tuning import doctor as _doctor
+
+        _say = lambda m: logging.info("%s", str(m).rstrip())
+        report = _doctor.run_setup(log=_say) if args.setup else _doctor.diagnose(log=None)
+        print(json.dumps(report, indent=2))
+        sys.exit(0 if report.get("ok") else 1)
 
     if args.host_tuning_only:
         from host_tuning.service import apply_host_tuning, write_prep_scripts

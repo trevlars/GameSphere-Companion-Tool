@@ -113,6 +113,9 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
     client_uuid = str(payload.get("uuid") or payload.get("guestUuid") or "").strip()
     session_id = str(payload.get("sessionId") or payload.get("session") or payload.get("token") or "").strip()
     lan_hint = guest_invite._strip_host_port(str(payload.get("lanHost") or "").strip())
+    role = str(payload.get("role") or "guest").strip().lower()
+    if role not in ("guest", "buddy"):
+        role = "guest"
 
     req = {
         "reqId": req_id,
@@ -128,6 +131,7 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
         "sessionId": session_id,
         "lanHost": lan_hint or guest_invite._local_lan_ip(),
         "httpsPort": int(payload.get("httpsPort") or 47984),
+        "role": role,  # guest (own P2–P4 pad) | buddy (shares host P1 via buddy_relay)
         "status": "pending",  # pending | accepted | declined | expired
     }
     with _lock:
@@ -221,6 +225,7 @@ def pending() -> Dict[str, Any]:
                         "appId": r.get("appId"),
                         "appName": r.get("appName"),
                         "clientName": r.get("clientName"),
+                        "role": r.get("role") or "guest",
                         "expiresIn": max(0, int(float(r.get("expires") or 0) - now)),
                     }
                 )
@@ -258,12 +263,12 @@ def _identity_fields() -> Dict[str, Any]:
     }
 
 
-def _schedule_couch_coop(req_id: str, name: str) -> None:
+def _schedule_couch_coop(req_id: str, name: str, role: str = "guest", uuid: str = "") -> None:
     def _run() -> None:
         try:
             from host_tuning import couch_coop
 
-            couch_coop.on_join_accepted(client_id=req_id, name=name)
+            couch_coop.on_join_accepted(client_id=req_id, name=name, role=role, uuid=uuid)
         except Exception:
             logging.exception("couch_coop after JOINACK")
 
@@ -283,6 +288,7 @@ def _ack_payload_from_row(row: Dict[str, Any], *, accept: bool, ident: Dict[str,
         "httpsPort": int(row.get("httpsPort") or 47984),
         "hostId": row.get("hostId") or "",
         "playerSlot": int(row.get("playerSlot") or 0),
+        "role": row.get("role") or "guest",
         "friendName": row.get("friendName") or "",
         "wanHost": ident.get("wanHost") or "",
         "maxPlayers": 4,
@@ -306,10 +312,15 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
         lan_host = guest_invite._local_lan_ip()
     if not req_id:
         return {"ok": False, "error": "missing_reqId"}
+    role_override = str(payload.get("role") or "").strip().lower()
+    if role_override not in ("guest", "buddy"):
+        role_override = ""
     now = time.time()
     ident = _identity_fields()
     schedule_coop = False
     coop_name = "Guest"
+    coop_role = "guest"
+    coop_uuid = ""
     with _lock:
         data = _load()
         found = None
@@ -349,14 +360,41 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
                 found["playerSlot"] = couch_coop.next_empty_slot()
             except Exception:
                 found["playerSlot"] = 1
+            # Host decides the seat kind at Accept time ("Player 2" vs "Buddy"); falls back to what the guest asked for.
+            if role_override:
+                found["role"] = role_override
+            found.setdefault("role", "guest")
             schedule_coop = True
             coop_name = str(found.get("friendName") or found.get("clientName") or "Guest")
+            coop_role = str(found.get("role") or "guest")
+            coop_uuid = str(found.get("uuid") or "")
         _save(data)
         result = _ack_payload_from_row(found, accept=accept, ident=ident)
-    logging.info("JOINACK id=%s accept=%s", req_id, accept)
+    logging.info("JOINACK id=%s accept=%s role=%s", req_id, accept, coop_role)
     if schedule_coop:
-        _schedule_couch_coop(req_id, coop_name)
+        _schedule_couch_coop(req_id, coop_name, coop_role, coop_uuid)
     return result
+
+
+def expire_for_uuid(uuid: str) -> int:
+    """Host kick: drop pending join requests from a guest uuid."""
+    uuid = (uuid or "").strip()
+    if not uuid:
+        return 0
+    count = 0
+    with _lock:
+        data = _load()
+        for row in data.get("requests") or []:
+            if row.get("status") != "pending":
+                continue
+            if str(row.get("uuid") or row.get("guestUuid") or "") != uuid:
+                continue
+            row["status"] = "expired"
+            row["reason"] = "kicked"
+            count += 1
+        if count:
+            _save(data)
+    return count
 
 
 def status(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -394,6 +432,7 @@ def status(payload: Dict[str, Any]) -> Dict[str, Any]:
         "httpsPort": int(row.get("httpsPort") or 47984),
         "hostId": row.get("hostId") or "",
         "playerSlot": int(row.get("playerSlot") or 0),
+        "role": row.get("role") or "guest",
         "maxPlayers": 4,
         "hostSteamId": ident.get("hostSteamId") or "",
         "hostPersona": ident.get("hostPersona") or "",

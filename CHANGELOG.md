@@ -4,6 +4,19 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-09-16
+
+### Added
+- **Bridge verbs** — `LAUNCHRESULT` (rich launch status for phone UI), `INPUTRELAY` (buddy merge flag), `COOPKICK`, `SESSIONEND`, `BUDDYSET` (seat role + UDP 48021 buddy relay).
+- **`--setup` / `--doctor`** — idempotent first-run repair + JSON health report (Sunshine, Steam, bridge 47998, mic, WAN, ZeroTier LAN guard, owned Steam apps + ROM hashes).
+- **ZeroTier guard** — detects `zerotierHost` for HOSTINFO/COOPSTATE; removes home-LAN routes stolen by `zt*` (never kills Sunshine).
+- **Metadata catalog** — background Steam owned-apps + ROM MD5 scan surfaced on HOSTINFO as `ownedApps` / `romHashes` / `catalogReady`.
+- **Co-op session events** — kick + session-end broadcast on COOPSTATE for guest polling.
+
+### Changed
+- HOSTINFO and COOPSTATE include `zerotierHost`, catalog fields, input-relay state, buddy relay port, and session events.
+- Launch watcher tracks attempts/timeouts for clearer `LAUNCHRESULT` messages.
+
 ## [1.4.4] — 2026-09-16
 
 ### Added

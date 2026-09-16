@@ -542,12 +542,14 @@ def apply(reason: str = "manual", force: bool = False) -> Dict[str, Any]:
     return payload
 
 
-def note_client(slot: int, client_id: str = "", name: str = "", role: str = "") -> None:
+def note_client(slot: int, client_id: str = "", name: str = "", role: str = "", uuid: str = "") -> None:
     if slot < 0 or slot >= MAX_PLAYERS:
         return
     meta = dict(_slot_meta[slot])
     if client_id:
         meta["clientId"] = client_id
+    if uuid:
+        meta["uuid"] = uuid
     if name:
         meta["name"] = name
     if role:
@@ -566,13 +568,41 @@ def next_empty_slot() -> int:
     return MAX_PLAYERS - 1
 
 
-def on_join_accepted(client_id: str = "", name: str = "") -> Dict[str, Any]:
+def on_join_accepted(client_id: str = "", name: str = "", role: str = "guest", uuid: str = "") -> Dict[str, Any]:
     arm_late_join()
     slot = next_empty_slot()
     if client_id or name:
-        note_client(slot, client_id=client_id, name=name, role="guest")
+        note_client(slot, client_id=client_id, name=name, role=role or "guest", uuid=uuid)
     note_client(0, role="host", name="Host")
     return apply("joinack", force=True)
+
+
+def set_slot_role(slot: int, role: str) -> Dict[str, Any]:
+    """Host toggles a seat between a real P2–P4 pad and a buddy who shares P1.
+
+    A buddy seat is metadata only: the buddy device never creates a Sunshine
+    gamepad, so the pad slot lock is untouched. Sunshine input comes from the
+    host phone's merged report.
+    """
+    role = (role or "guest").strip().lower()
+    if role not in ("guest", "buddy"):
+        return {"ok": False, "error": "bad_role"}
+    if slot <= 0 or slot >= MAX_PLAYERS:
+        return {"ok": False, "error": "bad_slot"}
+    note_client(slot, role=role)
+    logging.info("couch_coop set_slot_role slot=%s role=%s", slot, role)
+    return {"ok": True, "slot": slot, "role": role, "players": status().get("players")}
+
+
+def set_role_for_client(client_id: str, role: str) -> Dict[str, Any]:
+    client_id = (client_id or "").strip()
+    if not client_id:
+        return {"ok": False, "error": "missing_client"}
+    for i in range(1, MAX_PLAYERS):
+        meta = _slot_meta[i]
+        if client_id in ((meta.get("clientId") or ""), (meta.get("uuid") or "")):
+            return set_slot_role(i, role)
+    return {"ok": False, "error": "not_seated"}
 
 
 def host_swap(order: List[int]) -> Dict[str, Any]:
@@ -629,6 +659,7 @@ def status() -> Dict[str, Any]:
                 "name": (_slot_meta[i].get("name") if i < len(_slot_meta) else "") or "",
                 "role": (_slot_meta[i].get("role") if i < len(_slot_meta) else "") or "",
                 "clientId": (_slot_meta[i].get("clientId") if i < len(_slot_meta) else "") or "",
+                "uuid": (_slot_meta[i].get("uuid") if i < len(_slot_meta) else "") or "",
             }
             for i in range(MAX_PLAYERS)
         ],

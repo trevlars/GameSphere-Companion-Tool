@@ -2,10 +2,10 @@
 TCP bridge for GameSphere clients (StreamTweak-compatible subset on port 47998).
 
 Supported verbs: CAPS, NETINFO, SETSPEED, RESTORE, STATUS, STATS, TAILSCALE,
-LASTSESSION, SESSIONDATA, APPSTORES, PLAYTIMES, GAMESTATE, LOCKSTATE,
+LASTSESSION, SESSIONDATA, APPSTORES, PLAYTIMES, GAMESTATE, LAUNCHRESULT, LOCKSTATE,
 INVITE, JOINPIN, INVITEEND, JOINREQ, JOINPENDING, JOINACK, JOINSTATUS, TRUSTED,
 HOSTINFO, COOPSTATE, SLOTSWAP, WANSETUP, VOICE, WANNAPLAY, PLAYREG, PLAYPENDING,
-PLAYCLAIM, PLAYREPLY, PROFILE.
+PLAYCLAIM, PLAYREPLY, PROFILE, INPUTRELAY, COOPKICK, SESSIONEND.
 """
 
 from __future__ import annotations
@@ -60,10 +60,11 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
             if verb == "CAPS":
                 self._reply(
             "CAPS NETINFO SETSPEED RESTORE STATUS STATS TAILSCALE "
-            "LASTSESSION SESSIONDATA APPSTORES PLAYTIMES GAMESTATE LOCKSTATE "
+            "LASTSESSION SESSIONDATA APPSTORES PLAYTIMES GAMESTATE LAUNCHRESULT LOCKSTATE "
             "INVITE JOINPIN INVITEEND JOINREQ JOINPENDING JOINACK JOINSTATUS TRUSTED "
             "HOSTINFO COOPSTATE SLOTSWAP WANSETUP VOICE "
-            "WANNAPLAY PLAYREG PLAYPENDING PLAYCLAIM PLAYREPLY PROFILE"
+            "WANNAPLAY PLAYREG PLAYPENDING PLAYCLAIM PLAYREPLY PROFILE "
+            "INPUTRELAY COOPKICK SESSIONEND BUDDYSET"
                 )
             elif verb == "NETINFO":
                 self._reply(link_speed.netinfo_json(adapter or "", active))
@@ -117,6 +118,9 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
             elif verb == "GAMESTATE":
                 recent = monitor._recent_lines if monitor else []
                 self._reply(launch_watcher.game_state_json(recent))
+            elif verb == "LAUNCHRESULT":
+                recent = monitor._recent_lines if monitor else []
+                self._reply(launch_watcher.launch_result_json(recent))
             elif verb == "LOCKSTATE":
                 self._reply(lock_state.lock_state_json())
             elif verb == "INVITE":
@@ -289,6 +293,50 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                     self._reply(json.dumps(device_profiles.handle(payload)))
                 except json.JSONDecodeError:
                     self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "BUDDYSET":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    self._reply(json.dumps(_buddyset(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "INPUTRELAY":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    from host_tuning import input_relay
+
+                    self._reply(json.dumps(input_relay.handle(payload)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "COOPKICK":
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    from host_tuning import coop_session
+
+                    result = coop_session.kick(payload)
+                    logging.info("COOPKICK ok=%s uuid=%s", result.get("ok"), result.get("uuid"))
+                    self._reply(json.dumps(result))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "SESSIONEND":
+                payload: Dict[str, Any] = {}
+                if arg:
+                    try:
+                        parsed = json.loads(arg)
+                        if isinstance(parsed, dict):
+                            payload = parsed
+                    except json.JSONDecodeError:
+                        payload = {"reason": arg.strip()}
+                from host_tuning import coop_session
+
+                result = coop_session.session_end(payload)
+                logging.info("SESSIONEND reason=%s", result.get("reason"))
+                self._reply(json.dumps(result))
             else:
                 self._reply("ERR_UNKNOWN")
         except Exception as exc:
@@ -373,6 +421,26 @@ class GameSphereBridge:
             voice_bridge.start()
         except Exception:
             logging.exception("voice_bridge start")
+        try:
+            from host_tuning import buddy_relay
+
+            buddy_relay.start()
+        except Exception:
+            logging.exception("buddy_relay start")
+        try:
+            from host_tuning import zerotier
+
+            # LAN guard: ZeroTier must never own 10.0.5.0/24 or voice/LAN discovery dies.
+            zerotier.start_guard_timer()
+        except Exception:
+            logging.debug("zerotier guard start", exc_info=True)
+        try:
+            from host_tuning import metadata_catalog
+
+            # Warm owned-apps + ROM hashes off-thread so the first HOSTINFO is not empty.
+            metadata_catalog.cached(kick=True)
+        except Exception:
+            logging.debug("metadata_catalog warm", exc_info=True)
         class Server(socketserver.ThreadingTCPServer):
             allow_reuse_address = True
             daemon_threads = True
@@ -396,6 +464,12 @@ class GameSphereBridge:
             from host_tuning import voice_bridge
 
             voice_bridge.stop()
+        except Exception:
+            pass
+        try:
+            from host_tuning import buddy_relay
+
+            buddy_relay.stop()
         except Exception:
             pass
         if self.monitor:
@@ -444,6 +518,8 @@ def _hostinfo_json() -> str:
         "voicePort": voice.get("port") or 48020,
         "voiceRunning": bool(voice.get("running")),
         "tailscaleHost": wan.get("tailscaleHost") or "",
+        "zerotierHost": wan.get("zerotierHost") or "",
+        "zerotierStatus": wan.get("zerotierStatus") or "",
         **push,
         **ident,
     }
@@ -462,7 +538,26 @@ def _hostinfo_json() -> str:
             payload["profiles"] = profiles
     except Exception:
         logging.debug("device_profiles hostinfo failed", exc_info=True)
+    payload.update(_catalog_fields())
     return payload
+
+
+def _catalog_fields() -> Dict[str, Any]:
+    """Owned Steam apps + ROM hashes. Never blocks HOSTINFO: the scan runs in the
+    background and this returns whatever is cached (``catalogReady`` says whether
+    a full scan has completed yet)."""
+    try:
+        from host_tuning import metadata_catalog
+
+        meta = metadata_catalog.cached(kick=True)
+    except Exception:
+        logging.debug("metadata_catalog hostinfo failed", exc_info=True)
+        return {"catalogReady": False, "ownedApps": [], "romHashes": []}
+    return {
+        "catalogReady": bool(meta.get("ready")),
+        "ownedApps": meta.get("ownedApps") or [],
+        "romHashes": meta.get("romHashes") or [],
+    }
 
 
 def _coopstate_json(arg: str) -> Dict:
@@ -514,6 +609,7 @@ def _coopstate_json(arg: str) -> Dict:
         "clients": pause.get("clients") or [],
         "voicePort": voice.get("port") or 48020,
         "voiceRunning": bool(voice.get("running")),
+        **_buddy_fields(),
         "lanHost": wan.get("lanHost") or "",
         "wanHost": wan.get("wanHost") or "",
         "wanReady": bool(wan.get("wanReady")),
@@ -521,6 +617,8 @@ def _coopstate_json(arg: str) -> Dict:
         "wannaPlay": wp,
         **chat,
         **_push_fields(),
+        **_session_fields(),
+        "zerotierHost": wan.get("zerotierHost") or "",
         **ident,
     }
     try:
@@ -534,7 +632,75 @@ def _coopstate_json(arg: str) -> Dict:
             out["profiles"] = profiles
     except Exception:
         logging.debug("device_profiles coopstate failed", exc_info=True)
+    try:
+        from host_tuning import input_relay
+
+        relay = input_relay.status()
+        out["inputRelay"] = bool(relay.get("merge"))
+        out["inputRelayBuddySlot"] = relay.get("buddySlot") or 1
+    except Exception:
+        logging.debug("input_relay coopstate failed", exc_info=True)
     return out
+
+
+def _session_fields() -> Dict[str, Any]:
+    """COOPKICK / SESSIONEND events for guests polling COOPSTATE."""
+    try:
+        from host_tuning import coop_session
+
+        return coop_session.coopstate_fields()
+    except Exception:
+        logging.debug("coop_session coopstate failed", exc_info=True)
+        return {"sessionEvents": [], "sessionEndedAt": None, "sessionEndReason": ""}
+
+
+def _buddy_fields() -> Dict:
+    """COOPSTATE additions for buddy mode. Safe when the relay never started."""
+    try:
+        from host_tuning import buddy_relay
+
+        st = buddy_relay.status()
+    except Exception:
+        st = {}
+    return {
+        "buddyPort": st.get("port") or 48021,
+        "buddyRelayRunning": bool(st.get("running")),
+        "buddyHostPresent": bool(st.get("hostPresent")),
+        "buddyIds": st.get("buddies") or [],
+    }
+
+
+def _buddyset(payload: Dict) -> Dict:
+    """Host toggles a seat: {"slot": 2, "buddy": true} or {"reqId": "...", "buddy": false}.
+
+    {"status": true} returns relay status only. The relay is started on demand so
+    a buddy toggle on an older bridge start still works without a restart.
+    """
+    from host_tuning import buddy_relay
+
+    if payload.get("status") or payload.get("query"):
+        return buddy_relay.status()
+    try:
+        started = buddy_relay.start()
+    except OSError as exc:
+        started = {"ok": False, "error": str(exc)}
+    role = "buddy" if payload.get("buddy", True) else "guest"
+    if payload.get("role") in ("buddy", "guest"):
+        role = str(payload.get("role"))
+    result: Dict = {"ok": False, "error": "missing_slot"}
+    if payload.get("slot") is not None:
+        try:
+            result = couch_coop.set_slot_role(int(payload.get("slot")), role)
+        except (TypeError, ValueError):
+            result = {"ok": False, "error": "bad_slot"}
+    elif payload.get("reqId") or payload.get("clientId") or payload.get("uuid"):
+        ident = str(payload.get("reqId") or payload.get("clientId") or payload.get("uuid"))
+        result = couch_coop.set_role_for_client(ident, role)
+    elif not payload:
+        result = {"ok": True}
+    result["relay"] = started
+    result.update(_buddy_fields())
+    return result
 
 
 def _slotswap(payload: Dict) -> Dict:

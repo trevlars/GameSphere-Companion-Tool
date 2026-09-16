@@ -372,6 +372,16 @@ def status() -> Dict[str, Any]:
     if not wan:
         wan = public_ip()
     ts = _tailscale_ip()
+    zt_host = ""
+    zt_status = ""
+    try:
+        from host_tuning import zerotier
+
+        zt = zerotier.status()
+        zt_host = str(zt.get("zerotierHost") or "")
+        zt_status = str(zt.get("zerotierStatus") or "")
+    except Exception:
+        pass
     sunshine = {}
     try:
         sunshine = sunshine_wan.snapshot()
@@ -410,6 +420,8 @@ def status() -> Dict[str, Any]:
             "leaseUntil": int(_state.get("leaseUntil") or 0),
             "reason": str(_state.get("reason") or ""),
             "tailscaleHost": ts,
+            "zerotierHost": zt_host,
+            "zerotierStatus": zt_status,
             "hairpin": (
                 "LAN clients use lan= (private IP). Join URLs carry host= + lan= + wan= "
                 "so GameSphere tries LAN serverinfo first, then WAN — never hairpin."
