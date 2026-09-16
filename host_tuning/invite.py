@@ -233,12 +233,46 @@ def _q(value: str) -> str:
     return quote(value or "", safe="")
 
 
+def _wanna_play_pin_context(token: str) -> Optional[Dict[str, Any]]:
+    """Wanna-play gamesphere://play?session= tokens are not stored in invites.json."""
+    if not token:
+        return None
+    try:
+        from host_tuning import wanna_play
+
+        session = wanna_play.current_session()
+        if not session or str(session.get("sessionId") or "") != token:
+            return None
+        expires = float(session.get("expires") or 0)
+        if expires and time.time() > expires:
+            return None
+        return {
+            "token": token,
+            "expires": expires or (time.time() + INVITE_TTL_SECONDS),
+            "clientsBefore": [c["uuid"] for c in sunshine_admin.list_clients()],
+            "guestUuids": [],
+            "ended": False,
+            "wannaPlay": True,
+        }
+    except Exception as exc:
+        logging.debug("wanna_play pin context: %s", exc)
+        return None
+
+
 def submit_pin(payload: Dict[str, Any]) -> Dict[str, Any]:
     token = str(payload.get("token") or "").strip()
     pin = str(payload.get("pin") or "").strip()
     name = str(payload.get("name") or "GameSphere Guest")
     invite = _find(token)
+    wanna_play = False
     if not invite:
+        invite = _wanna_play_pin_context(token)
+        wanna_play = invite is not None
+    if not invite:
+        logging.info(
+            "JOINPIN invite_not_found token=%s",
+            token[:10] + "…" if len(token) > 10 else (token or "-"),
+        )
         return {"ok": False, "error": "invite_not_found"}
     if invite.get("ended"):
         return {"ok": False, "error": "invite_ended"}
@@ -250,13 +284,14 @@ def submit_pin(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # Reply immediately after Sunshine accepts the PIN. Waiting ~3.2s for a new
     # client UUID made iOS JOINPIN (3s LAN timeout) fail while pairing still ran.
-    before = set(invite.get("clientsBefore") or [])
-    threading.Thread(
-        target=_track_guest_uuid,
-        args=(token, before),
-        name="gs-invite-guest-uuid",
-        daemon=True,
-    ).start()
+    if not wanna_play:
+        before = set(invite.get("clientsBefore") or [])
+        threading.Thread(
+            target=_track_guest_uuid,
+            args=(token, before),
+            name="gs-invite-guest-uuid",
+            daemon=True,
+        ).start()
     return {"ok": True, "guestUuid": ""}
 
 
@@ -303,11 +338,12 @@ def end_invite(token: str = "") -> Dict[str, Any]:
 
 
 def on_session_stop() -> None:
-    """Host stream ended — drop any still-open guest pairings."""
-    try:
-        end_invite("")
-    except Exception as exc:
-        logging.debug("invite on_session_stop: %s", exc)
+    """Host stream ended — clear Wanna-play session; keep invite tokens until TTL / INVITEEND.
+
+    Ending every invite on Sunshine log stop made P2 JOINPIN fail with invite_not_found
+    when the host shared a link then briefly stopped the stream (or Sunshine flickered).
+    Explicit INVITEEND from the host app still unpairs guests and ends invites.
+    """
     try:
         from host_tuning import wanna_play
 
