@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Third-party notices — GameSphere</title>
+<meta name="description" content="GameSphere Third-party notices">
+<link rel="stylesheet" href="styles.css">
+<style>nav a.on { color: var(--accent); }</style>
+</head>
+<body>
+<nav><a href="index.html">Home</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="support.html">Support</a><a class="on" href="third-party.html">Notices</a></nav>
+<article>
+<h1>GameSphere — Third-party notices</h1>
+<p><strong>Last updated:</strong> September 16, 2026</p>
+<p>GameSphere is a <strong>fork of Moonlight</strong> (iOS/tvOS game-streaming client). The shipped binary includes Moonlight code and GameSphere changes together.</p>
+<hr>
+<h2>GNU GPL-3.0 (Moonlight and corresponding source)</h2>
+<p>Moonlight is licensed under the <strong>GNU General Public License v3.0</strong>. Because GameSphere links that code into one app, <strong>the corresponding source for the version you received</strong> (Moonlight + GameSphere changes in that binary) is offered here:</p>
+<p><strong>https://github.com/trevlars/GameSphere-Source/releases</strong></p>
+<p>In-app: <strong>Settings → Source code (GPL-3.0)</strong> and <strong>Settings → Legal → Licenses</strong>.</p>
+<p>Under GPL-3.0 you may use, modify, and redistribute that source. Derivative works must remain GPL-3.0 and include a source offer. <strong>Selling the app / IAP is allowed</strong>; GPL is about freedom to share source, not a ban on charging.</p>
+<p>The development repository may stay private. GPL requires source to <strong>recipients of the binary</strong>, not a public git history.</p>
+<h3>Compliance checklist (operators)</h3>
+<ol>
+<li>Before each App Store / TestFlight build you ship, run <code>./scripts/create-source-release.sh</code> (repo: <code>Scripts/create-source-release.sh</code>) and upload <code>dist/GameSphere-source-*.tar.gz</code> to GameSphere-Source tagged to that marketing+build version.</li>
+<li>Do not ship a build whose source archive is missing, incomplete, or stripped of GameSphere-only files.</li>
+<li>Keep <code>LICENSE.txt</code> (GPL-3.0) in the tree. Do not relicense the combined work as proprietary.</li>
+</ol>
+<h3>Risks (read this)</h3>
+<table>
+<thead><tr><th>Risk</th><th>Why it matters</th></tr></thead>
+<tbody>
+<tr><td><strong>Copyleft on the whole app</strong></td><td>GameSphere custom UI, IAP, voice, Companion protocols in the iOS binary are part of the corresponding source. You cannot keep those files closed for App Store recipients.</td></tr>
+<tr><td><strong>App Store + GPL tension</strong></td><td>Apple’s Standard EULA and GPL both apply to different layers. Recipients get Apple’s license for the MAS/iOS copy <strong>and</strong> GPL rights in the published source tarball. This is the same posture Moonlight iOS used; it is not legal advice.</td></tr>
+<tr><td><strong>Missing source release</strong></td><td>Shipping a paid build without a matching source archive is a <strong>GPL violation risk</strong>. Treat the source upload as a release gate.</td></tr>
+<tr><td><strong>Secrets</strong></td><td>Source archives must exclude <code>SteamWebAPI.apikey</code>, <code>SteamGridDB.apikey</code>, <code>scripts/asc.env</code>, and signing material.</td></tr>
+<tr><td><strong>Companion / Import Tool</strong></td><td>Separate desktop program, not linked into the iOS binary. Its license is whatever that repo ships; it is not automatically GPL’d by the iOS fork unless it contains Moonlight code (it should not).</td></tr>
+</tbody></table>
+<hr>
+<h2>Other libraries in the client</h2>
+<p>Attributions also appear in <strong>Settings → Licenses &amp; credits</strong>.</p>
+<table>
+<thead><tr><th>Component</th><th>License</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Moonlight / moonlight-common-c</td><td>GPL-3.0</td><td>Streaming core</td></tr>
+<tr><td>FFmpeg</td><td>LGPL v2.1</td><td>Decode</td></tr>
+<tr><td>OpenSSL</td><td>Apache 2.0</td><td>TLS</td></tr>
+<tr><td>libopus</td><td>BSD</td><td>Audio</td></tr>
+<tr><td>SDL2</td><td>zlib</td><td>Input</td></tr>
+<tr><td>GCDWebServer</td><td>(see <code>GCDWebServer/LICENSE</code>)</td><td>Local HTTP helpers where used</td></tr>
+<tr><td>IGDB</td><td>service ToS</td><td>Metadata / art</td></tr>
+<tr><td>Steam / SteamGridDB / RetroAchievements</td><td>their ToS</td><td>Optional accounts / art</td></tr>
+<tr><td>Apple frameworks</td><td>Apple</td><td>UI, StoreKit, Game Controller</td></tr>
+</tbody></table>
+<p>Trademarks (Apple, Steam, Sony, Microsoft, Nintendo, IGDB, Sunshine, Apollo, ZeroTier, etc.) belong to their owners. GameSphere™ is used for this streaming client.</p>
+<hr>
+<h2>No warranty</h2>
+<p>Open-source components are provided without warranty by their authors. GameSphere is provided “as is.” See Terms of Use.</p>
+</article>
+<footer>
+GameSphere for iOS, iPadOS, and tvOS. Companion / Import Tool is a separate desktop utility.
+<a href="https://github.com/trevlars/GameSphere-Source/issues">Contact</a>
+</footer>
+</body>
+</html>

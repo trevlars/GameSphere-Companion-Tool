@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — GameSphere</title>
+<meta name="description" content="GameSphere Privacy Policy">
+<link rel="stylesheet" href="styles.css">
+<style>nav a.on { color: var(--accent); }</style>
+</head>
+<body>
+<nav><a href="index.html">Home</a><a class="on" href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="support.html">Support</a><a href="third-party.html">Notices</a></nav>
+<article>
+<h1>GameSphere Privacy Policy</h1>
+<p><strong>Last updated:</strong> September 16, 2026</p>
+<p><strong>Product:</strong> GameSphere for iOS, iPadOS, and tvOS (<code>com.moonlight.gamesphere</code>)</p>
+<p><strong>Contact:</strong> <a href="https://github.com/trevlars/GameSphere-Source/issues">GameSphere-Source issues</a></p>
+<p>GameSphere streams games from <strong>your</strong> PC (Sunshine or Apollo) and organizes a cover-art library on Apple devices. This policy describes what the app actually does — not a generic template.</p>
+<p>We do <strong>not</strong> operate a GameSphere account server. We do <strong>not</strong> sell personal information. We do <strong>not</strong> include advertising SDKs, analytics SDKs, or tracking pixels. The App Store privacy manifest sets <code>NSPrivacyTracking</code> to false.</p>
+<hr>
+<h2>1. Information on your device</h2>
+<p>Stored locally (and, if you use Apple’s iCloud Key-Value Storage, merged across your devices):</p>
+<ul>
+<li>Streaming settings (resolution, bitrate, frame pacing, on-screen controls)</li>
+<li>Paired-host credentials (Moonlight/Sunshine pairing secrets stay on device)</li>
+<li>Library cache (game names, cover URLs, your artwork/rating edits)</li>
+<li>Shortcuts, launch URLs, and quota counters for Free / Shortcuts+ / Pro</li>
+<li>Optional in-app profile (display name, avatar choice)</li>
+<li>Optional Steam / RetroAchievements session tokens you enter</li>
+</ul>
+<p>Delete the app to remove on-device data. iCloud copies follow Apple’s iCloud controls.</p>
+<hr>
+<h2>2. Permissions we actually request</h2>
+<p>These match the shipping iOS <code>Info.plist</code> usage strings:</p>
+<table>
+<thead><tr><th>Permission</th><th>When it is used</th></tr></thead>
+<tbody>
+<tr><td><strong>Local Network</strong></td><td>Bonjour (<code>_nvstream._tcp</code>) discovery of Sunshine/Apollo, pairing, and the game stream itself.</td></tr>
+<tr><td><strong>Microphone</strong></td><td>Co-op party voice and <strong>GameSphere Mic</strong> (phone mic → host PC). Off until you turn those features on.</td></tr>
+<tr><td><strong>Bluetooth</strong></td><td>Compatible accessories (e.g. Citrix X1 mice). Controllers generally use Game Controller framework, not this prompt.</td></tr>
+<tr><td><strong>Face ID</strong></td><td>Pro family rating-filter lock, so a child cannot raise the ESRB cap without you.</td></tr>
+</tbody></table>
+<p>Background mode is <strong>audio only</strong> (keep stream/game audio alive). We do not declare camera on the shipping iOS app.</p>
+<p>Local HTTP to your PC is required for pairing. The app allows local-network loads for that reason; game-stream video uses the Moonlight protocol (TLS/encrypted session as Sunshine provides).</p>
+<hr>
+<h2>3. Features that send data off the device</h2>
+<p>Nothing here is used for advertising. Optional features stay off until you use them.</p>
+<h3>3.1 Game metadata (library art)</h3>
+<p>To show covers, summaries, genres, ESRB badges, and platform logos, GameSphere may send <strong>game titles</strong> (and Steam App IDs when known) to:</p>
+<ul>
+<li><strong>IGDB</strong> (Twitch) — <a href="https://www.igdb.com/legal">IGDB legal</a>. Auth uses an app-level Twitch client credential, not your Twitch account.</li>
+<li><strong>SteamGridDB</strong> — artwork search for titles you already have. See <a href="https://www.steamgriddb.com/privacy">SteamGridDB privacy</a>.</li>
+<li><strong>Apple App Store lookup</strong> — only for iOS app tiles you add.</li>
+</ul>
+<p>We do not send your name, email, or Apple ID to these metadata services.</p>
+<h3>3.2 Steam (optional)</h3>
+<p>If you sign in with Steam OpenID, GameSphere reads public profile, playtime, friends-in-game, and achievements for titles already on The Sphere. That uses Steam Community / Steam Web API. You may paste your own Web API key in Settings. Steam does not launch games from the phone. See <a href="https://store.steampowered.com/privacy_agreement/">Steam Privacy</a>.</p>
+<h3>3.3 RetroAchievements (optional)</h3>
+<p>If you enter a RetroAchievements username and web API key, GameSphere fetches achievement progress for matching games. See <a href="https://retroachievements.org/">RetroAchievements</a>. This never blocks Play.</p>
+<h3>3.4 Sunshine / Apollo / Companion (your PC)</h3>
+<p>Pairing, library publish, Wake-on-LAN, join-PIN, co-op state, and <strong>GameSphere Mic</strong> talk to <strong>your</strong> host (and the free <a href="https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest">Import Tool / Companion</a> on that PC). That traffic stays on your LAN, your mapped ports, or a VPN you install (see ZeroTier below). GameSphere Inc. does not receive the stream.</p>
+<h3>3.5 Co-op voice</h3>
+<p>Party voice is a <strong>live UDP mix</strong> among devices in the shared session (port <strong>48020</strong> on the host path). GameSphere does <strong>not</strong> record voice, does <strong>not</strong> store voice, and does <strong>not</strong> upload voice to a GameSphere server. Mute and level live in Share / Sound.</p>
+<p><strong>GameSphere Mic</strong> (Pro) sends your phone mic to a PipeWire virtual capture device on the host so Steam / Discord / games can pick <strong>GameSphere Mic</strong>. That audio is for the PC you paired — not for us.</p>
+<h3>3.6 ZeroTier / remote play</h3>
+<p>GameSphere does not operate ZeroTier. If you install ZeroTier (or Tailscale) and join the same network as the PC, the app detects overlay IPs (<code>10.147.x</code> / <code>100.x</code>) and prefers that path instead of router port forwards. VPN provider policies apply to that traffic.</p>
+<h3>3.7 Apple services</h3>
+<p>Sign in with Apple ID is used by the App Store for <strong>Shortcuts+</strong> (auto-renewable, <code>$2.99/mo</code>) and <strong>Pro</strong> (<code>$14.99</code> lifetime). Receipts, billing, Family Sharing (Pro), and refunds are handled by Apple. iCloud Key-Value Storage can merge settings and quota counters so reinstalling cannot zero a higher count.</p>
+<h3>3.8 Diagnostics</h3>
+<p>We do not ship a third-party crash/analytics SDK. If you use <strong>Report a problem</strong>, that opens the public GitHub issues tracker. Only include what you choose to type.</p>
+<hr>
+<h2>4. What we do not collect</h2>
+<ul>
+<li>No advertising identifiers, no ATT tracking, no ads</li>
+<li>No analytics or telemetry SDKs (no Firebase, Amplitude, Mixpanel, Sentry, etc.)</li>
+<li>No GameSphere cloud account, no GameSphere email list</li>
+<li>Voice is not recorded by GameSphere</li>
+<li>We do not sell, rent, or share personal information for cross-app advertising</li>
+</ul>
+<hr>
+<h2>5. Children, families, and COPPA</h2>
+<p>GameSphere is a <strong>general-audience</strong> streaming launcher. It is <strong>not directed at children under 13</strong>, and we do not knowingly collect personal information from children.</p>
+<p><strong>How families actually use it:</strong> kids in a household may play on a parent’s Apple ID, via <strong>Family Sharing on Pro</strong>, or as a <strong>guest</strong> on a <code>gamesphere://join</code> invite. Guests do not pay. Guests see the <strong>shared shelf only</strong>. Hosts can cap titles with the <strong>family rating filter</strong>; Pro can lock that cap behind <strong>Face ID / device passcode</strong>.</p>
+<p>Optional Steam and RetroAchievements sign-in belong to the person who owns those accounts — do not enter a child’s third-party credentials.</p>
+<p>If you believe we have collected personal information from a child, open an issue on the contact link above and we will delete what we control (on-device data is deleted by removing the app on that device).</p>
+<hr>
+<h2>6. Retention</h2>
+<table>
+<thead><tr><th>Data</th><th>Retention</th></tr></thead>
+<tbody>
+<tr><td>On device</td><td>Until you clear library/settings or delete the app</td></tr>
+<tr><td>iCloud KVS</td><td>Until you delete it in iCloud or the app data</td></tr>
+<tr><td>IGDB / SteamGridDB / Steam / RA</td><td>Governed by those services; we do not run their stores</td></tr>
+<tr><td>Voice</td><td>Not retained by GameSphere</td></tr>
+<tr><td>Apple IAP</td><td>Apple’s billing records</td></tr>
+</tbody></table>
+<hr>
+<h2>7. Your choices</h2>
+<ul>
+<li>Skip Steam, RetroAchievements, voice, Mic to PC, and iCloud</li>
+<li>Revoke Local Network, Microphone, Bluetooth, or Face ID in iOS Settings</li>
+<li>Leave a friend’s session anytime; guests cannot quit the host’s game</li>
+<li>Restore or cancel purchases in Apple ID → Subscriptions (Shortcuts+) or with Restore purchases (Pro)</li>
+</ul>
+<p>EEA/UK and similar regions: contact us via GitHub issues to request access or deletion of anything we control. Most GameSphere data never leaves your devices.</p>
+<hr>
+<h2>8. International processing</h2>
+<p>Metadata queries and optional Steam/RA calls go to those operators’ infrastructure. Apple processes IAP and iCloud. Your stream stays between your Apple device and your PC (plus any VPN you choose).</p>
+<hr>
+<h2>9. Changes</h2>
+<p>We will update this page and the in-app Legal copy, and bump the “Last updated” date. Material changes may also appear in What’s New.</p>
+<hr>
+<h2>10. Contact</h2>
+<p>Privacy and support: <a href="https://github.com/trevlars/GameSphere-Source/issues">https://github.com/trevlars/GameSphere-Source/issues</a></p>
+<p>Hosted policy: <a href="https://trevlars.github.io/Gamesphere-Import-Tool/privacy.html">https://trevlars.github.io/Gamesphere-Import-Tool/privacy.html</a></p>
+<p>Source offer (GPL): <a href="https://github.com/trevlars/GameSphere-Source/releases">https://github.com/trevlars/GameSphere-Source/releases</a></p>
+<p>There is no separate privacy email inbox today; the public issues tracker is the contact method we actually monitor.</p>
+</article>
+<footer>
+GameSphere for iOS, iPadOS, and tvOS. Companion / Import Tool is a separate desktop utility.
+<a href="https://github.com/trevlars/GameSphere-Source/issues">Contact</a>
+</footer>
+</body>
+</html>

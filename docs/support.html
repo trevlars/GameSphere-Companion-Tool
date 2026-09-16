@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support — GameSphere</title>
+<meta name="description" content="GameSphere Support">
+<link rel="stylesheet" href="styles.css">
+<style>nav a.on { color: var(--accent); }</style>
+</head>
+<body>
+<nav><a href="index.html">Home</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a class="on" href="support.html">Support</a><a href="third-party.html">Notices</a></nav>
+<article>
+<h1>GameSphere Support</h1>
+<p><strong>Last updated:</strong> September 16, 2026</p>
+<p>Pair a Sunshine or Apollo PC once. Then Play from The Sphere — or join a friend without owning a host.</p>
+<ul>
+<li><strong>Issues:</strong> <a href="https://github.com/trevlars/GameSphere-Source/issues">GameSphere-Source</a></li>
+<li><strong>Companion / Import Tool:</strong> <a href="https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest">v1.4.4+ releases</a></li>
+<li><strong>Source (GPL):</strong> <a href="https://github.com/trevlars/GameSphere-Source/releases">source releases</a></li>
+<li><strong>Privacy</strong> · <strong>Terms</strong> · <strong>Third-party notices</strong> (this site)</li>
+</ul>
+<p>In the app: <strong>Settings → Help &amp; Support</strong> (this FAQ, offline) and <strong>Settings → Legal</strong>.</p>
+<hr>
+<h2>Pairing (Add your PC)</h2>
+<ol>
+<li>PC and phone/iPad on the <strong>same Wi‑Fi</strong> (or the same ZeroTier network).</li>
+<li>Sunshine or Apollo running. Open GameSphere → <strong>Add your PC</strong>.</li>
+<li>Tap the PC. GameSphere shows a <strong>PIN</strong> — type that PIN in the Sunshine window (not the other way around).</li>
+<li>After pairing, covers should fill The Sphere. Empty? Install Companion on the PC and refresh.</li>
+</ol>
+<p>Forget a PC anytime in Settings → Your PC. That only removes the pairing on this device.</p>
+<hr>
+<h2>Companion (Import Tool)</h2>
+<p>The free desktop <strong>GameSphere Import Tool</strong> publishes Steam (and other) games into Sunshine/Apollo so The Sphere has real covers.</p>
+<ol>
+<li>Download the latest macOS, Windows, or Linux build from GitHub Releases.</li>
+<li>Install on the <strong>gaming PC</strong>, not on the iPhone.</li>
+<li>Let it write <code>apps.json</code> / Sunshine apps, then refresh the library in GameSphere.</li>
+</ol>
+<p>Companion also hosts the always-on daemon used for join-PIN, co-op state, WAN helpers, and <strong>GameSphere Mic</strong>. Current public version at launch: <strong>v1.4.4</strong>.</p>
+<hr>
+<h2>Remote play (ZeroTier)</h2>
+<p>Router port forwards on eero often fail and are not required.</p>
+<ol>
+<li>Install <a href="https://www.zerotier.com/">ZeroTier</a> on the phone <strong>and</strong> the PC.</li>
+<li>Join the <strong>same</strong> ZeroTier network.</li>
+<li>GameSphere detects <code>10.147.x</code> (ZeroTier) or <code>100.x</code> (Tailscale) and uses that path.</li>
+<li>If you launch off-home without the VPN, the app asks you to turn ZeroTier on instead of dumping a port list.</li>
+</ol>
+<p>UPnP helpers in Companion never map Sunshine’s 47990 admin port.</p>
+<hr>
+<h2>Voice (party chat)</h2>
+<p>Pro hosts can enable <strong>in-stream party voice</strong>. It is a live UDP mix — <strong>not recorded</strong>.</p>
+<ul>
+<li>Mute from the stream <strong>Share</strong> control (or the pad Share/Create button locally).</li>
+<li>Mic level lives in <strong>Sound</strong> / Quick Settings and matches Mic-to-PC gain.</li>
+<li>Guests need microphone permission on their device.</li>
+</ul>
+<hr>
+<h2>PC mic (GameSphere Mic)</h2>
+<p>Pro can send your phone mic into the PC so Steam, Discord, or a game hears you as <strong>GameSphere Mic</strong> (PipeWire virtual capture — not VBAN).</p>
+<ol>
+<li>Companion mic wizard on the host.</li>
+<li>In GameSphere, enable Mic to PC (Pro).</li>
+<li>On the PC, set the default / app input to <strong>GameSphere Mic</strong>.</li>
+</ol>
+<p>Sunshine’s HDMI audio path stays on the TV/AVR. Do not attach extra AEC to HDMI.</p>
+<hr>
+<h2>On-screen controls (OSC)</h2>
+<p>Touch controls work without a pad. You can show, hide, and <strong>edit layout / opacity</strong> while streaming (Quick Settings / OSC editor). Layouts stay on device.</p>
+<hr>
+<h2>Shortcuts and launch URLs</h2>
+<ul>
+<li><strong>The Sphere Play</strong> is unlimited on every plan.</li>
+<li><code>gamesphere://launch</code> from Shortcuts, MCON, Backbone-style apps, or Open URL is metered on Free (10/week) and Shortcuts+ (100/month), unlimited on Pro.</li>
+<li><code>gamesphere://join</code> guest links are <strong>never</strong> metered.</li>
+<li>On-device Delta / RetroArch / App Store tiles are <strong>never</strong> metered.</li>
+<li>Copy a launch URL from game detail. Cold start shows Waking → Connecting → Starting.</li>
+</ul>
+<p>Shortcuts+ is <strong>$2.99/mo</strong> auto-renew. Pro is <strong>$14.99 once</strong>. Manage Shortcuts+ in Apple ID → Subscriptions. Restore purchases is in Settings.</p>
+<hr>
+<h2>Guests vs host</h2>
+<p>The <strong>host pays</strong> (Shortcuts+ or Pro) to send Invite / Share / Swap. Friends install GameSphere free.</p>
+<ul>
+<li>Guests wait until the host <strong>Accepts</strong>.</li>
+<li>Guests cannot Resume the host game, cannot Swap seats, and Leave does not cancel the host session.</li>
+<li>Guest shelf is the shared catalog only.</li>
+</ul>
+<hr>
+<h2>Still stuck?</h2>
+<p>Settings → Report a problem opens GitHub issues. Include: device, iOS version, whether you are host or guest, and whether ZeroTier is connected. Do not paste API keys.</p>
+</article>
+<footer>
+GameSphere for iOS, iPadOS, and tvOS. Companion / Import Tool is a separate desktop utility.
+<a href="https://github.com/trevlars/GameSphere-Source/issues">Contact</a>
+</footer>
+</body>
+</html>
