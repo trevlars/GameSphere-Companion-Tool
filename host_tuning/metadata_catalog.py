@@ -252,6 +252,7 @@ def scan_rom_hashes(limit: int = 256, max_bytes: int = 512 * 1024 * 1024) -> Lis
     seen_path: set = set()
 
     def _add(path: str, name: str, system: str) -> bool:
+        """Return True when the scan should stop (limit reached)."""
         if path in seen_path:
             return False
         try:
@@ -263,16 +264,15 @@ def scan_rom_hashes(limit: int = 256, max_bytes: int = 512 * 1024 * 1024) -> Lis
         if not entry:
             return False
         digest = entry["raHash"]
+        seen_path.add(path)
         if digest in seen_hash:
-            seen_path.add(path)
             return False
         seen_hash.add(digest)
-        seen_path.add(path)
         rows.append(entry)
-        return len(rows) < limit
+        return len(rows) >= limit
 
     for path, name, system in _rom_paths_from_apps_json(limit=limit):
-        if not _add(path, name, system):
+        if _add(path, name, system):
             return rows
 
     for root in _ROM_SCAN_ROOTS:
@@ -285,7 +285,7 @@ def scan_rom_hashes(limit: int = 256, max_bytes: int = 512 * 1024 * 1024) -> Lis
                 if ext not in _ROM_EXTS:
                     continue
                 path = os.path.join(dirpath, name)
-                if not _add(path, name, os.path.basename(dirpath)):
+                if _add(path, name, os.path.basename(dirpath)):
                     return rows
     return rows
 
