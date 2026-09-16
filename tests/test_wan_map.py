@@ -245,6 +245,7 @@ class InviteTokenTests(unittest.TestCase):
                 "ok": True,
                 "wanReady": True,
                 "wanHost": "203.0.113.9",
+                "zerotierHost": "10.147.19.213",
                 "status": "Remote join is on — game ports mapped via UPnP for this session only.",
             },
         ), mock.patch("host_tuning.host_identity.snapshot", return_value={}):
@@ -253,6 +254,7 @@ class InviteTokenTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["token"]), 16)
         self.assertIn("lan=10.0.5.42", result["joinURL"])
         self.assertIn("wan=203.0.113.9", result["joinURL"])
+        self.assertIn("zt=10.147.19.213", result["joinURL"])
         self.assertIn("host=10.0.5.42", result["joinURL"])
         self.assertTrue(result["wanReady"])
         self.assertNotIn("47990", result["joinURL"])

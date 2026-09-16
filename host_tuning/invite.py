@@ -141,6 +141,7 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
     host_id = str(payload.get("hostId") or "")
     wan_ready = False
     wan_status = ""
+    zt_host = ""
     try:
         from host_tuning import wan_setup
 
@@ -148,8 +149,16 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
         wan_host = str(mapped.get("wanHost") or "") or _public_ip()
         wan_ready = bool(mapped.get("wanReady"))
         wan_status = str(mapped.get("status") or "")
+        zt_host = str(mapped.get("zerotierHost") or "")
     except Exception:
         wan_host = _public_ip()
+    if not zt_host:
+        try:
+            from host_tuning import zerotier
+
+            zt_host = str((zerotier.status() or {}).get("zerotierHost") or "")
+        except Exception:
+            zt_host = ""
     clients_before = [c["uuid"] for c in sunshine_admin.list_clients()]
     invite = {
         "token": token,
@@ -185,6 +194,8 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
         query += f"&lan={_q(lan_host)}"
     if wan_host:
         query += f"&wan={_q(wan_host)}"
+    if zt_host:
+        query += f"&zt={_q(zt_host)}"
     ident = {}
     try:
         from host_tuning import host_identity
@@ -192,13 +203,21 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
         ident = host_identity.snapshot()
     except Exception:
         ident = {}
-    logging.info("INVITE minted lan=%s wan=%s ready=%s app=%s", lan_host, wan_host, wan_ready, app_name)
+    logging.info(
+        "INVITE minted lan=%s wan=%s zt=%s ready=%s app=%s",
+        lan_host,
+        wan_host,
+        zt_host or "-",
+        wan_ready,
+        app_name,
+    )
     return {
         "ok": True,
         "token": token,
         "expiresIn": INVITE_TTL_SECONDS,
         "lanHost": lan_host,
         "wanHost": wan_host,
+        "zerotierHost": zt_host,
         "wanReady": wan_ready,
         "wanStatus": wan_status,
         "httpsPort": https_port,

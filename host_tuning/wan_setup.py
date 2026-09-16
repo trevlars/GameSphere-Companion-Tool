@@ -331,7 +331,16 @@ def release(reason: str = "stop") -> Dict[str, Any]:
 
 
 def on_session_start() -> Dict[str, Any]:
-    return ensure(reason="stream", voice=_voice_wanted())
+    """Kick off WAN mapping without blocking Sunshine prep-cmd (15s cap)."""
+
+    def _bg() -> None:
+        try:
+            ensure(reason="stream", voice=_voice_wanted())
+        except Exception:
+            _log.debug("WAN map on_session_start", exc_info=True)
+
+    threading.Thread(target=_bg, name="gs-wan-map-start", daemon=True).start()
+    return status()
 
 
 def on_session_stop() -> None:

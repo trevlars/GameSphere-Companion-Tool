@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 from host_tuning.config import config_dir
 from host_tuning import invite as guest_invite
 
-JOIN_TTL_SECONDS = 45
+JOIN_TTL_SECONDS = 120
 _lock = threading.Lock()
 
 
@@ -253,12 +253,20 @@ def _identity_fields() -> Dict[str, Any]:
         lan = str(hosts.get("lanHost") or "") or lan
     except Exception:
         pass
+    zt = ""
+    try:
+        from host_tuning import wan_setup
+
+        zt = str((wan_setup.cached_hosts() or {}).get("zerotierHost") or "")
+    except Exception:
+        zt = ""
     return {
         "hostSteamId": ident.get("hostSteamId") or "",
         "hostPersona": ident.get("hostPersona") or "",
         "hostAvatarUrl": ident.get("hostAvatarUrl") or "",
         "wanHost": wan,
         "lanHost": lan,
+        "zerotierHost": zt,
         "maxPlayers": 4,
     }
 
@@ -291,6 +299,7 @@ def _ack_payload_from_row(row: Dict[str, Any], *, accept: bool, ident: Dict[str,
         "role": row.get("role") or "guest",
         "friendName": row.get("friendName") or "",
         "wanHost": ident.get("wanHost") or "",
+        "zerotierHost": ident.get("zerotierHost") or "",
         "maxPlayers": 4,
         "hostSteamId": ident.get("hostSteamId") or "",
         "hostPersona": ident.get("hostPersona") or "",
@@ -429,6 +438,7 @@ def status(payload: Dict[str, Any]) -> Dict[str, Any]:
         "appName": row.get("appName") or "",
         "lanHost": row.get("lanHost") or ident.get("lanHost") or "",
         "wanHost": ident.get("wanHost") or "",
+        "zerotierHost": ident.get("zerotierHost") or "",
         "httpsPort": int(row.get("httpsPort") or 47984),
         "hostId": row.get("hostId") or "",
         "playerSlot": int(row.get("playerSlot") or 0),

@@ -4,6 +4,16 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.2] — 2026-09-16
+
+### Added
+- **ZeroTier on invites** — `INVITE` / Wanna play / JOINACK now carry `zt=` / `zerotierHost` so guests can join over ZT when LAN/WAN is wrong.
+- **SUNSHINEHEALTH / SUNSHINERECOVER** — bridge verbs for Error 60 TLS/RTSP recovery without a health-watch death spiral.
+
+### Changed
+- JOIN pending TTL 45s → 120s so Accept is not dropped while the guest is still connecting.
+- WAN mapping on stream start is async (does not block Sunshine prep-cmd).
+
 ## [1.5.1] — 2026-09-16
 
 ### Fixed

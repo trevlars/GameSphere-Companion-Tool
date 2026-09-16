@@ -5,7 +5,8 @@ Supported verbs: CAPS, NETINFO, SETSPEED, RESTORE, STATUS, STATS, TAILSCALE,
 LASTSESSION, SESSIONDATA, APPSTORES, PLAYTIMES, GAMESTATE, LAUNCHRESULT, LOCKSTATE,
 INVITE, JOINPIN, INVITEEND, JOINREQ, JOINPENDING, JOINACK, JOINSTATUS, TRUSTED,
 HOSTINFO, COOPSTATE, SLOTSWAP, WANSETUP, VOICE, WANNAPLAY, PLAYREG, PLAYPENDING,
-PLAYCLAIM, PLAYREPLY, PROFILE, INPUTRELAY, COOPKICK, SESSIONEND.
+PLAYCLAIM, PLAYREPLY, PROFILE, INPUTRELAY, COOPKICK, SESSIONEND, SUNSHINEHEALTH,
+SUNSHINERECOVER.
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
             "INVITE JOINPIN INVITEEND JOINREQ JOINPENDING JOINACK JOINSTATUS TRUSTED "
             "HOSTINFO COOPSTATE SLOTSWAP WANSETUP VOICE "
             "WANNAPLAY PLAYREG PLAYPENDING PLAYCLAIM PLAYREPLY PROFILE "
-            "INPUTRELAY COOPKICK SESSIONEND BUDDYSET"
+            "INPUTRELAY COOPKICK SESSIONEND BUDDYSET SUNSHINEHEALTH SUNSHINERECOVER"
                 )
             elif verb == "NETINFO":
                 self._reply(link_speed.netinfo_json(adapter or "", active))
@@ -82,6 +83,27 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                     self._reply("OK" if ok else "ERR")
                 else:
                     self._reply("ERR")
+            elif verb == "SUNSHINEHEALTH":
+                try:
+                    from host_tuning import sunshine_recover
+
+                    self._reply(sunshine_recover.health_json())
+                except Exception as exc:
+                    logging.exception("SUNSHINEHEALTH failed")
+                    self._reply(json.dumps({"ok": False, "error": str(exc)}))
+            elif verb == "SUNSHINERECOVER":
+                try:
+                    from host_tuning import sunshine_recover
+
+                    arg_l = (arg or "").strip().lower()
+                    if arg_l in ("post_stream", "post-stream", "after_stream"):
+                        self._reply(sunshine_recover.recover_post_stream_json())
+                    else:
+                        force = arg_l in ("1", "true", "force", "yes")
+                        self._reply(sunshine_recover.recover_json(force=force))
+                except Exception as exc:
+                    logging.exception("SUNSHINERECOVER failed")
+                    self._reply(json.dumps({"ok": False, "recovered": False, "error": str(exc)}))
             elif verb == "STATUS":
                 info = link_speed.get_link_info(adapter) if adapter else {}
                 self._reply(str(info.get("current_mbps") or "UNKNOWN"))

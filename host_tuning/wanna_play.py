@@ -59,7 +59,16 @@ def _q(value: str) -> str:
     return quote(value or "", safe="")
 
 
-def _play_url(session_id: str, app_id: str, app_name: str, host_id: str, lan: str, wan: str, https_port: int) -> str:
+def _play_url(
+    session_id: str,
+    app_id: str,
+    app_name: str,
+    host_id: str,
+    lan: str,
+    wan: str,
+    https_port: int,
+    zt: str = "",
+) -> str:
     join_host = lan or wan
     query = (
         f"session={_q(session_id)}&preauth=1&token={_q(session_id)}"
@@ -70,6 +79,8 @@ def _play_url(session_id: str, app_id: str, app_name: str, host_id: str, lan: st
         query += f"&lan={_q(lan)}"
     if wan:
         query += f"&wan={_q(wan)}"
+    if zt:
+        query += f"&zt={_q(zt)}"
     return f"gamesphere://play?{query}"
 
 
@@ -166,6 +177,7 @@ def start(payload: Dict[str, Any]) -> Dict[str, Any]:
     wan = ""
     wan_ready = False
     wan_status = ""
+    zt_host = ""
     try:
         from host_tuning import wan_setup
 
@@ -173,9 +185,17 @@ def start(payload: Dict[str, Any]) -> Dict[str, Any]:
         wan = str(mapped.get("wanHost") or "")
         wan_ready = bool(mapped.get("wanReady"))
         wan_status = str(mapped.get("status") or "")
+        zt_host = str(mapped.get("zerotierHost") or "")
     except Exception:
         pass
     wan = wan or guest_invite._public_ip()
+    if not zt_host:
+        try:
+            from host_tuning import zerotier
+
+            zt_host = str((zerotier.status() or {}).get("zerotierHost") or "")
+        except Exception:
+            zt_host = ""
     extra = payload.get("uuids") or payload.get("trustedUuids") or []
     wanted = [str(u).strip() for u in extra if str(u).strip()]
     trusted = list(join_request.trusted_uuids())
@@ -194,7 +214,7 @@ def start(payload: Dict[str, Any]) -> Dict[str, Any]:
     persona = str(payload.get("hostPersona") or ident.get("hostPersona") or "Player 1").strip() or "Player 1"
     title = "Wanna play?"
     body = f"Want to play {app_name} with {persona}"
-    play_url = _play_url(session_id, app_id, app_name, host_id, lan, wan, https_port)
+    play_url = _play_url(session_id, app_id, app_name, host_id, lan, wan, https_port, zt_host)
     cover = str(payload.get("coverUrl") or payload.get("coverURL") or payload.get("thumbnailUrl") or "").strip()
     if cover.startswith("file:"):
         cover = ""
