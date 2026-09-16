@@ -139,6 +139,16 @@ class CouchCoopTests(unittest.TestCase):
         out = cc.stabilize_slots(lock, live)
         self.assertEqual(out, ["host-a", "guest-b", None, None])
 
+    def test_reserved_host_seat_blocks_guest_reconnect_to_p1(self):
+        cc.note_client(0, role="host", name="Host")
+        cc.mark_stream_active()
+        lock = [None, None, None, None]
+        live = ["guest-b"]
+        out = cc.stabilize_slots(lock, live)
+        self.assertEqual(out[0], None)
+        self.assertEqual(out[1], "guest-b")
+        cc.clear_stream_active()
+
     def test_four_players_and_explicit_swap(self):
         lock = ["a", "b", "c", "d"]
         out = cc.stabilize_slots(lock, ["d", "c", "b", "a"])

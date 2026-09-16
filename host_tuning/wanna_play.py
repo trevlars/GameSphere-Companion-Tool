@@ -164,6 +164,21 @@ def register_device(payload: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         logging.debug("PLAYREG profile upsert failed", exc_info=True)
     join_request.mark_trusted(uuid)
+    role = str(payload.get("role") or "").strip().lower()
+    try:
+        from host_tuning import couch_coop
+
+        if role == "host":
+            couch_coop.note_client(0, uuid=uuid, name=name, role="host")
+        elif role == "guest":
+            couch_coop.note_client(
+                couch_coop.next_empty_slot(),
+                uuid=uuid,
+                name=name,
+                role="guest",
+            )
+    except Exception:
+        logging.debug("PLAYREG couch_coop seat hint failed", exc_info=True)
     return {"ok": True, "uuid": uuid, "apns": bool(token)}
 
 

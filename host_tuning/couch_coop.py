@@ -293,6 +293,15 @@ def pad_key(pad: Pad) -> str:
     return f"n:{events}|{pad.vendor}:{pad.product}|{pad.name}"
 
 
+def _host_seat_reserved() -> bool:
+    """During a live co-op session, slot 0 stays reserved for P1 even when the pad blips."""
+    if not (stream_active() or armed()):
+        return False
+    meta = _slot_meta[0] if _slot_meta else {}
+    role = (meta.get("role") or "host").lower()
+    return role in ("", "host")
+
+
 def stabilize_slots(
     lock: List[Optional[str]],
     live_keys: List[str],
@@ -313,7 +322,12 @@ def stabilize_slots(
         else:
             new_lock[i] = None
     unmatched = [k for k in live if k not in occupied]
-    empties = [i for i, k in enumerate(new_lock) if not k]
+    # When P1 is reserved but disconnected, a lone reconnecting pad is P2 — not slot 0.
+    empties = [
+        i
+        for i, k in enumerate(new_lock)
+        if not k and not (i == 0 and _host_seat_reserved())
+    ]
     for key, slot in zip(unmatched, empties):
         new_lock[slot] = key
     return new_lock
