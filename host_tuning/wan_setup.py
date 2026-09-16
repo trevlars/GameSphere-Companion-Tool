@@ -406,13 +406,16 @@ def cached_hosts() -> Dict[str, str]:
     return {"lanHost": lan, "wanHost": wan}
 
 
-def status() -> Dict[str, Any]:
+def status(*, fast: bool = False) -> Dict[str, Any]:
+    """WAN snapshot for bridge polls. ``fast=True`` skips live STUN/Tailscale — use on COOPSTATE/HOSTINFO."""
     lan = lan_ip()
     with _lock:
         wan = str(_state.get("wanHost") or "")
-    if not wan:
+        if _state.get("lanHost"):
+            lan = str(_state.get("lanHost") or "") or lan
+    if not wan and not fast:
         wan = public_ip()
-    ts = _tailscale_ip()
+    ts = "" if fast else _tailscale_ip()
     zt_host = ""
     zt_status = ""
     try:

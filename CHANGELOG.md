@@ -4,6 +4,13 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.8] — 2026-09-16
+
+### Fixed
+- **COOPSTATE / HOSTINFO no longer block 4+ seconds** — poll handlers use cached WAN/Tailscale/Steam identity (`wan_setup.status(fast=True)`, `host_identity.cached_snapshot()`). Root cause: every poll shelled out to `tailscale ip -4` (~4s on Bazzite).
+- **Bridge listens immediately** — TCP 47998 binds before voice/buddy/metadata warm-up so INVITE/JOINPIN reply in &lt;1s even right after service restart.
+- **Tailscale detect cached** — 60s TTL so status polls never stall on slow CLI.
+
 ## [1.5.7] — 2026-09-16
 
 ### Fixed

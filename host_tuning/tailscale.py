@@ -4,15 +4,25 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 from typing import Tuple
 
+_CACHE_TTL = 60.0
+_cache: dict = {"at": 0.0, "detected": False, "ip": ""}
 
-def detect_tailscale() -> Tuple[bool, str]:
-    """Return (detected, ipv4_or_empty)."""
+
+def detect_tailscale(*, force: bool = False) -> Tuple[bool, str]:
+    """Return (detected, ipv4_or_empty). Cached — COOPSTATE/HOSTINFO must not shell out every poll."""
+    now = time.time()
+    if not force and now - float(_cache.get("at") or 0) < _CACHE_TTL:
+        return bool(_cache.get("detected")), str(_cache.get("ip") or "")
     ip = _tailscale_cli_ip()
     if ip:
+        _cache.update({"at": now, "detected": True, "ip": ip})
         return True, ip
-    return _detect_via_interfaces()
+    detected, ip = _detect_via_interfaces()
+    _cache.update({"at": now, "detected": detected, "ip": ip or ""})
+    return detected, ip or ""
 
 
 def _tailscale_cli_ip() -> str:

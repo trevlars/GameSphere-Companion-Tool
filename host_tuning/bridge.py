@@ -427,42 +427,6 @@ class GameSphereBridge:
             on_stop=_on_stop,
             on_coop_hint=couch_coop.on_sunshine_hint,
         )
-        self.monitor.start()
-        self._coop_watch = couch_coop.CouchCoopWatch()
-        self._coop_watch.start()
-        couch_coop.apply("bridge_start")
-        try:
-            from host_tuning import nat_map
-
-            nat_map.revoke_web_ui_if_mapped()
-        except Exception:
-            logging.debug("revoke 47990 on bridge start", exc_info=True)
-        try:
-            from host_tuning import voice_bridge
-
-            voice_bridge.start()
-        except Exception:
-            logging.exception("voice_bridge start")
-        try:
-            from host_tuning import buddy_relay
-
-            buddy_relay.start()
-        except Exception:
-            logging.exception("buddy_relay start")
-        try:
-            from host_tuning import zerotier
-
-            # LAN guard: ZeroTier must never own 10.0.5.0/24 or voice/LAN discovery dies.
-            zerotier.start_guard_timer()
-        except Exception:
-            logging.debug("zerotier guard start", exc_info=True)
-        try:
-            from host_tuning import metadata_catalog
-
-            # Warm owned-apps + ROM hashes off-thread so the first HOSTINFO is not empty.
-            metadata_catalog.cached(kick=True)
-        except Exception:
-            logging.debug("metadata_catalog warm", exc_info=True)
         class Server(socketserver.ThreadingTCPServer):
             allow_reuse_address = True
             daemon_threads = True
@@ -474,6 +438,56 @@ class GameSphereBridge:
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         logging.info("GameSphere host bridge listening on TCP %s", port)
+
+        def _background_init() -> None:
+            self.monitor.start()
+            self._coop_watch = couch_coop.CouchCoopWatch()
+            self._coop_watch.start()
+            couch_coop.apply("bridge_start")
+            try:
+                from host_tuning import nat_map
+
+                nat_map.revoke_web_ui_if_mapped()
+            except Exception:
+                logging.debug("revoke 47990 on bridge start", exc_info=True)
+            try:
+                from host_tuning import voice_bridge
+
+                voice_bridge.start()
+            except Exception:
+                logging.exception("voice_bridge start")
+            try:
+                from host_tuning import buddy_relay
+
+                buddy_relay.start()
+            except Exception:
+                logging.exception("buddy_relay start")
+            try:
+                from host_tuning import zerotier
+
+                zerotier.start_guard_timer()
+            except Exception:
+                logging.debug("zerotier guard start", exc_info=True)
+            try:
+                from host_tuning import metadata_catalog
+
+                metadata_catalog.cached(kick=True)
+            except Exception:
+                logging.debug("metadata_catalog warm", exc_info=True)
+            try:
+                from host_tuning import host_identity
+
+                host_identity.snapshot(force=True)
+            except Exception:
+                logging.debug("host_identity warm", exc_info=True)
+            try:
+                from host_tuning import tailscale
+
+                tailscale.detect_tailscale(force=True)
+            except Exception:
+                logging.debug("tailscale warm", exc_info=True)
+
+        threading.Thread(target=_background_init, daemon=True, name="gs-bridge-bg-init").start()
 
     def is_alive(self) -> bool:
         return bool(self._thread and self._thread.is_alive() and self._server)
@@ -526,8 +540,8 @@ def _hostinfo_json() -> str:
     from host_tuning import wan_setup
     from host_tuning import voice_bridge
 
-    ident = host_identity.snapshot()
-    wan = wan_setup.status()
+    ident = host_identity.cached_snapshot() or host_identity.snapshot()
+    wan = wan_setup.status(fast=True)
     voice = voice_bridge.status()
     push = _push_fields()
     payload = {
@@ -596,8 +610,8 @@ def _coopstate_json(arg: str) -> Dict:
         except json.JSONDecodeError:
             pass
     pause = coop_pause.snapshot()
-    ident = host_identity.snapshot()
-    wan = wan_setup.status()
+    ident = host_identity.cached_snapshot() or host_identity.snapshot()
+    wan = wan_setup.status(fast=True)
     voice = voice_bridge.status()
     coop = couch_coop.status()
     try:
