@@ -4,6 +4,19 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.11] — 2026-09-17
+
+### Fixed — stability & UX
+- **`--dry-run`** no longer starts Steam or restarts the host; playtime-only previews log clearly
+- **Path detection** fails fast when Sunshine/Apollo config is missing (no fake `apps.json` path)
+- **Host restart** tries `apollo` / `vibeshine` / `vibepollo` systemd units before falling back to `sunshine`
+- **Logs** go to `~/.local/share/gamesphere-import-tool/logs/` (not random CWD); fatal errors include tracebacks
+- **AppImage auto-update** finds `GameSphere-Import-Tool-x86_64.AppImage` (release name) and legacy `.AppImage`
+- **`--doctor`** exits 0 when critical checks pass (Steam running / logrotate / host identity are warnings)
+- **Decky** detects Flatpak installs; no systemd side effects on plugin reload; double-tap to confirm remove-all
+- **Install defaults** — `host_tuning init` without `--enable-all`; host tuning off until you opt in
+- **Flatpak install** runs `--auto-config` after install
+
 ## [1.5.10] — 2026-09-16
 
 ### Fixed

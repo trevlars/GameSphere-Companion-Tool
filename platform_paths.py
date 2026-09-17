@@ -127,7 +127,7 @@ def detect_paths() -> Optional[PlatformPaths]:
     ]
     sunshine_apps = _first_existing(sunshine_apps_candidates)
     if not sunshine_apps:
-        sunshine_apps = os.path.join(home, ".config/sunshine/apps.json")
+        return None
 
     sunshine_dir = os.path.dirname(sunshine_apps)
     grids_candidates = [

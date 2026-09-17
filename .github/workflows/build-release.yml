@@ -37,8 +37,7 @@ jobs:
           uv run main.py --version
           uv run main.py --help
           uv run python -m py_compile main.py host_tuning/*.py host_tuning_cli.py store_scanners.py store_covers.py platform_paths.py
-          uv run python -m unittest tests.test_host_daemon
-          uv run python -m unittest tests.test_host_daemon
+          uv run python -m unittest discover -s tests -p 'test_*.py'
 
   build-linux-portable:
     runs-on: ubuntu-latest

@@ -44,7 +44,8 @@ const initHostTuning = callable<[], RunResult>("init_host_tuning");
 function Content() {
   const [dryRun, setDryRun] = useState(true);
   const [noRestart, setNoRestart] = useState(false);
-  const [hostTuning, setHostTuning] = useState(true);
+  const [hostTuning, setHostTuning] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState(false);
   const [verbose, setVerbose] = useState(false);
   const [bridgeOn, setBridgeOn] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -246,10 +247,20 @@ function Content() {
         <PanelSectionRow>
           <ButtonItem
             layout="below"
-            onClick={() => runAction("Remove games", () => runRemove())}
+            onClick={() => {
+              if (!removeConfirm) {
+                setRemoveConfirm(true);
+                setLog(
+                  "Confirm: tap again to remove ALL games (keeps Desktop + Big Picture only)."
+                );
+                return;
+              }
+              setRemoveConfirm(false);
+              runAction("Remove games", () => runRemove());
+            }}
             disabled={busy || !installed}
           >
-            Remove all games (stock apps only)
+            {removeConfirm ? "Confirm remove all games" : "Remove all games (stock apps only)"}
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>

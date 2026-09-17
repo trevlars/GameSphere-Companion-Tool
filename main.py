@@ -35,16 +35,31 @@ from store_scanners import (
 from store_covers import fetch_store_cover
 
 # Configuration and logging setup
+def log_file_path() -> str:
+    """Stable log path (not CWD) for systemd, Decky, and cron runs."""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        log_dir = os.path.join(base, "GameSphere", "logs")
+    else:
+        log_dir = os.path.expanduser("~/.local/share/gamesphere-import-tool/logs")
+    os.makedirs(log_dir, exist_ok=True)
+    return os.path.join(log_dir, "gamesphere-import.log")
+
+
 def setup_logging(verbose: bool = False) -> None:
     """Configure logging for the application."""
     level = logging.DEBUG if verbose else logging.INFO
+    handlers: List[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    try:
+        handlers.append(logging.FileHandler(log_file_path()))
+    except OSError as exc:
+        logging.basicConfig(level=level, format="%(asctime)s - %(levelname)s - %(message)s")
+        logging.warning("Could not open log file: %s", exc)
+        return
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler('sunshine_automation.log')
-        ]
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=handlers,
     )
 
 def normalize_path(path: str) -> str:
@@ -142,8 +157,11 @@ def validate_config(auto_detect: bool = True) -> Dict[str, str]:
     # Validate parent directories exist for output paths
     apps_dir = os.path.dirname(config['SUNSHINE_APPS_JSON_PATH'])
     if not os.path.exists(apps_dir):
-        logging.error(f"Sunshine config directory not found: {apps_dir}")
-        logging.info(f"Please ensure Sunshine is installed and has created its config directory")
+        logging.error(
+            "Streaming host config not found: %s\n"
+            "Install Sunshine or Apollo, launch it once, then re-run — or set sunshine_apps_json_path in .env",
+            apps_dir,
+        )
         sys.exit(1)
     
     return config
@@ -564,6 +582,32 @@ def ensure_steam_running(steam_exe_path: str) -> None:
         logging.error(f"Error starting Steam: {e}")
 
 
+def _systemd_host_units() -> List[str]:
+    """User systemd units to try when restarting the streaming host."""
+    host = (os.getenv("HOST") or "").strip().lower()
+    apps = (
+        os.getenv("sunshine_apps_json_path")
+        or os.getenv("SUNSHINE_APPS_JSON_PATH")
+        or ""
+    ).lower()
+    names: List[str] = []
+    if host == "apollo" or "apollo" in apps:
+        names.append("apollo")
+    if "vibeshine" in apps:
+        names.append("vibeshine")
+    if "vibepollo" in apps:
+        names.append("vibepollo")
+    names.append("sunshine")
+    seen = set()
+    units: List[str] = []
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        units.append(f"{name}.service")
+    return units
+
+
 def restart_sunshine(sunshine_exe_path: str) -> None:
     """Restart Sunshine/Apollo (or other Sunshine-compatible host) safely."""
     restart_mode = (os.getenv("GAMESPHERE_SUNSHINE_RESTART") or "").strip().lower()
@@ -571,24 +615,29 @@ def restart_sunshine(sunshine_exe_path: str) -> None:
     if restart_mode == "systemd" or (
         not restart_mode and os.name != "nt" and sys.platform != "darwin"
     ):
-        logging.info("Restarting Sunshine via systemd --user...")
-        try:
-            result = subprocess.run(
-                ["systemctl", "--user", "restart", "sunshine"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode == 0:
-                logging.info("Sunshine restart completed (systemd)")
-                return
-            logging.warning(
-                "systemctl restart failed (%s): %s",
-                result.returncode,
-                (result.stderr or result.stdout).strip(),
-            )
-        except Exception as e:
-            logging.warning(f"systemd restart failed: {e}")
+        for unit in _systemd_host_units():
+            logging.info("Restarting host via systemd --user (%s)...", unit)
+            try:
+                result = subprocess.run(
+                    ["systemctl", "--user", "restart", unit],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if result.returncode == 0:
+                    logging.info("Host restart completed (%s)", unit)
+                    return
+                logging.debug(
+                    "systemctl restart %s failed (%s): %s",
+                    unit,
+                    result.returncode,
+                    (result.stderr or result.stdout).strip(),
+                )
+            except Exception as e:
+                logging.debug("systemd restart %s failed: %s", unit, e)
+        logging.warning(
+            "Could not restart host via systemd. Try: systemctl --user restart sunshine"
+        )
 
     if restart_mode == "flatpak":
         logging.info("Restarting Sunshine via flatpak...")
@@ -2300,7 +2349,7 @@ def main() -> None:
     if args.print_config:
         detected = detect_paths()
         if not detected:
-            print(json.dumps({"error": "Could not detect Steam/Sunshine paths"}, indent=2))
+            print(json.dumps({"error": "Could not detect Steam and Sunshine/Apollo — install both and run the host once"}, indent=2))
             sys.exit(1)
         print(json.dumps(paths_to_env(detected), indent=2))
         return
@@ -2308,7 +2357,9 @@ def main() -> None:
     if args.auto_config:
         detected = detect_paths()
         if not detected:
-            logging.error("Could not detect Steam/Sunshine paths on this machine")
+            logging.error(
+                "Could not detect paths — need Steam plus Sunshine/Apollo (install the host and launch it once)"
+            )
             sys.exit(1)
         env_path = write_env_file(detected)
         logging.info("Wrote %s for %s", env_path, detected.host_label)
@@ -2365,8 +2416,8 @@ def main() -> None:
             if helper:
                 logging.info("Quit App close helper: %s", helper)
         
-        # Start Steam only if not already running (unless disabled)
-        if not args.no_restart:
+        # Start Steam only if not already running (unless disabled or preview-only)
+        if not args.no_restart and not args.dry_run:
             ensure_steam_running(config['STEAM_EXE_PATH'])
         
         # Load installed games (Steam store library)
@@ -2508,12 +2559,14 @@ def main() -> None:
                 sunshine_config['apps'] = updated_apps
                 save_sunshine_config(config['SUNSHINE_APPS_JSON_PATH'], sunshine_config)
                 logging.info("Playtime metadata written (Sunshine not restarted)")
+            elif playtime_changed and args.dry_run:
+                logging.info("Dry run: would update playtime metadata only (no file writes)")
             else:
                 logging.info("No changes needed - all games are up to date")
             return
         
         if args.dry_run:
-            logging.info("Dry run mode - no changes will be made")
+            logging.info("Dry run complete — no files written, Steam/host untouched")
             return
         
         # Add new Steam store games
@@ -2571,7 +2624,7 @@ def main() -> None:
         logging.info("Process interrupted by user")
         sys.exit(1)
     except Exception as e:
-        logging.error(f"Fatal error: {e}")
+        logging.exception("Fatal error")
         sys.exit(1)
 
 if __name__ == "__main__":

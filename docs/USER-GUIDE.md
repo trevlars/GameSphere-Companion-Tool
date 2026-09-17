@@ -294,7 +294,7 @@ Disable the Linux timer: `systemctl --user disable --now gamesphere-import-updat
 | **Invite / WAN / JOINPIN dead** | Daemon must be up (`--host-daemon-status`). Router UPnP on. Never forward 47990. Restart the **bridge only**. |
 | **Guest pad steals host / extra Xbox pads (Linux)** | Confirm udev `99-gamesphere-hide-steam-clones.rules` and `gamesphere-hide-steam-clones.sh`. Steam `28de:11ff` nodes should be mode 000. |
 
-Log file (CLI): `sunshine_automation.log` in the working directory.
+Log file (CLI): `~/.local/share/gamesphere-import-tool/logs/gamesphere-import.log` (Linux) or `%LOCALAPPDATA%\\GameSphere\\logs\\` (Windows).
 
 ---
 

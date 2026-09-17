@@ -27,6 +27,20 @@ UPDATE_TIMER_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-import-
 UPDATE_SCRIPT_SRC = os.path.join(INSTALL_DIR, "scripts/gamesphere-import-update.sh")
 UPDATE_BIN_DST = os.path.expanduser("~/.local/bin/gamesphere-import-update.sh")
 UPDATE_UNIT_DIR = os.path.expanduser("~/.config/systemd/user")
+FLATPAK_APP_ID = "io.github.trevlars.GamesphereImportTool"
+
+
+def _flatpak_installed() -> bool:
+    flatpak = shutil.which("flatpak")
+    if not flatpak:
+        return False
+    result = subprocess.run(
+        [flatpak, "info", "--user", FLATPAK_APP_ID],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    return result.returncode == 0
 
 
 def _resolve_command() -> list[str] | None:
@@ -40,7 +54,19 @@ def _resolve_command() -> list[str] | None:
                 return [python, candidate]
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return [candidate]
+    if _flatpak_installed():
+        return ["flatpak", "run", FLATPAK_APP_ID]
     return None
+
+
+def _install_kind() -> str:
+    if os.path.isfile(BIN_CANDIDATES[0]) and os.access(BIN_CANDIDATES[0], os.X_OK):
+        return "wrapper"
+    if os.path.isfile(BIN_CANDIDATES[1]):
+        return "git"
+    if _flatpak_installed():
+        return "flatpak"
+    return "none"
 
 
 def _host_tuning_cmd() -> list[str] | None:
@@ -59,7 +85,9 @@ def _host_tuning_cmd() -> list[str] | None:
 def _run_sync(args: list[str], timeout: int = 600) -> tuple[bool, str, str | None]:
     cmd = _resolve_command()
     if not cmd:
-        return False, "GameSphere Import CLI not found. Run scripts/install-linux.sh on the host.", None
+        return False, (
+            "GameSphere Import not found. Run install-flatpak.sh or install-linux.sh on the host."
+        ), None
 
     full = cmd + args
     decky.logger.info("Running: %s", " ".join(full))
@@ -230,6 +258,7 @@ class Plugin:
 
         return {
             "installed": installed,
+            "install_kind": _install_kind(),
             "version": version,
             "paths": paths,
             "host_tuning": host_tuning,
@@ -309,28 +338,12 @@ class Plugin:
 
     async def init_host_tuning(self):
         ok, output = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: _run_host_tuning_sync(["init", "--enable-all"], timeout=60)
+            None, lambda: _run_host_tuning_sync(["init"], timeout=60)
         )
         return {"ok": ok, "output": output}
 
     async def _main(self):
-        decky.logger.info("GameSphere Import Decky plugin loaded")
-        ok, msg = await asyncio.get_event_loop().run_in_executor(None, _ensure_update_timer)
-        decky.logger.info("Auto-update timer: %s %s", ok, msg)
-        if os.environ.get("GAMESPHERE_ENABLE_HOST_BRIDGE", "1").strip().lower() not in (
-            "0",
-            "false",
-            "no",
-            "off",
-        ):
-            ok, msg = await asyncio.get_event_loop().run_in_executor(None, _ensure_bridge_unit)
-            decky.logger.info("Host daemon unit: %s %s", ok, msg)
-            if ok:
-                st_ok, output = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: _run_systemctl(["enable", "--now", BRIDGE_UNIT_NAME]),
-                )
-                decky.logger.info("Host daemon enable: %s %s", st_ok, output)
+        decky.logger.info("GameSphere Import Decky plugin loaded (no systemd side effects on reload)")
 
     async def _unload(self):
         pass

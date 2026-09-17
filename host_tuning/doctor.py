@@ -169,8 +169,21 @@ def diagnose(*, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     if sys.platform == "win32":
         checks = [c for c in checks if c["id"] not in ("systemd_bridge", "logrotate")]
     ok_count = sum(1 for c in checks if c["ok"])
+    by_id = {c["id"]: c["ok"] for c in checks}
+
+    def _critical_ok() -> bool:
+        if not by_id.get("apps_json"):
+            return False
+        if not by_id.get("sunshine"):
+            return False
+        if sys.platform == "win32":
+            return bool(by_id.get("bridge"))
+        return bool(by_id.get("bridge") or by_id.get("systemd_bridge"))
+
+    critical_ok = _critical_ok()
     summary = {
-        "ok": ok_count == len(checks),
+        "ok": critical_ok,
+        "allOk": ok_count == len(checks),
         "passed": ok_count,
         "total": len(checks),
         "checks": checks,
@@ -238,7 +251,7 @@ def run_setup(*, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     try:
         from host_tuning_cli import main as tuning_main
 
-        tuning_main(["init", "--enable-all"])
+        tuning_main(["init"])
         steps.append("host_tuning_init")
     except Exception as exc:
         if log:

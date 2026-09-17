@@ -40,9 +40,9 @@ class ManagedAppEntry:
 
 @dataclass
 class HostTuningConfig:
-    enabled: bool = True
+    enabled: bool = False
     # Link speed (wired Ethernet only)
-    link_speed_enabled: bool = True
+    link_speed_enabled: bool = False
     allow_client_link_control: bool = True
     network_adapter: str = ""  # empty = auto-detect first wired
     # Display / audio
@@ -66,11 +66,11 @@ class HostTuningConfig:
     bridge_require_auth: bool = False
     bridge_shared_secret: str = ""
     # Session telemetry from Sunshine log
-    session_telemetry_enabled: bool = True
+    session_telemetry_enabled: bool = False
     session_discard_empty: bool = True
     sunshine_log_path: str = ""
     # Tailscale presence in bridge NETINFO/TAILSCALE
-    tailscale_enabled: bool = True
+    tailscale_enabled: bool = False
     # Sunshine / Apollo web UI (localhost) — used to inject guest PINs and unpair
     sunshine_web_url: str = "https://127.0.0.1:47990"
     sunshine_username: str = ""

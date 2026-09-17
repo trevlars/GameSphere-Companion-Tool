@@ -24,7 +24,8 @@ from gs_version import (
 
 USER_AGENT = f"GameSphere-Import-Tool/{__version__}"
 FLATPAK_ID = "io.github.trevlars.GamesphereImportTool"
-APPIMAGE_BASENAME = "GameSphere-Import-Tool.AppImage"
+APPIMAGE_RELEASE_NAME = "GameSphere-Import-Tool-x86_64.AppImage"
+APPIMAGE_LEGACY_NAME = "GameSphere-Import-Tool.AppImage"
 
 
 def parse_version(tag: str) -> Tuple[int, int, int]:
@@ -297,7 +298,12 @@ def linux_appimage_path() -> str:
     env = os.environ.get("APPIMAGE") or os.environ.get("GAMESPHERE_APPIMAGE")
     if env:
         return env
-    return os.path.expanduser(f"~/.local/bin/{APPIMAGE_BASENAME}")
+    bin_dir = os.path.expanduser("~/.local/bin")
+    for name in (APPIMAGE_RELEASE_NAME, APPIMAGE_LEGACY_NAME):
+        path = os.path.join(bin_dir, name)
+        if os.path.isfile(path):
+            return path
+    return os.path.join(bin_dir, APPIMAGE_RELEASE_NAME)
 
 
 def _flatpak_installed() -> bool:
@@ -563,7 +569,7 @@ def apply_frozen_linux_update(asset: Dict[str, Any]) -> str:
         raise RuntimeError("Release has no Linux binary asset yet.")
     target = os.environ.get("APPIMAGE") or os.path.abspath(sys.executable)
     tmp_dir = tempfile.mkdtemp(prefix="gs-import-upd-")
-    new_bin = os.path.join(tmp_dir, os.path.basename(target) or APPIMAGE_BASENAME)
+    new_bin = os.path.join(tmp_dir, os.path.basename(target) or APPIMAGE_RELEASE_NAME)
     _download(url, new_bin)
     os.chmod(new_bin, 0o755)
     helper = os.path.join(tmp_dir, "apply-update.sh")

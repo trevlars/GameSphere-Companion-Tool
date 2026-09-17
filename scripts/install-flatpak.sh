@@ -20,6 +20,9 @@ curl -fsSL "${BASE}/io.github.trevlars.GamesphereImportTool.flatpak" -o "${BUNDL
 flatpak install --user -y "${BUNDLE}"
 rm -f "${BUNDLE}"
 
+echo "==> Detecting Steam / Sunshine paths..."
+flatpak run io.github.trevlars.GamesphereImportTool --auto-config || true
+
 UPDATE_BIN="${GAMESPHERE_UPDATE_BIN:-$HOME/.local/bin/gamesphere-import-update.sh}"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$(dirname "$UPDATE_BIN")" "$UNIT_DIR"

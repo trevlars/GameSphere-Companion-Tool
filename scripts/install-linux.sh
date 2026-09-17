@@ -102,7 +102,7 @@ install -m 755 "$INSTALL_DIR/scripts/gamesphere-vban-setup.sh" "$VBAN_LINK"
 echo "==> Installed $PCMIC_LINK (GameSphere Mic PipeWire source; no VBAN)"
 
 echo "==> Initializing host tuning config..."
-uv run python3 host_tuning_cli.py init --enable-all || true
+uv run python3 host_tuning_cli.py init || true
 
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UPDATE_BIN="${GAMESPHERE_UPDATE_BIN:-$HOME/.local/bin/gamesphere-import-update.sh}"
