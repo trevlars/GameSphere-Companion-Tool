@@ -36,16 +36,23 @@ class WannaPlayTests(unittest.TestCase):
         wan.start()
         self.addCleanup(wan.stop)
         mapped = mock.patch(
-            "host_tuning.wan_setup.ensure",
+            "host_tuning.wan_setup.hosts_for_join",
             return_value={
                 "ok": True,
                 "wanReady": True,
                 "wanHost": "203.0.113.9",
+                "zerotierHost": "",
                 "status": "Remote join is on — game ports mapped via UPnP for this session only.",
             },
         )
         mapped.start()
         self.addCleanup(mapped.stop)
+        zt = mock.patch(
+            "host_tuning.zerotier.status",
+            return_value={"zerotierHost": "", "zerotierStatus": ""},
+        )
+        zt.start()
+        self.addCleanup(zt.stop)
         push = mock.patch(
             "host_tuning.apns.status_public",
             return_value={

@@ -128,8 +128,11 @@ class PlayReplyTests(unittest.TestCase):
         play_reply.record({"uuid": "a", "sessionId": "sess", "phrase": "Bring it", "accepted": True})
         from host_tuning import bridge
 
+        ident = {"hostPersona": "Trevor", "hostSteamId": "76561198012345678", "steamId64": "76561198012345678"}
         with mock.patch("host_tuning.coop_pause.snapshot", return_value={"pauseRecommended": False, "paused": False, "reason": "", "clientCount": 1, "multiplayer": False, "clients": []}), mock.patch(
-            "host_tuning.host_identity.snapshot", return_value={"hostPersona": "Trevor"}
+            "host_tuning.host_identity.cached_snapshot", return_value=ident
+        ), mock.patch(
+            "host_tuning.host_identity.snapshot", return_value=ident
         ), mock.patch(
             "host_tuning.wan_setup.status",
             return_value={"lanHost": "10.0.5.42", "wanHost": "", "wanReady": False, "status": ""},

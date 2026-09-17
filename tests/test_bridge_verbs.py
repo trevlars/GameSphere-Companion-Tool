@@ -143,16 +143,8 @@ class HostIdentityTests(unittest.TestCase):
 class DoctorMicTests(unittest.TestCase):
     def _mic_check_with_mocks(self, *, stream_active: bool, voice_status: dict):
         doctor = _load("doctor")
-        fake_coop = mock.MagicMock()
-        fake_coop.stream_active.return_value = stream_active
-        fake_voice = mock.MagicMock()
-        fake_voice.status.return_value = voice_status
-        with mock.patch.dict(
-            sys.modules,
-            {
-                "host_tuning.couch_coop": fake_coop,
-                "host_tuning.voice_bridge": fake_voice,
-            },
+        with mock.patch("host_tuning.couch_coop.stream_active", return_value=stream_active), mock.patch(
+            "host_tuning.voice_bridge.status", return_value=voice_status
         ):
             return doctor._mic_check()
 
