@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.12] — 2026-09-17
+
+### Fixed
+- **`curl | bash` Flatpak install** — re-exec from a temp file so flatpak terminal responses (e.g. `^[[24;1R`) cannot corrupt the install script mid-run; flatpak steps also use `</dev/null`
+
 ## [1.5.11] — 2026-09-17
 
 ### Fixed — stability & UX

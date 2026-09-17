@@ -2,6 +2,16 @@
 # Install GameSphere Import Tool from the GitHub Release Flatpak bundle.
 set -euo pipefail
 
+# curl | bash pipes the script on stdin. flatpak can echo terminal CSI responses
+# (e.g. ^[[24;1R) back into that stream and bash then hits "syntax error near '('".
+if [[ -z "${GAMESPHERE_INSTALL_FROM_FILE:-}" && ! -t 0 ]]; then
+  tmp="$(mktemp "${TMPDIR:-/tmp}/gamesphere-install-flatpak.XXXXXX")"
+  cat >"$tmp"
+  chmod +x "$tmp"
+  export GAMESPHERE_INSTALL_FROM_FILE=1
+  exec bash "$tmp" "$@"
+fi
+
 TAG="${GAMESPHERE_IMPORT_REF:-}"
 if [[ -n "$TAG" ]]; then
   BASE="https://github.com/trevlars/Gamesphere-Import-Tool/releases/download/${TAG}"
@@ -17,11 +27,11 @@ trap cleanup EXIT
 
 echo "==> GameSphere Import Tool (${TAG:-latest}) — Flatpak install"
 curl -fsSL "${BASE}/io.github.trevlars.GamesphereImportTool.flatpak" -o "${BUNDLE}"
-flatpak install --user -y "${BUNDLE}"
+flatpak install --user -y "${BUNDLE}" </dev/null
 rm -f "${BUNDLE}"
 
 echo "==> Detecting Steam / Sunshine paths..."
-flatpak run io.github.trevlars.GamesphereImportTool --auto-config || true
+flatpak run io.github.trevlars.GamesphereImportTool --auto-config </dev/null || true
 
 UPDATE_BIN="${GAMESPHERE_UPDATE_BIN:-$HOME/.local/bin/gamesphere-import-update.sh}"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"

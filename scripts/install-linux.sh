@@ -2,6 +2,14 @@
 # Install GameSphere Companion Tool on Linux (Bazzite, Steam Deck, generic).
 set -euo pipefail
 
+if [[ -z "${GAMESPHERE_INSTALL_FROM_FILE:-}" && ! -t 0 ]]; then
+  tmp="$(mktemp "${TMPDIR:-/tmp}/gamesphere-install-linux.XXXXXX")"
+  cat >"$tmp"
+  chmod +x "$tmp"
+  export GAMESPHERE_INSTALL_FROM_FILE=1
+  exec bash "$tmp" "$@"
+fi
+
 INSTALL_DIR="${GAMESPHERE_IMPORT_DIR:-$HOME/.local/share/gamesphere-import-tool}"
 BIN_LINK="${GAMESPHERE_IMPORT_BIN:-$HOME/.local/bin/gamesphere-import}"
 # Pin to a release tag when auto-updating (e.g. GAMESPHERE_IMPORT_REF=v1.0.2).
