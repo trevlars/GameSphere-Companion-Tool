@@ -4,6 +4,13 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.13] — 2026-09-17
+
+### Fixed — Windows host daemon / cmd spam
+- **Task Scheduler** no longer retries a crashing daemon every 5s (now 2 min, max 10) — stops endless `cmd`/System32 flash when autostart points at a bad path
+- **Hidden subprocesses** — auto-update, `schtasks`, stream prep, and tray “open GUI” use `-WindowStyle Hidden` / `CREATE_NO_WINDOW` (no visible `cmd.exe`)
+- **Idempotent Windows install** — skip re-registering Task Scheduler / HKCU Run when the host daemon is already running; validate `.exe` exists before autostart
+
 ## [1.5.12] — 2026-09-17
 
 ### Fixed

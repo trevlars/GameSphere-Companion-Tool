@@ -29,10 +29,11 @@ def _locked_windows() -> bool:
             "if ($s) { 'locked' } else { 'unlocked' }"
         )
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
             capture_output=True,
             text=True,
             timeout=8,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return "locked" in (result.stdout or "").lower()
     except (FileNotFoundError, subprocess.TimeoutExpired):

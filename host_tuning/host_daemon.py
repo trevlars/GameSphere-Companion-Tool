@@ -233,8 +233,8 @@ def windows_task_xml(command: str, arguments: str) -> str:
     <WakeToRun>false</WakeToRun>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <RestartOnFailure>
-      <Interval>PT5S</Interval>
-      <Count>999</Count>
+      <Interval>PT2M</Interval>
+      <Count>10</Count>
     </RestartOnFailure>
   </Settings>
   <Actions Context="Author">
@@ -499,13 +499,32 @@ def install_windows() -> Dict[str, Any]:
     if sys.platform != "win32":
         return {"ok": False, "error": "not windows"}
     exe, args = _windows_exe_and_args()
+    if not os.path.isfile(exe):
+        return {
+            "ok": False,
+            "error": "host_daemon_exe_missing",
+            "exe": exe,
+            "hint": "Reinstall GamesphereImportTool.exe or run --host-daemon-uninstall to stop broken autostart.",
+        }
+    st = windows_status()
+    if st.get("task_installed") and is_running():
+        return {
+            "ok": True,
+            "skipped": True,
+            "already": True,
+            "exe": exe,
+            "args": args,
+            "task": TASK_NAME,
+            "spawned": False,
+            "sunshine_touched": False,
+        }
     results: Dict[str, Any] = {"ok": True, "exe": exe, "args": args}
     run_ok = _windows_register_run(exe, args)
     results["hkcu_run"] = run_ok
-    task_ok, task_msg = _windows_register_task(exe, args)
+    task_ok, task_msg = _windows_register_task(exe, args, run_now=not is_running())
     results["task"] = task_ok
     results["task_output"] = task_msg
-    spawned = spawn_detached()
+    spawned = spawn_detached() if not is_running() else False
     results["spawned"] = spawned
     try:
         from host_tuning import host_stack
@@ -567,37 +586,44 @@ def _windows_unregister_run() -> None:
         pass
 
 
-def _windows_register_task(exe: str, args: str) -> tuple[bool, str]:
+def _windows_register_task(exe: str, args: str, *, run_now: bool = True) -> tuple[bool, str]:
     import tempfile
+
+    from host_tuning.win_subprocess import run_hidden
+
+    queried = run_hidden(
+        ["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "LIST"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if queried.returncode == 0:
+        if run_now and not is_running():
+            run_hidden(["schtasks", "/Run", "/TN", TASK_NAME], timeout=15)
+        return True, "existing"
 
     xml_body = windows_task_xml(exe, args)
     tmp = tempfile.NamedTemporaryFile(prefix="gs-host-bridge-", suffix=".xml", delete=False)
     try:
         tmp.write(xml_body.encode("utf-16"))
         tmp.close()
-        created = subprocess.run(
+        created = run_hidden(
             ["schtasks", "/Create", "/TN", TASK_NAME, "/XML", tmp.name, "/F"],
             capture_output=True,
             text=True,
             timeout=20,
-            check=False,
         )
         if created.returncode == 0:
-            subprocess.run(
-                ["schtasks", "/Run", "/TN", TASK_NAME],
-                capture_output=True,
-                timeout=15,
-                check=False,
-            )
+            if run_now and not is_running():
+                run_hidden(["schtasks", "/Run", "/TN", TASK_NAME], timeout=15)
             return True, (created.stdout or "").strip() or TASK_NAME
         # Fallback: ONLOGON without XML restart policy.
         tr = f'"{exe}" {args}'.strip()
-        fallback = subprocess.run(
+        fallback = run_hidden(
             ["schtasks", "/Create", "/TN", TASK_NAME, "/TR", tr, "/SC", "ONLOGON", "/RL", "LIMITED", "/F"],
             capture_output=True,
             text=True,
             timeout=20,
-            check=False,
         )
         ok = fallback.returncode == 0
         return ok, ((fallback.stderr or created.stderr or created.stdout or "")).strip()
@@ -964,16 +990,13 @@ def _windows_tray(stop: threading.Event) -> None:
 
 
 def spawn_gui() -> None:
+    from host_tuning.win_subprocess import popen_hidden
+
     if getattr(sys, "frozen", False):
         cmd = [os.path.abspath(sys.executable)]
     else:
         cmd = [sys.executable, os.path.join(repo_root(), "gui.py")]
-    kwargs: Dict[str, Any] = {}
     if sys.platform == "win32":
-        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
-            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
-        )
-        kwargs["creationflags"] = flags
-    else:
-        kwargs["start_new_session"] = True
-    subprocess.Popen(cmd, **kwargs)
+        popen_hidden(cmd, close_fds=True)
+        return
+    subprocess.Popen(cmd, start_new_session=True)

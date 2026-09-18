@@ -49,6 +49,7 @@ class HostDaemonArtifactTests(unittest.TestCase):
         xml = hd.windows_task_xml(r"C:\GamesphereImportTool.exe", "--host-daemon")
         self.assertIn("<Hidden>true</Hidden>", xml)
         self.assertIn("<RestartOnFailure>", xml)
+        self.assertIn("<Interval>PT2M</Interval>", xml)
         self.assertIn("LeastPrivilege", xml)
         self.assertIn("--host-daemon", xml)
         self.assertNotIn("sunshine.exe", xml.lower())

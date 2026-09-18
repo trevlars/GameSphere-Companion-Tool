@@ -41,6 +41,7 @@ hidden_imports = [
     'host_tuning.host_identity',
     'host_tuning.steam_playtime',
     'host_tuning.host_daemon',
+    'host_tuning.win_subprocess',
     'mic_setup',
     'vban_feeder',
     'vdf',

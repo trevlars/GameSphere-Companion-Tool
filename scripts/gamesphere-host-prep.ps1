@@ -15,11 +15,13 @@ if (-not (Test-Path $InstallDir)) {
 Push-Location $InstallDir
 try {
     if (Get-Command uv -ErrorAction SilentlyContinue) {
-        $runner = "uv run python"
+        $runner = "uv"
+        $runnerArgs = @("run", "python", "-c", "import json,sys; from host_tuning.service import prep_start, prep_stop, write_prep_scripts; write_prep_scripts(); fn=prep_start if sys.argv[1]=='start' else prep_stop; print(json.dumps(fn()))", $Action)
     } else {
         $runner = "python"
+        $runnerArgs = @("-c", "import json,sys; from host_tuning.service import prep_start, prep_stop, write_prep_scripts; write_prep_scripts(); fn=prep_start if sys.argv[1]=='start' else prep_stop; print(json.dumps(fn()))", $Action)
     }
-    & cmd /c "$runner -c `"import json,sys; from host_tuning.service import prep_start, prep_stop, write_prep_scripts; write_prep_scripts(); fn=prep_start if sys.argv[1]=='start' else prep_stop; print(json.dumps(fn()))`" $Action"
+    & $runner @runnerArgs | Out-Null
 } finally {
     Pop-Location
 }

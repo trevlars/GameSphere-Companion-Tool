@@ -208,7 +208,7 @@ CLI reference and all flags: **[docs/USER-GUIDE.md → Command reference](docs/U
 
 ## What's new
 
-Latest: **v1.5.12** — see [CHANGELOG.md](CHANGELOG.md). Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
+Latest: **v1.5.13** — see [CHANGELOG.md](CHANGELOG.md). Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
 
 Full history: **[CHANGELOG.md](CHANGELOG.md)**
 

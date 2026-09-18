@@ -446,9 +446,11 @@ def check_for_update() -> Dict[str, Any]:
 
 
 def apply_windows_update(asset: Dict[str, Any]) -> str:
-    """Download the new exe and spawn a helper that replaces this process after exit."""
+    """Download the new exe and spawn a hidden helper that replaces this process after exit."""
     if not getattr(sys, "frozen", False):
         raise RuntimeError("Windows auto-update replaces GamesphereImportTool.exe (frozen build).")
+    from host_tuning.win_subprocess import popen_hidden
+
     url = asset.get("browser_download_url")
     if not url:
         raise RuntimeError("Release has no Windows .exe asset yet.")
@@ -456,42 +458,34 @@ def apply_windows_update(asset: Dict[str, Any]) -> str:
     tmp_dir = tempfile.mkdtemp(prefix="gs-import-upd-")
     new_exe = os.path.join(tmp_dir, "GamesphereImportTool.exe")
     _download(url, new_exe)
-    bat = os.path.join(tmp_dir, "apply-update.bat")
-    # Wait for this PID to exit, swap the exe, relaunch.
-    bat_body = (
-        "@echo off\r\n"
-        "setlocal\r\n"
-        f"set TARGET={target}\r\n"
-        f"set SOURCE={new_exe}\r\n"
-        f"set PID={os.getpid()}\r\n"
-        ":wait\r\n"
-        "tasklist /FI \"PID eq %PID%\" 2>nul | findstr /I /C:\" %PID% \" >nul\r\n"
-        "if not errorlevel 1 (\r\n"
-        "  timeout /t 1 /nobreak >nul\r\n"
-        "  goto wait\r\n"
-        ")\r\n"
-        "rem Stop Companion daemon only (same exe). Never Sunshine/Apollo.\r\n"
-        "taskkill /F /IM GamesphereImportTool.exe >nul 2>&1\r\n"
-        "copy /Y \"%SOURCE%\" \"%TARGET%\" >nul\r\n"
-        "start \"\" \"%TARGET%\" --host-daemon\r\n"
-        "start \"\" \"%TARGET%\"\r\n"
-        "del \"%SOURCE%\" >nul 2>&1\r\n"
-        "del \"%~f0\" >nul 2>&1\r\n"
+    ps1 = os.path.join(tmp_dir, "apply-update.ps1")
+    ps1_body = (
+        "$ErrorActionPreference = 'SilentlyContinue'\n"
+        f"$target = {json.dumps(target)}\n"
+        f"$source = {json.dumps(new_exe)}\n"
+        f"$pid = {os.getpid()}\n"
+        "while (Get-Process -Id $pid -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }\n"
+        "Get-Process -Name GamesphereImportTool -ErrorAction SilentlyContinue | Stop-Process -Force\n"
+        "Copy-Item -LiteralPath $source -Destination $target -Force\n"
+        "Start-Process -FilePath $target -ArgumentList '--host-daemon' -WindowStyle Hidden\n"
+        "Start-Process -FilePath $target -WindowStyle Hidden\n"
+        "Remove-Item -LiteralPath $source -Force\n"
+        "Remove-Item -LiteralPath $PSCommandPath -Force\n"
     )
-    with open(bat, "w", encoding="utf-8", newline="\r\n") as fh:
-        fh.write(bat_body)
-    flags = 0
-    if hasattr(subprocess, "DETACHED_PROCESS"):
-        flags |= subprocess.DETACHED_PROCESS
-    if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
-        flags |= subprocess.CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen(
-        ["cmd.exe", "/c", bat],
+    with open(ps1, "w", encoding="utf-8", newline="\r\n") as fh:
+        fh.write(ps1_body)
+    popen_hidden(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+            ps1,
+        ],
         close_fds=True,
-        creationflags=flags,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
     )
     return target
 
