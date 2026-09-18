@@ -11,6 +11,7 @@ import os
 import re
 import socket
 import struct
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -430,6 +431,9 @@ def _pcp_map(
 # --- UPnP IGD ---------------------------------------------------------------
 
 _IGD_CACHE: Dict[str, Any] = {"at": 0.0, "svc": None}
+# Serializes gateway discovery so overlapping map_ports() calls do not each fire
+# their own SSDP burst and then race on the shared cache.
+_igd_lock = threading.Lock()
 
 
 def _upnp_map(
@@ -482,7 +486,16 @@ def _upnp_delete_web_ui(svc: Optional[Dict[str, str]] = None) -> None:
 
 
 def _discover_igd() -> Optional[Dict[str, str]]:
+    cached = _IGD_CACHE.get("svc")
+    if cached and time.time() - float(_IGD_CACHE.get("at") or 0) < 120:
+        return cached
+    with _igd_lock:
+        return _discover_igd_locked()
+
+
+def _discover_igd_locked() -> Optional[Dict[str, str]]:
     now = time.time()
+    # Another thread may have finished discovery while we waited.
     cached = _IGD_CACHE.get("svc")
     if cached and now - float(_IGD_CACHE.get("at") or 0) < 120:
         return cached

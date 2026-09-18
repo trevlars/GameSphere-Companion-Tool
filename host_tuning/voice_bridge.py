@@ -32,6 +32,8 @@ DEFAULT_PORT = int(os.environ.get("GAMESPHERE_VOICE_PORT", "48020"))
 SAMPLE_RATE = 16000
 MAX_PACKET = 2048
 CLIENT_TTL = 2.5
+# Couch co-op is 4 seats; the cap only exists to bound an adversarial flood.
+_MAX_CLIENTS = 16
 PC_MIC_SLOT = int(os.environ.get("GAMESPHERE_PC_MIC_SLOT", "0"))
 PC_MIC_NAME = os.environ.get("GAMESPHERE_PC_MIC_NAME", "GameSphere Mic")
 PC_MIC_SINK = os.environ.get("GAMESPHERE_PC_MIC_SINK", "gamesphere_mic_sink")
@@ -69,12 +71,26 @@ def _header(slot: int, seq: int, samples: int, rate: int) -> bytes:
     return MAGIC + bytes([VERSION, slot & 0xFF]) + struct.pack("!HHH", seq & 0xFFFF, samples, rate)
 
 
+def _evict_stale_clients_locked(now: float) -> None:
+    """Drop voice peers we have stopped hearing from. Caller holds ``_lock``."""
+    for addr, row in list(_clients.items()):
+        if now - row["at"] > CLIENT_TTL:
+            _clients.pop(addr, None)
+    # Hard cap: a flood from spoofed source addresses must not grow the dict
+    # between eviction passes.
+    if len(_clients) > _MAX_CLIENTS:
+        for addr, _ in sorted(_clients.items(), key=lambda kv: kv[1]["at"])[
+            : len(_clients) - _MAX_CLIENTS
+        ]:
+            _clients.pop(addr, None)
+
+
 def _mix_minus(target_addr, now: float) -> bytes:
     chunks = []
     with _lock:
+        _evict_stale_clients_locked(now)
         for addr, row in list(_clients.items()):
             if now - row["at"] > CLIENT_TTL:
-                _clients.pop(addr, None)
                 continue
             if addr == target_addr:
                 continue
@@ -312,6 +328,7 @@ def _loop(sock: socket.socket) -> None:
             row = _clients.get(addr) or {"seq": 0}
             row.update({"pcm": parsed["pcm"], "at": now, "slot": parsed["slot"], "seq": parsed["seq"]})
             _clients[addr] = row
+            _evict_stale_clients_locked(now)
         if parsed["slot"] == PC_MIC_SLOT:
             _set_pc_pcm(parsed["pcm"])
         mix = _mix_minus(addr, now)

@@ -27,7 +27,9 @@ def cmd_apply(args: argparse.Namespace) -> int:
     results = apply_host_tuning(cfg, sunshine_apps_json=args.apps_json or "")
     print(json.dumps(results, indent=2))
     save_config(cfg)
-    return 0
+    # Exit non-zero when a step failed so scripts and CI can react to it.
+    failed = [s for s in (results.get("steps") or []) if not s.get("ok")]
+    return 1 if failed else 0
 
 
 def cmd_prep(args: argparse.Namespace) -> int:

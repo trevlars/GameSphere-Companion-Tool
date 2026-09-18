@@ -3,6 +3,7 @@ Gamesphere Import Tool — Windows GUI.
 Configure paths, API key, and run the importer for Sunshine or Apollo.
 """
 
+import logging
 import os
 import subprocess
 import sys
@@ -967,9 +968,13 @@ def _ensure_host_daemon():
     try:
         from host_tuning.host_daemon import ensure_running
 
-        ensure_running()
+        result = ensure_running()
+        if isinstance(result, dict) and not result.get("ok"):
+            # Silent failure here used to mean the bridge looked enabled while
+            # nothing was listening on 47998.
+            logging.warning("Companion host daemon not started: %s", result)
     except Exception:
-        pass
+        logging.warning("Companion host daemon autostart failed", exc_info=True)
 
 
 if __name__ == "__main__":

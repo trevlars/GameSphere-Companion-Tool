@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -377,9 +378,8 @@ def pick_asset(
         for name, asset in named:
             if name.lower() == "gamesphereimporttool.exe":
                 return asset
-        for name, asset in named:
-            if name.lower().endswith(".exe"):
-                return asset
+        # No loose ".exe" fallback: a release may carry an unrelated installer
+        # and silently swapping that in for our binary would break the install.
         return None
     if platform in ("linux", "mac"):
         kind = kind or ("git" if platform == "mac" else detect_linux_kind())
@@ -717,9 +717,18 @@ def apply_update(info: Dict[str, Any]) -> str:
     try:
         from host_tuning.host_daemon import restart_host_bridge_only
 
-        restart_host_bridge_only()
+        result = restart_host_bridge_only()
+        if isinstance(result, dict) and not result.get("ok"):
+            logging.warning(
+                "Update applied, but the Companion daemon did not restart: %s. "
+                "It will come back at next login, or start it manually.",
+                result.get("output") or "unknown reason",
+            )
     except Exception:
-        pass
+        logging.warning(
+            "Update applied, but the Companion daemon could not be restarted.",
+            exc_info=True,
+        )
     return dest
 
 

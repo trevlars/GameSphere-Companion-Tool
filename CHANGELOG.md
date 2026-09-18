@@ -4,6 +4,15 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+Final cleanup from the stability audit.
+
+### Fixed
+- **Deck bridge toggle** no longer reinstalls unit files when you switch the bridge *off* — a stale install dir could overwrite a working unit or leave the toggle stuck.
+- **Voice peers** are evicted on a timer and capped, so a stopped voice session (or a UDP flood) cannot retain entries.
+- **Gateway discovery** is serialized, so overlapping port-mapping calls no longer fire duplicate SSDP bursts and race on the cache.
+- **Windows updates only accept our own `GamesphereImportTool.exe`.** The previous "any `.exe` on the release" fallback could have installed an unrelated binary.
+- **Silent failures now surface**: a daemon that fails to restart after an update, an autostart that fails on GUI launch, and a `host-tuning apply` with failed steps all report it (the CLI exits non-zero) instead of looking successful.
+
 ## [1.5.15] — 2026-09-18
 
 Follow-up to the 1.5.14 stability pass.

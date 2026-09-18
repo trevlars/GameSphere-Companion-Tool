@@ -318,11 +318,15 @@ class Plugin:
         return {"ok": ok, "output": output}
 
     async def set_bridge_enabled(self, enabled: bool):
-        ok, msg = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: _ensure_bridge_unit()
-        )
-        if not ok:
-            return {"ok": False, "output": msg, "state": _bridge_service_state()}
+        # Only (re)install unit files when turning the bridge ON. Doing it while
+        # disabling could overwrite a working unit from a stale INSTALL_DIR, or
+        # fail outright and leave the toggle stuck.
+        if enabled:
+            ok, msg = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _ensure_bridge_unit()
+            )
+            if not ok:
+                return {"ok": False, "output": msg, "state": _bridge_service_state()}
 
         if enabled:
             ok, output = await asyncio.get_event_loop().run_in_executor(
