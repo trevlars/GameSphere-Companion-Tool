@@ -63,6 +63,23 @@ _buddies: Dict[Tuple[str, int], Dict] = {}
 _forwarded = 0
 
 
+# A UDP peer that only ever says HELLO must not live in _buddies forever.
+_MAX_BUDDIES = 32
+
+
+def _evict_stale_locked(now: float) -> None:
+    """Drop peers we have not heard from. Caller holds ``_lock``."""
+    stale = [k for k, row in _buddies.items() if now - row["at"] > CLIENT_TTL * 4]
+    for k in stale:
+        _buddies.pop(k, None)
+    # Hard cap so a packet flood from spoofed addresses cannot grow the dict.
+    if len(_buddies) > _MAX_BUDDIES:
+        for k, _ in sorted(_buddies.items(), key=lambda kv: kv[1]["at"])[
+            : len(_buddies) - _MAX_BUDDIES
+        ]:
+            _buddies.pop(k, None)
+
+
 def _status_packet() -> bytes:
     now = time.time()
     with _lock:
@@ -102,6 +119,7 @@ def _loop(sock: socket.socket) -> None:
         elif kind == KIND_BUDDY_HELLO:
             with _lock:
                 _buddies[addr] = {"at": now, "id": buddy_id}
+                _evict_stale_locked(now)
             try:
                 sock.sendto(_status_packet(), addr)
             except OSError:
@@ -110,9 +128,7 @@ def _loop(sock: socket.socket) -> None:
             with _lock:
                 _buddies[addr] = {"at": now, "id": buddy_id}
                 host = _host
-                stale = [k for k, row in _buddies.items() if now - row["at"] > CLIENT_TTL * 4]
-                for k in stale:
-                    _buddies.pop(k, None)
+                _evict_stale_locked(now)
             if not host or now - host[1] > CLIENT_TTL:
                 continue
             if host[0] == addr:
@@ -141,6 +157,7 @@ def start(port: int = DEFAULT_PORT) -> Dict:
 
 
 def stop() -> None:
+    global _host
     _stop.set()
     if _sock:
         try:
@@ -149,6 +166,11 @@ def stop() -> None:
             pass
     if _thread:
         _thread.join(timeout=2)
+    # Without this, a bridge restart could forward buddy input to the previous
+    # session's host phone for up to CLIENT_TTL seconds.
+    with _lock:
+        _host = None
+        _buddies.clear()
 
 
 def status() -> Dict:

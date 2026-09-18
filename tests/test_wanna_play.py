@@ -122,9 +122,10 @@ class WannaPlayTests(unittest.TestCase):
         )
         ident.start()
         self.addCleanup(ident.stop)
-        slot = mock.patch("host_tuning.couch_coop.next_empty_slot", return_value=1)
-        slot.start()
-        self.addCleanup(slot.stop)
+        from host_tuning import couch_coop
+
+        couch_coop.reset_slots()
+        self.addCleanup(couch_coop.reset_slots)
         joined = mock.patch("host_tuning.couch_coop.on_join_accepted", return_value={"ok": True})
         joined.start()
         self.addCleanup(joined.stop)

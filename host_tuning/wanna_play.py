@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from host_tuning.config import config_dir
+from host_tuning import client_input
 from host_tuning import invite as guest_invite
 from host_tuning import join_request
 
@@ -171,12 +172,9 @@ def register_device(payload: Dict[str, Any]) -> Dict[str, Any]:
         if role == "host":
             couch_coop.note_client(0, uuid=uuid, name=name, role="host")
         elif role == "guest":
-            couch_coop.note_client(
-                couch_coop.next_empty_slot(),
-                uuid=uuid,
-                name=name,
-                role="guest",
-            )
+            # Atomic claim; re-registering keeps the seat this guest already has.
+            # Picking the slot separately let two PLAYREGs land on the same seat.
+            couch_coop.reserve_slot(uuid=uuid, name=name, role="guest")
     except Exception:
         logging.debug("PLAYREG couch_coop seat hint failed", exc_info=True)
     return {"ok": True, "uuid": uuid, "apns": bool(token)}
@@ -187,7 +185,7 @@ def start(payload: Dict[str, Any]) -> Dict[str, Any]:
     app_id = str(payload.get("appId") or "").strip()
     app_name = str(payload.get("appName") or payload.get("name") or "this game").strip() or "this game"
     host_id = str(payload.get("hostId") or "").strip()
-    https_port = int(payload.get("httpsPort") or 47984)
+    https_port = client_input.safe_port(payload.get("httpsPort"))
     lan = guest_invite._strip_host_port(str(payload.get("lanHost") or "").strip()) or guest_invite._local_lan_ip()
     wan = ""
     wan_ready = False

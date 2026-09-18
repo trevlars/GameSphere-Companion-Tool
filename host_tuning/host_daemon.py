@@ -507,8 +507,9 @@ def install_windows() -> Dict[str, Any]:
             "exe": exe,
             "hint": "Reinstall GamesphereImportTool.exe or run --host-daemon-uninstall to stop broken autostart.",
         }
-    st = windows_status()
-    if st.get("task_installed") and is_running():
+    # Skip re-registering only when the task is present *and* still points at
+    # this exe, so an updated/moved install repairs its own autostart.
+    if _windows_task_points_at(exe) and is_running():
         return {
             "ok": True,
             "skipped": True,
@@ -587,21 +588,37 @@ def _windows_unregister_run() -> None:
         pass
 
 
+def _windows_task_points_at(exe: str) -> Optional[bool]:
+    """Does the installed logon task still launch ``exe``?
+
+    ``None`` means the task is not installed. A task left pointing at an old
+    install path silently stops starting the daemon at login.
+    """
+    from host_tuning.win_subprocess import run_hidden
+
+    queried = run_hidden(
+        ["schtasks", "/Query", "/TN", TASK_NAME, "/XML"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if queried.returncode != 0:
+        return None
+    return os.path.normcase(exe) in os.path.normcase(queried.stdout or "")
+
+
 def _windows_register_task(exe: str, args: str, *, run_now: bool = True) -> tuple[bool, str]:
     import tempfile
 
     from host_tuning.win_subprocess import run_hidden
 
-    queried = run_hidden(
-        ["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "LIST"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if queried.returncode == 0:
+    matches = _windows_task_points_at(exe)
+    if matches:
         if run_now and not is_running():
             run_hidden(["schtasks", "/Run", "/TN", TASK_NAME], timeout=15)
         return True, "existing"
+    if matches is False:
+        logging.info("Refreshing %s — logon task pointed at a different exe", TASK_NAME)
 
     xml_body = windows_task_xml(exe, args)
     tmp = tempfile.NamedTemporaryFile(prefix="gs-host-bridge-", suffix=".xml", delete=False)
@@ -638,12 +655,13 @@ def _windows_register_task(exe: str, args: str, *, run_now: bool = True) -> tupl
 
 
 def windows_status() -> Dict[str, Any]:
-    queried = subprocess.run(
+    from host_tuning.win_subprocess import run_hidden
+
+    queried = run_hidden(
         ["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "LIST"],
         capture_output=True,
         text=True,
         timeout=10,
-        check=False,
     )
     return {
         "ok": True,
@@ -661,34 +679,41 @@ def spawn_detached() -> bool:
     cmd = daemon_command()
     if argv_touches_sunshine(cmd):
         raise RuntimeError("refusing to spawn Sunshine from host daemon")
-    kwargs: Dict[str, Any] = {}
+    exe = cmd[0] if cmd else ""
+    if exe and os.path.isabs(exe) and not os.path.exists(exe):
+        logging.warning("host daemon not spawned — missing executable %s", exe)
+        return False
+    kwargs: Dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
     if sys.platform == "win32":
-        flags = 0
-        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-        flags |= getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-        kwargs["creationflags"] = flags
-        kwargs["close_fds"] = True
-        kwargs["stdout"] = subprocess.DEVNULL
-        kwargs["stderr"] = subprocess.DEVNULL
-        kwargs["stdin"] = subprocess.DEVNULL
-        startup = subprocess.STARTUPINFO()
-        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startup.wShowWindow = 0
-        kwargs["startupinfo"] = startup
+        from host_tuning.win_subprocess import hidden_creationflags, hidden_startupinfo
+
+        kwargs["creationflags"] = hidden_creationflags()
+        kwargs["startupinfo"] = hidden_startupinfo()
     else:
         kwargs["start_new_session"] = True
-        kwargs["stdin"] = subprocess.DEVNULL
-        kwargs["stdout"] = subprocess.DEVNULL
-        kwargs["stderr"] = subprocess.DEVNULL
-        kwargs["close_fds"] = True
     try:
-        subprocess.Popen(cmd, **kwargs)
+        proc = subprocess.Popen(cmd, **kwargs)
     except Exception as exc:
         logging.warning("host daemon spawn failed: %s", exc)
         return False
-    time.sleep(0.5)
-    return True
+    # Confirm it actually stayed up; reporting success for a process that died
+    # immediately made the bridge look enabled with nothing on TCP 47998.
+    for _ in range(10):
+        time.sleep(0.2)
+        if proc.poll() is not None:
+            logging.warning(
+                "host daemon exited immediately (code %s) — autostart not healthy",
+                proc.returncode,
+            )
+            return False
+        if is_running():
+            return True
+    return proc.poll() is None
 
 
 def stop_daemon_process() -> None:
@@ -703,12 +728,9 @@ def stop_daemon_process() -> None:
     except OSError:
         return
     if sys.platform == "win32":
-        subprocess.run(
-            ["taskkill", "/PID", str(pid), "/F"],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
+        from host_tuning.win_subprocess import run_hidden
+
+        run_hidden(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=10)
 
 
 def is_running() -> bool:

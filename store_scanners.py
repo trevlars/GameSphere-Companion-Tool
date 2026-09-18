@@ -54,6 +54,19 @@ def store_key(store: str, identifier: str) -> str:
     return f"{store.lower()}:{identifier}"
 
 
+def _stable_path_id(path: str) -> str:
+    """Deterministic id for a game folder.
+
+    ``hash()`` is salted per process, so using it here gave a title a new
+    store_key on every run — the importer then removed the old tile (deleting
+    its artwork) and re-added an identical one.
+    """
+    import hashlib
+
+    normalized = _normalize_win_path(path).lower().encode("utf-8", errors="replace")
+    return hashlib.sha1(normalized).hexdigest()[:16]
+
+
 def _normalize_win_path(path: str) -> str:
     if not path:
         return path
@@ -407,7 +420,7 @@ def load_ea_games(display_lookup: Optional[List[Tuple[str, str]]] = None) -> Dic
                     except OSError:
                         continue
                     exe = sorted(exes, reverse=True)[0][1] if exes else install_path
-                    content_id = _read_ea_content_id(install_path) or str(abs(hash(install_path)))
+                    content_id = _read_ea_content_id(install_path) or _stable_path_id(install_path)
                     name = resolve_display_name(install_path, display, lookup)
                     key = store_key("ea", content_id)
                     installed[key] = {

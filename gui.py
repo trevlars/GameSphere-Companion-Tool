@@ -226,8 +226,13 @@ def run_automation(env_vars, dry_run, verbose, no_restart, log_queue, remove_gam
         )
         for line in proc.stdout:
             log_queue.put(("out", line))
-        proc.wait()
-        if proc.returncode != 0:
+        try:
+            # Bounded so a wedged importer cannot leave the buttons disabled forever.
+            proc.wait(timeout=1800)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            log_queue.put(("err", "\nImport timed out after 30 minutes and was stopped.\n"))
+        if proc.returncode not in (0, None):
             log_queue.put(("err", f"\nProcess exited with code {proc.returncode}\n"))
     except Exception as e:
         log_queue.put(("err", str(e) + "\n"))
@@ -822,10 +827,21 @@ class SunshineGUI:
             self.root.after(0, lambda: self._update_failed(exc, info))
 
     def _update_applied(self, dest, info):
-        messagebox.showinfo(
-            "Update installed",
-            f"Updated to {info.get('latest')}.\n\n{dest}\n\nThe app will close so the new version can start.",
-        )
+        deferred = getattr(sys, "frozen", False) and sys.platform in ("win32", "linux")
+        if deferred:
+            # The swap runs in a helper after this process exits, so we cannot
+            # claim it already succeeded.
+            messagebox.showinfo(
+                "Update downloaded",
+                f"Version {info.get('latest')} is ready.\n\n{dest}\n\n"
+                "The app will close and restart on the new version. "
+                "If it does not reopen, launch GameSphere Companion again.",
+            )
+        else:
+            messagebox.showinfo(
+                "Update installed",
+                f"Updated to {info.get('latest')}.\n\n{dest}\n\nThe app will close so the new version can start.",
+            )
         if sys.platform == "win32" and getattr(sys, "frozen", False):
             self._on_close()
             sys.exit(0)

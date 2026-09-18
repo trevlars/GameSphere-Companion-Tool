@@ -15,6 +15,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from host_tuning.config import config_dir
+from host_tuning import client_input
 from host_tuning import invite as guest_invite
 
 JOIN_TTL_SECONDS = 120
@@ -248,7 +249,7 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "uuid": client_uuid,
                 "sessionId": session_id,
                 "lanHost": lan_hint or guest_invite._local_lan_ip(),
-                "httpsPort": int(payload.get("httpsPort") or 47984),
+                "httpsPort": client_input.safe_port(payload.get("httpsPort")),
                 "role": role,
                 "status": "pending",
             }
@@ -271,9 +272,9 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "accept": True,
                     "appId": app_id,
                     "appName": app_name,
-                    "httpsPort": req["httpsPort"],
+                    "httpsPort": client_input.safe_port(req.get("httpsPort")),
                     "hostId": host_id,
-                    "lanHost": req["lanHost"],
+                    "lanHost": req.get("lanHost") or guest_invite._local_lan_ip(),
                 }
             )
             if not auto.get("ok"):
@@ -371,12 +372,16 @@ def _identity_fields() -> Dict[str, Any]:
     }
 
 
-def _schedule_couch_coop(req_id: str, name: str, role: str = "guest", uuid: str = "") -> None:
+def _schedule_couch_coop(
+    req_id: str, name: str, role: str = "guest", uuid: str = "", slot: int = -1
+) -> None:
     def _run() -> None:
         try:
             from host_tuning import couch_coop
 
-            couch_coop.on_join_accepted(client_id=req_id, name=name, role=role, uuid=uuid)
+            couch_coop.on_join_accepted(
+                client_id=req_id, name=name, role=role, uuid=uuid, slot=slot
+            )
         except Exception:
             logging.exception("couch_coop after JOINACK")
 
@@ -414,7 +419,7 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
     accept = bool(payload.get("accept"))
     app_id = str(payload.get("appId") or "").strip()
     app_name = str(payload.get("appName") or "").strip()
-    https_port = int(payload.get("httpsPort") or 47984)
+    https_port = client_input.safe_port(payload.get("httpsPort"))
     host_id = str(payload.get("hostId") or "").strip()
     lan_host = guest_invite._strip_host_port(str(payload.get("lanHost") or "").strip())
     if not lan_host:
@@ -430,6 +435,7 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
     coop_name = "Guest"
     coop_role = "guest"
     coop_uuid = ""
+    coop_slot = -1
     with _lock:
         data = _load()
         found = None
@@ -463,12 +469,6 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
                 found["lanHost"] = lan_host
             # Give friend a bit more time to poll + resume
             found["expires"] = now + JOIN_TTL_SECONDS
-            try:
-                from host_tuning import couch_coop
-
-                found["playerSlot"] = couch_coop.next_empty_slot()
-            except Exception:
-                found["playerSlot"] = 1
             # Host decides the seat kind at Accept time ("Player 2" vs "Buddy"); falls back to what the guest asked for.
             if role_override:
                 found["role"] = role_override
@@ -477,11 +477,23 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
             coop_name = str(found.get("friendName") or found.get("clientName") or "Guest")
             coop_role = str(found.get("role") or "guest")
             coop_uuid = str(found.get("uuid") or "")
+            # Claim the seat now so the number we hand the guest is the one the
+            # overlay uses; the background apply() reuses it instead of re-picking.
+            try:
+                from host_tuning import couch_coop
+
+                coop_slot = couch_coop.reserve_slot(
+                    client_id=req_id, name=coop_name, role=coop_role, uuid=coop_uuid
+                )
+            except Exception:
+                logging.exception("couch_coop reserve_slot at JOINACK")
+                coop_slot = -1
+            found["playerSlot"] = coop_slot if coop_slot > 0 else 0
         _save(data)
         result = _ack_payload_from_row(found, accept=accept, ident=ident)
     logging.info("JOINACK id=%s accept=%s role=%s", req_id, accept, coop_role)
     if schedule_coop:
-        _schedule_couch_coop(req_id, coop_name, coop_role, coop_uuid)
+        _schedule_couch_coop(req_id, coop_name, coop_role, coop_uuid, coop_slot)
     return result
 
 
@@ -503,6 +515,13 @@ def expire_for_uuid(uuid: str) -> int:
             count += 1
         if count:
             _save(data)
+    # A kicked guest gives their player seat back.
+    try:
+        from host_tuning import couch_coop
+
+        couch_coop.release_slot(uuid=uuid)
+    except Exception:
+        logging.debug("couch_coop release_slot on kick failed", exc_info=True)
     return count
 
 

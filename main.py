@@ -1055,59 +1055,191 @@ def _extract_shortcut_path_from_cmd(cmd: str) -> Optional[str]:
 
 
 def load_installed_games(library_vdf_path: str) -> Dict[str, str]:
-    """Load installed games from Steam library VDF file."""
+    """Load installed games from Steam library VDF file.
+
+    Names come from the local ``appmanifest_*.acf`` first so an offline host (or
+    a Steam Store API outage) still resolves its library. The Steam API is only
+    consulted for apps whose manifest has no usable name.
+    """
     logging.info(f"Loading Steam library from {library_vdf_path}")
-    
-    try:
-        with open(library_vdf_path, 'r', encoding='utf-8') as file:
-            steam_data = vdf.load(file)
-    except Exception as e:
-        logging.error(f"Error loading Steam library VDF: {e}")
-        raise
-    
+
+    steam_data = _read_library_vdf(library_vdf_path)
+
     logging.debug("Raw Steam library data loaded successfully")
-    
-    installed_games = {}
-    total_apps = 0
-    
-    # Count total apps for progress tracking
+
+    app_ids: List[str] = []
     for folder_data in steam_data.get('libraryfolders', {}).values():
-        if "apps" in folder_data:
-            total_apps += len(folder_data["apps"])
-    
+        if isinstance(folder_data, dict) and "apps" in folder_data:
+            for app_id in folder_data["apps"].keys():
+                app_id = str(app_id)
+                if app_id not in app_ids:
+                    app_ids.append(app_id)
+    total_apps = len(app_ids)
+
     logging.info(f"Processing {total_apps} Steam apps...")
-    
-    # Use thread pool for concurrent API calls
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        future_to_app_id = {}
-        
-        for folder_data in steam_data.get('libraryfolders', {}).values():
-            if "apps" in folder_data:
-                for app_id in folder_data["apps"].keys():
-                    future = executor.submit(get_game_name, app_id)
-                    future_to_app_id[future] = app_id
-        
-        processed = 0
-        for future in as_completed(future_to_app_id):
-            app_id = future_to_app_id[future]
-            processed += 1
-            
-            try:
-                game_name = future.result()
-                if game_name:
-                    if game_name.lower() in {x.lower() for x in STEAM_TOOL_EXCLUSIONS}:
-                        logging.debug(f"Skipping Steam tool/runtime: {game_name} (ID: {app_id})")
-                        continue
-                    installed_games[app_id] = game_name
-                    logging.debug(f"Found game: {game_name} (ID: {app_id})")
-            except Exception as e:
-                logging.warning(f"Error processing AppID {app_id}: {e}")
-            
-            if processed % 50 == 0 or processed == total_apps:
-                logging.info(f"Processed {processed}/{total_apps} apps...")
-    
+
+    excluded = {x.lower() for x in STEAM_TOOL_EXCLUSIONS}
+    local_names = _local_steam_app_names(steam_data, library_vdf_path)
+
+    installed_games: Dict[str, str] = {}
+    needs_api: List[str] = []
+    for app_id in app_ids:
+        name = local_names.get(app_id)
+        if not name:
+            needs_api.append(app_id)
+            continue
+        if name.lower() in excluded:
+            logging.debug(f"Skipping Steam tool/runtime: {name} (ID: {app_id})")
+            continue
+        installed_games[app_id] = name
+
+    if local_names:
+        logging.info("Resolved %d name(s) from local Steam manifests", len(installed_games))
+
+    if needs_api:
+        # Use thread pool for concurrent API calls
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_app_id = {
+                executor.submit(get_game_name, app_id): app_id for app_id in needs_api
+            }
+
+            processed = 0
+            for future in as_completed(future_to_app_id):
+                app_id = future_to_app_id[future]
+                processed += 1
+
+                try:
+                    game_name = future.result()
+                    if game_name:
+                        if game_name.lower() in excluded:
+                            logging.debug(f"Skipping Steam tool/runtime: {game_name} (ID: {app_id})")
+                            continue
+                        installed_games[app_id] = game_name
+                        logging.debug(f"Found game: {game_name} (ID: {app_id})")
+                except Exception as e:
+                    logging.warning(f"Error processing AppID {app_id}: {e}")
+
+                if processed % 50 == 0 or processed == len(needs_api):
+                    logging.info(f"Processed {processed}/{len(needs_api)} apps via Steam API...")
+
     logging.info(f"Found {len(installed_games)} installed games")
     return installed_games
+
+
+def _stable_custom_id(exe_cmd: str) -> str:
+    """Deterministic id for a custom game's artwork and .lnk filenames.
+
+    ``hash()`` is salted per process, so this used to change every run, which
+    re-downloaded covers and created a duplicate shortcut each import.
+    """
+    import hashlib
+
+    digest = hashlib.sha1((exe_cmd or "").strip().lower().encode("utf-8", errors="replace"))
+    return "custom_" + digest.hexdigest()[:12]
+
+
+def _remove_pending_grids(paths: Optional[List[str]]) -> None:
+    """Delete cover art for pruned tiles. Safe to call with an empty list."""
+    for grid_path in paths or []:
+        if not grid_path or not os.path.exists(grid_path):
+            continue
+        try:
+            os.remove(grid_path)
+            logging.debug(f"Removed grid image: {grid_path}")
+        except Exception as e:
+            logging.warning(f"Failed to remove grid image {grid_path}: {e}")
+
+
+def _read_library_vdf(library_vdf_path: str) -> Dict:
+    """Parse libraryfolders.vdf, tolerating non-UTF-8 bytes some clients write."""
+    last_error: Optional[Exception] = None
+    for encoding in ('utf-8', 'utf-8-sig', 'latin-1'):
+        try:
+            with open(library_vdf_path, 'r', encoding=encoding) as file:
+                return vdf.load(file)
+        except UnicodeDecodeError as e:
+            last_error = e
+            continue
+        except Exception as e:
+            logging.error(f"Error loading Steam library VDF: {e}")
+            raise
+    logging.error(f"Error loading Steam library VDF: {last_error}")
+    raise last_error if last_error else RuntimeError("could not read libraryfolders.vdf")
+
+
+def _steamapps_dirs(steam_data: Dict, library_vdf_path: str) -> List[str]:
+    """Every steamapps/ directory referenced by libraryfolders.vdf."""
+    dirs: List[str] = []
+    primary = os.path.dirname(os.path.abspath(library_vdf_path))
+    if primary:
+        dirs.append(primary)
+    for folder_data in (steam_data.get('libraryfolders') or {}).values():
+        if not isinstance(folder_data, dict):
+            continue
+        base = folder_data.get('path')
+        if not base:
+            continue
+        candidate = os.path.join(str(base), 'steamapps')
+        if candidate not in dirs:
+            dirs.append(candidate)
+    return dirs
+
+
+def _local_steam_app_names(steam_data: Dict, library_vdf_path: str) -> Dict[str, str]:
+    """AppID -> name from local appmanifest_*.acf. No network required."""
+    names: Dict[str, str] = {}
+    for steamapps in _steamapps_dirs(steam_data, library_vdf_path):
+        if not os.path.isdir(steamapps):
+            continue
+        try:
+            entries = os.listdir(steamapps)
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.startswith('appmanifest_') or not entry.endswith('.acf'):
+                continue
+            app_id = entry[len('appmanifest_'):-len('.acf')].strip()
+            if not app_id or app_id in names:
+                continue
+            try:
+                with open(os.path.join(steamapps, entry), encoding='utf-8', errors='replace') as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            match = re.search(r'"name"\s+"([^"]*)"', text, re.I)
+            if match and match.group(1).strip():
+                names[app_id] = match.group(1).strip()
+    return names
+
+
+def installed_steam_app_ids(library_vdf_path: str) -> Set[str]:
+    """AppIDs Steam reports as installed locally.
+
+    This is the authoritative answer to "is it still installed?" and never
+    depends on the Steam Store API, so a network failure cannot make the
+    importer prune a library it merely failed to name.
+    """
+    try:
+        steam_data = _read_library_vdf(library_vdf_path)
+    except Exception:
+        return set()
+    ids: Set[str] = set()
+    for folder_data in (steam_data.get('libraryfolders') or {}).values():
+        if isinstance(folder_data, dict) and "apps" in folder_data:
+            ids.update(str(a) for a in folder_data["apps"].keys())
+    for steamapps in _steamapps_dirs(steam_data, library_vdf_path):
+        if not os.path.isdir(steamapps):
+            continue
+        try:
+            entries = os.listdir(steamapps)
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.startswith('appmanifest_') and entry.endswith('.acf'):
+                app_id = entry[len('appmanifest_'):-len('.acf')].strip()
+                if app_id:
+                    ids.add(app_id)
+    return ids
 
 
 def _steam_root_from_library_vdf(library_vdf_path: str) -> str:
@@ -1708,8 +1840,16 @@ def process_existing_apps(
     installed_xbox: Optional[Dict[str, Dict]] = None,
     shortcuts_folder: Optional[str] = None,
     installed_stores: Optional[Dict[str, Dict]] = None,
+    installed_app_ids: Optional[Set[str]] = None,
+    pending_grid_deletions: Optional[List[str]] = None,
 ) -> Tuple[List[Dict], List[Tuple[str, str]], List[Tuple[str, str]], List[Tuple[str, str]], Set[str], Set[str], Set[str], Set[str], int]:
-    """Process existing Sunshine apps and identify changes."""
+    """Process existing Sunshine apps and identify changes.
+
+    ``installed_app_ids`` is the local Steam truth (see
+    :func:`installed_steam_app_ids`). When supplied, a Steam entry is only
+    pruned if Steam itself no longer lists the app, so an unnamed or
+    API-unreachable title is kept instead of deleted.
+    """
     updated_apps = []
     removed_steam = []
     removed_epic: List[Tuple[str, str]] = []
@@ -1805,15 +1945,25 @@ def process_existing_apps(
                 app = fixed
                 updated_apps.append(app)
                 existing_steam_apps.add(app_id)
+            elif installed_app_ids is not None and app_id in installed_app_ids:
+                # Steam still has it installed; we just could not resolve a name
+                # this run. Keep the tile and its artwork.
+                updated_apps.append(app)
+                existing_steam_apps.add(app_id)
+                logging.debug(f"Keeping Steam app {app_id} (installed, name unresolved)")
             else:
                 removed_steam.append((app.get('name', 'Unknown'), app_id))
                 grid_path = app.get('image-path')
                 if grid_path and os.path.exists(grid_path):
-                    try:
-                        os.remove(grid_path)
-                        logging.debug(f"Removed grid image: {grid_path}")
-                    except Exception as e:
-                        logging.warning(f"Failed to remove grid image {grid_path}: {e}")
+                    if pending_grid_deletions is not None:
+                        # Deleted only after apps.json is saved.
+                        pending_grid_deletions.append(grid_path)
+                    else:
+                        try:
+                            os.remove(grid_path)
+                            logging.debug(f"Removed grid image: {grid_path}")
+                        except Exception as e:
+                            logging.warning(f"Failed to remove grid image {grid_path}: {e}")
         elif 'com.epicgames.launcher://' in cmd:
             # Extract AppName: com.epicgames.launcher://apps/AppName?action=...
             try:
@@ -2012,12 +2162,11 @@ def add_custom_games(
             continue
         name = (g.get("name") or "").strip() or "Custom Game"
         image_path = (g.get("image_path") or "").strip()
+        safe_id = _stable_custom_id(exe_cmd)
         if not image_path:
-            safe_id = "custom_" + str(abs(hash(exe_cmd)))[:12]
             image_path = fetch_grid_by_name(name, api_key or '', grids_folder, safe_id) or ""
         if shortcuts_folder and os.name == 'nt' and os.path.sep in exe_cmd and os.path.isfile(exe_cmd):
             os.makedirs(shortcuts_folder, exist_ok=True)
-            safe_id = "custom_" + str(abs(hash(exe_cmd)))[:12]
             shortcut_path = os.path.join(shortcuts_folder, safe_id + ".lnk")
             work_dir = os.path.dirname(exe_cmd)
             if _create_shortcut_win(shortcut_path, exe_cmd, work_dir):
@@ -2475,6 +2624,10 @@ def main() -> None:
         
         # Process existing apps (Steam store + Non-Steam shortcuts, Epic, custom, Xbox, other stores)
         shortcuts_folder = config.get('SUNSHINE_SHORTCUTS_FOLDER') or ''
+        # Local Steam truth for pruning, plus shortcut ids (also locally sourced).
+        steam_installed_ids = installed_steam_app_ids(config['STEAM_LIBRARY_VDF_PATH'])
+        steam_installed_ids |= set(installed_shortcuts.keys())
+        pending_grid_deletions: List[str] = []
         (
             updated_apps,
             removed_steam,
@@ -2493,6 +2646,8 @@ def main() -> None:
             installed_xbox,
             shortcuts_folder,
             installed_stores,
+            steam_installed_ids,
+            pending_grid_deletions,
         )
         
         # Find new games to add
@@ -2606,6 +2761,8 @@ def main() -> None:
         # Update and save configuration
         sunshine_config['apps'] = updated_apps
         save_sunshine_config(config['SUNSHINE_APPS_JSON_PATH'], sunshine_config)
+        # Artwork for pruned tiles is removed only now that the save succeeded.
+        _remove_pending_grids(pending_grid_deletions)
         
         # Restart Sunshine after processing (unless disabled)
         if not args.no_restart:

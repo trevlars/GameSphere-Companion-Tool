@@ -158,11 +158,19 @@ def _run_ps1(script: str, *args: str, log: Optional[LogFn] = None) -> subprocess
         *args,
     ]
     _log(log, f"$ {' '.join(cmd)}")
+    kwargs = {}
+    if sys.platform == "win32":
+        # VB-CABLE setup takes minutes; don't flash console windows the whole time.
+        from host_tuning.win_subprocess import hidden_startupinfo, no_window_creationflags
+
+        kwargs["creationflags"] = no_window_creationflags()
+        kwargs["startupinfo"] = hidden_startupinfo()
     return subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         timeout=600,
+        **kwargs,
     )
 
 
@@ -259,8 +267,16 @@ def setup_mic(
             started = _start_windows_feeder(log)
             if started:
                 result.messages.append("Legacy VBAN feeder started (iOS no longer sends VBAN by default).")
+            elif result.reboot_hint:
+                result.messages.append(
+                    "VB-CABLE installed. Reboot Windows, then run Set up mic again to start the feeder."
+                )
             else:
-                result.messages.append("VB-CABLE installed but feeder did not stay running.")
+                # The feeder is what actually plays phone audio into CABLE Input,
+                # so this is not a success the user should be told to rely on.
+                result.ok = False
+                result.error = "VB-CABLE installed but the mic feeder did not stay running."
+                result.messages.append(result.error)
         if rc not in (0, 3010):
             result.error = f"Windows mic setup exited with code {rc}"
         return result

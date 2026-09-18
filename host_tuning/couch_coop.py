@@ -201,6 +201,9 @@ def clear_stream_active() -> None:
         os.remove(_stream_flag_path())
     except OSError:
         pass
+    # Guest seats are session-scoped. Without this, three guests joining and
+    # leaving would leave every seat permanently claimed.
+    release_guest_slots()
 
 
 def stream_active() -> bool:
@@ -558,9 +561,7 @@ def apply(reason: str = "manual", force: bool = False) -> Dict[str, Any]:
     return payload
 
 
-def note_client(slot: int, client_id: str = "", name: str = "", role: str = "", uuid: str = "") -> None:
-    if slot < 0 or slot >= MAX_PLAYERS:
-        return
+def _note_client_locked(slot: int, client_id: str = "", name: str = "", role: str = "", uuid: str = "") -> None:
     meta = dict(_slot_meta[slot])
     if client_id:
         meta["clientId"] = client_id
@@ -576,18 +577,110 @@ def note_client(slot: int, client_id: str = "", name: str = "", role: str = "", 
     _slot_meta[slot] = meta
 
 
-def next_empty_slot() -> int:
-    """Guests occupy seats 1–3. Slot 0 is always host."""
+def note_client(slot: int, client_id: str = "", name: str = "", role: str = "", uuid: str = "") -> None:
+    if slot < 0 or slot >= MAX_PLAYERS:
+        return
+    with _lock:
+        _note_client_locked(slot, client_id=client_id, name=name, role=role, uuid=uuid)
+
+
+def _slot_taken_locked(index: int) -> bool:
+    """A seat counts as taken once a pad binds to it *or* a guest claims it.
+
+    Pads only appear after Moonlight connects, so metadata is what keeps two
+    guests who join back-to-back out of the same seat.
+    """
+    if _slot_lock[index]:
+        return True
+    meta = _slot_meta[index] if index < len(_slot_meta) else {}
+    return bool(meta.get("uuid") or meta.get("clientId") or meta.get("name"))
+
+
+def _next_empty_slot_locked() -> int:
     for i in range(1, MAX_PLAYERS):
-        if not _slot_lock[i]:
+        if not _slot_taken_locked(i):
             return i
-    return MAX_PLAYERS - 1
+    return -1
 
 
-def on_join_accepted(client_id: str = "", name: str = "", role: str = "guest", uuid: str = "") -> Dict[str, Any]:
+def next_empty_slot() -> int:
+    """Next free guest seat (1–3), or -1 when every seat is taken."""
+    with _lock:
+        return _next_empty_slot_locked()
+
+
+def reserve_slot(client_id: str = "", name: str = "", role: str = "guest", uuid: str = "") -> int:
+    """Atomically claim a guest seat. Returns the slot, or -1 when full.
+
+    Reserving under one lock is what prevents two simultaneous JOINACKs from
+    being handed the same player number.
+    """
+    with _lock:
+        # A guest who re-joins keeps the seat they already had.
+        if uuid or client_id:
+            for i in range(1, MAX_PLAYERS):
+                meta = _slot_meta[i]
+                if (uuid and meta.get("uuid") == uuid) or (
+                    client_id and meta.get("clientId") == client_id
+                ):
+                    _note_client_locked(
+                        i, client_id=client_id, name=name, role=role or "guest", uuid=uuid
+                    )
+                    return i
+        slot = _next_empty_slot_locked()
+        if slot < 0:
+            logging.warning("couch_coop reserve_slot: all guest seats taken")
+            return -1
+        _note_client_locked(slot, client_id=client_id, name=name, role=role or "guest", uuid=uuid)
+        return slot
+
+
+def release_slot(client_id: str = "", uuid: str = "") -> int:
+    """Free the seat held by a guest who left. Returns the slot, or -1."""
+    client_id = (client_id or "").strip()
+    uuid = (uuid or "").strip()
+    if not client_id and not uuid:
+        return -1
+    with _lock:
+        for i in range(1, MAX_PLAYERS):
+            meta = _slot_meta[i]
+            if (uuid and meta.get("uuid") == uuid) or (
+                client_id and meta.get("clientId") == client_id
+            ):
+                _slot_meta[i] = {}
+                logging.info("couch_coop released slot=%s", i)
+                return i
+    return -1
+
+
+def release_guest_slots() -> None:
+    """Clear guest seat metadata (1–3). Slot 0 (host) is kept."""
+    with _lock:
+        for i in range(1, MAX_PLAYERS):
+            if _slot_meta[i]:
+                _slot_meta[i] = {}
+
+
+def reset_slots() -> None:
+    """Drop all seat state including the host. Used on bridge restart and in tests."""
+    global _slot_lock, _slot_meta
+    with _lock:
+        _slot_lock = [None] * MAX_PLAYERS
+        _slot_meta = [{} for _ in range(MAX_PLAYERS)]
+
+
+def on_join_accepted(
+    client_id: str = "",
+    name: str = "",
+    role: str = "guest",
+    uuid: str = "",
+    slot: int = -1,
+) -> Dict[str, Any]:
     arm_late_join()
-    slot = next_empty_slot()
-    if client_id or name:
+    # Prefer the seat reserved at Accept time so the overlay and the guest agree.
+    if slot is None or slot < 1:
+        slot = reserve_slot(client_id=client_id, name=name, role=role or "guest", uuid=uuid)
+    elif client_id or name:
         note_client(slot, client_id=client_id, name=name, role=role or "guest", uuid=uuid)
     note_client(0, role="host", name="Host")
     return apply("joinack", force=True)

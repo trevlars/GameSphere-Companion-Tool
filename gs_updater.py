@@ -262,10 +262,44 @@ def _http_json(url: str) -> Any:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _download(url: str, dest: str) -> None:
+def _download(url: str, dest: str, expected_size: int = 0) -> None:
+    """Download to ``dest`` and refuse to accept a truncated or empty file.
+
+    A half-downloaded asset used to be installed as if it were valid, which
+    could leave the user with an unlaunchable binary.
+    """
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as fh:
         shutil.copyfileobj(resp, fh)
+    written = os.path.getsize(dest)
+    if written <= 0:
+        raise RuntimeError(f"Download was empty: {url}")
+    if expected_size and written != expected_size:
+        raise RuntimeError(
+            f"Download is incomplete ({written} of {expected_size} bytes). "
+            "Check the connection and try again."
+        )
+
+
+def _asset_size(asset: Optional[Dict[str, Any]]) -> int:
+    try:
+        return int((asset or {}).get("size") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _verify_windows_exe(path: str) -> None:
+    """Reject anything that is not a Windows executable (e.g. an HTML error page)."""
+    try:
+        with open(path, "rb") as fh:
+            magic = fh.read(2)
+    except OSError as exc:
+        raise RuntimeError(f"Could not read the downloaded update: {exc}") from exc
+    if magic != b"MZ":
+        raise RuntimeError(
+            "The downloaded file is not a Windows program. "
+            f"Download it manually from {GITHUB_RELEASES_PAGE}"
+        )
 
 
 def current_platform() -> str:
@@ -457,20 +491,35 @@ def apply_windows_update(asset: Dict[str, Any]) -> str:
     target = os.path.abspath(sys.executable)
     tmp_dir = tempfile.mkdtemp(prefix="gs-import-upd-")
     new_exe = os.path.join(tmp_dir, "GamesphereImportTool.exe")
-    _download(url, new_exe)
+    _download(url, new_exe, _asset_size(asset))
+    _verify_windows_exe(new_exe)
+    backup = os.path.join(tmp_dir, "GamesphereImportTool.previous.exe")
+    try:
+        shutil.copy2(target, backup)
+    except OSError:
+        backup = ""
     ps1 = os.path.join(tmp_dir, "apply-update.ps1")
+    # Copy failures restore the previous exe so a bad swap cannot leave the
+    # user with nothing to launch.
     ps1_body = (
-        "$ErrorActionPreference = 'SilentlyContinue'\n"
+        "$ErrorActionPreference = 'Stop'\n"
         f"$target = {json.dumps(target)}\n"
         f"$source = {json.dumps(new_exe)}\n"
-        f"$pid = {os.getpid()}\n"
-        "while (Get-Process -Id $pid -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }\n"
+        f"$backup = {json.dumps(backup)}\n"
+        f"$ownerPid = {os.getpid()}\n"
+        "while (Get-Process -Id $ownerPid -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }\n"
         "Get-Process -Name GamesphereImportTool -ErrorAction SilentlyContinue | Stop-Process -Force\n"
-        "Copy-Item -LiteralPath $source -Destination $target -Force\n"
+        "Start-Sleep -Milliseconds 500\n"
+        "try {\n"
+        "  Copy-Item -LiteralPath $source -Destination $target -Force\n"
+        "} catch {\n"
+        "  if ($backup -and (Test-Path -LiteralPath $backup)) {\n"
+        "    Copy-Item -LiteralPath $backup -Destination $target -Force\n"
+        "  }\n"
+        "}\n"
         "Start-Process -FilePath $target -ArgumentList '--host-daemon' -WindowStyle Hidden\n"
-        "Start-Process -FilePath $target -WindowStyle Hidden\n"
-        "Remove-Item -LiteralPath $source -Force\n"
-        "Remove-Item -LiteralPath $PSCommandPath -Force\n"
+        "Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\n"
+        "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\n"
     )
     with open(ps1, "w", encoding="utf-8", newline="\r\n") as fh:
         fh.write(ps1_body)
@@ -495,7 +544,9 @@ def _run_install_linux_sh(tag: str, script: str) -> str:
     env = os.environ.copy()
     env["GAMESPHERE_IMPORT_REF"] = tag
     env["GAMESPHERE_IMPORT_DIR"] = install_dir
-    subprocess.run(["bash", script], check=True, env=env)
+    # install-linux.sh clones, syncs deps, and enables units — cap it so a stalled
+    # network cannot hang the GUI update worker forever.
+    subprocess.run(["bash", script], check=True, env=env, timeout=1800)
     return install_dir
 
 
@@ -538,8 +589,12 @@ def apply_flatpak_update(asset: Dict[str, Any]) -> str:
     if not url:
         raise RuntimeError("Release has no Flatpak bundle yet.")
     bundle = os.path.join(tempfile.mkdtemp(prefix="gs-import-upd-"), "update.flatpak")
-    _download(url, bundle)
-    subprocess.run(["flatpak", "install", "--user", "-y", bundle], check=True)
+    _download(url, bundle, _asset_size(asset))
+    subprocess.run(
+        ["flatpak", "install", "--user", "-y", bundle],
+        check=True,
+        timeout=1800,
+    )
     return f"flatpak:{FLATPAK_ID}"
 
 
@@ -550,9 +605,17 @@ def apply_appimage_update(asset: Dict[str, Any], dest: Optional[str] = None) -> 
     dest = dest or linux_appimage_path()
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     tmp = dest + ".new"
-    _download(url, tmp)
-    os.chmod(tmp, 0o755)
-    os.replace(tmp, dest)
+    try:
+        _download(url, tmp, _asset_size(asset))
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, dest)
+    except Exception:
+        # Never leave a partial .new behind or clobber a working AppImage.
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
     return dest
 
 
@@ -564,16 +627,24 @@ def apply_frozen_linux_update(asset: Dict[str, Any]) -> str:
     target = os.environ.get("APPIMAGE") or os.path.abspath(sys.executable)
     tmp_dir = tempfile.mkdtemp(prefix="gs-import-upd-")
     new_bin = os.path.join(tmp_dir, os.path.basename(target) or APPIMAGE_RELEASE_NAME)
-    _download(url, new_bin)
+    _download(url, new_bin, _asset_size(asset))
     os.chmod(new_bin, 0o755)
+    backup = os.path.join(tmp_dir, "previous.bin")
+    try:
+        shutil.copy2(target, backup)
+    except OSError:
+        backup = ""
     helper = os.path.join(tmp_dir, "apply-update.sh")
     helper_body = (
         "#!/bin/sh\n"
         f"TARGET={json.dumps(target)}\n"
         f"SOURCE={json.dumps(new_bin)}\n"
+        f"BACKUP={json.dumps(backup)}\n"
         f"PID={os.getpid()}\n"
         "while kill -0 \"$PID\" 2>/dev/null; do sleep 1; done\n"
-        "mv -f \"$SOURCE\" \"$TARGET\"\n"
+        "if ! mv -f \"$SOURCE\" \"$TARGET\"; then\n"
+        "  [ -n \"$BACKUP\" ] && [ -f \"$BACKUP\" ] && cp -f \"$BACKUP\" \"$TARGET\"\n"
+        "fi\n"
         "chmod +x \"$TARGET\"\n"
         "nohup \"$TARGET\" >/dev/null 2>&1 &\n"
         "rm -f \"$0\"\n"

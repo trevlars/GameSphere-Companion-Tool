@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from host_tuning.config import config_dir
+from host_tuning import client_input
 from host_tuning import sunshine_admin
 
 INVITE_TTL_SECONDS = 15 * 60
@@ -134,7 +135,7 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
         detected = _local_lan_ip()
         if detected:
             lan_host = detected
-    https_port = int(payload.get("httpsPort") or 47984)
+    https_port = client_input.safe_port(payload.get("httpsPort"))
     app_id = str(payload.get("appId") or "")
     app_name = str(payload.get("appName") or "")
     host_id = str(payload.get("hostId") or "")

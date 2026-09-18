@@ -25,7 +25,12 @@ STREAM_GRACE_SECONDS = 120
 REFRESH_AFTER = 25 * 60
 
 _log = logging.getLogger(__name__)
+# Guards _state only. Never held across router/network I/O.
 _lock = threading.Lock()
+# Serializes UPnP/NAT-PMP map+unmap so concurrent invite / stream / voice
+# triggers cannot interleave SOAP calls and leave partial mappings behind.
+# Always acquired *without* holding _lock.
+_map_mutex = threading.Lock()
 _state: Dict[str, Any] = {
     "mapped": False,
     "mapper": "",
@@ -257,7 +262,17 @@ def _tick() -> None:
 
 
 def ensure(reason: str = "session", *, voice: Optional[bool] = None) -> Dict[str, Any]:
-    """Map Sunshine + Companion ports. Safe to call often. Never maps 47990."""
+    """Map Sunshine + Companion ports. Safe to call often. Never maps 47990.
+
+    Router I/O is serialized by ``_map_mutex``: an invite, a stream start and a
+    voice start can all fire at once, and interleaved SOAP map/unmap calls left
+    partial mappings behind.
+    """
+    with _map_mutex:
+        return _ensure_locked(reason=reason, voice=voice)
+
+
+def _ensure_locked(reason: str = "session", *, voice: Optional[bool] = None) -> Dict[str, Any]:
     cfg = load_config()
     if _manual_forward_enabled():
         _refresh_manual_forward_state()
@@ -348,6 +363,11 @@ def ensure(reason: str = "session", *, voice: Optional[bool] = None) -> Dict[str
 
 def release(reason: str = "stop") -> Dict[str, Any]:
     """Drop mappings unless a stream is still up."""
+    with _map_mutex:
+        return _release_locked(reason=reason)
+
+
+def _release_locked(reason: str = "stop") -> Dict[str, Any]:
     if reason != "idle" and _stream_active() and reason not in ("force", "cli"):
         _log.info("WAN unmap skipped — Sunshine stream still active")
         return status()
@@ -443,7 +463,12 @@ def ensure_voice(running: bool) -> None:
         with _lock:
             _state["voiceMapped"] = False
         return
-    if _state.get("mapped") or _stream_active():
+    with _lock:
+        mapped = bool(_state.get("mapped"))
+        mapping = bool(_state.get("reason")) and not mapped
+    # A stream-start map may still be in flight, so "mapping" also counts —
+    # otherwise voice UDP was skipped and stayed LAN-only until the next tick.
+    if mapped or mapping or _stream_active():
         ensure(reason="voice", voice=True)
 
 

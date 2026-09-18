@@ -39,9 +39,10 @@ class InviteJoinTests(unittest.TestCase):
         )
         ident.start()
         self.addCleanup(ident.stop)
-        slot = mock.patch("host_tuning.couch_coop.next_empty_slot", return_value=2)
-        slot.start()
-        self.addCleanup(slot.stop)
+        from host_tuning import couch_coop
+
+        couch_coop.reset_slots()
+        self.addCleanup(couch_coop.reset_slots)
         joined = mock.patch(
             "host_tuning.couch_coop.on_join_accepted", return_value={"ok": True}
         )
@@ -85,7 +86,8 @@ class InviteJoinTests(unittest.TestCase):
         self.assertTrue(auto.get("ok"), auto)
         self.assertTrue(auto.get("preauth"))
         self.assertEqual(auto.get("status"), "accepted")
-        self.assertEqual(auto.get("playerSlot"), 2)
+        # First guest of the session takes the first free seat.
+        self.assertEqual(auto.get("playerSlot"), 1)
         pending = join_request.pending()
         ids = [r.get("reqId") for r in pending.get("requests") or []]
         self.assertNotIn(auto["reqId"], ids)

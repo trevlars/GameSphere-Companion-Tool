@@ -7,11 +7,18 @@ import sys
 from typing import Any, Dict, List, Optional, Sequence
 
 
+def no_window_creationflags() -> int:
+    """Hide the console for a command we wait on (and whose output we capture)."""
+    if sys.platform != "win32":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
 def hidden_creationflags() -> int:
-    flags = 0
+    """Hide the console and detach — for fire-and-forget background processes."""
+    flags = no_window_creationflags()
     if sys.platform != "win32":
         return flags
-    flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     flags |= getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
     flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
     return flags
@@ -71,6 +78,6 @@ def run_hidden(
     if text:
         kwargs["text"] = True
     if sys.platform == "win32":
-        kwargs["creationflags"] = hidden_creationflags()
+        kwargs["creationflags"] = no_window_creationflags()
         kwargs["startupinfo"] = hidden_startupinfo()
     return subprocess.run(list(cmd), **kwargs)
