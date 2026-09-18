@@ -184,14 +184,14 @@ Change `Environment=HOST=` for Apollo vs Sunshine. Override paths with `Environm
 **Linux (SteamOS, Bazzite, immutable distros, generic desktop):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/scripts/install-linux.sh | bash
+curl -fsSL https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main/scripts/install-linux.sh | bash
 ```
 
 Ship that one-liner in post-install, first-boot, or add a distro package that installs `/usr/bin/gamesphere-import`.
 
 **Windows installer:**
 
-Bundle `GamesphereImportTool.exe` from [GitHub Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases). GUI host selector sets `HOST=sunshine|apollo`.
+Bundle `GamesphereImportTool.exe` from [GitHub Releases](https://github.com/trevlars/GameSphere-Companion-Tool/releases). GUI host selector sets `HOST=sunshine|apollo`.
 
 ---
 
@@ -345,7 +345,7 @@ Lock-screen Wanna play: APNs Auth Key `.p8` + Key ID — [APNS.md](APNS.md). Nev
 
 ### GameSphere client
 
-- Library sync is host-side ([Companion Tool](https://github.com/trevlars/Gamesphere-Import-Tool)). GameSphere implements the bridge client in `GSHostCompanionBridge` / `GSHostStoreCatalog`:
+- Library sync is host-side ([Companion Tool](https://github.com/trevlars/GameSphere-Companion-Tool)). GameSphere implements the bridge client in `GSHostCompanionBridge` / `GSHostStoreCatalog`:
   - **`APPSTORES`** — store labels for IGDB platform hints (Steam, Epic, GOG, …)
   - **`PLAYTIMES`** — local Steam / Non-Steam hours + last played (no Web API key)
   - **`SESSIONDATA`** — telemetry every 15 s during a stream → host session grades
@@ -366,7 +366,7 @@ Lock-screen Wanna play: APNs Auth Key `.p8` + Key ID — [APNS.md](APNS.md). Nev
 > **Sync game library**  
 > Adds your installed Steam titles (and Non-Steam shortcuts) to this app list with cover art. Safe to run again after installing or removing games. Desktop, Big Picture, and your custom entries are kept.
 
-Link: `https://github.com/trevlars/Gamesphere-Import-Tool#quick-start`
+Link: `https://github.com/trevlars/GameSphere-Companion-Tool#quick-start`
 
 Optional second button:
 
@@ -385,7 +385,7 @@ We want this tool **in every streaming stack**. Useful PRs:
 - Packaged install for your distro (Bazzite, ChimeraOS, …)
 - Link from your host README to this doc
 
-**Tool bugs:** [Gamesphere-Import-Tool issues](https://github.com/trevlars/Gamesphere-Import-Tool/issues)  
+**Tool bugs:** [GameSphere-Companion-Tool issues](https://github.com/trevlars/GameSphere-Companion-Tool/issues)  
 **Sunshine:** [LizardByte/Sunshine](https://github.com/LizardByte/Sunshine)  
 **Apollo:** [ClassicOldSong/Apollo](https://github.com/ClassicOldSong/Apollo)  
 **GameSphere client:** [trevlars/GameSphere](https://github.com/trevlars/GameSphere)

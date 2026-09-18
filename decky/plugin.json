@@ -5,6 +5,6 @@
   "publish": {
     "tags": ["streaming", "sunshine", "gamesphere"],
     "description": "Import Steam into Sunshine, host tuning, and GameSphere bridge from Game Mode.",
-    "image": "https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/assets/readme-screenshot.png"
+    "image": "https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main/assets/readme-screenshot.png"
   }
 }

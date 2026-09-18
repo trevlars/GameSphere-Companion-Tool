@@ -14,11 +14,11 @@ fi
 
 TAG="${GAMESPHERE_IMPORT_REF:-}"
 if [[ -n "$TAG" ]]; then
-  BASE="https://github.com/trevlars/Gamesphere-Import-Tool/releases/download/${TAG}"
-  RAW="https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/${TAG}"
+  BASE="https://github.com/trevlars/GameSphere-Companion-Tool/releases/download/${TAG}"
+  RAW="https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/${TAG}"
 else
-  BASE="https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download"
-  RAW="https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main"
+  BASE="https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest/download"
+  RAW="https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main"
 fi
 BUNDLE="${TMPDIR:-/tmp}/io.github.trevlars.GamesphereImportTool.flatpak"
 LIB_TMP="$(mktemp)"

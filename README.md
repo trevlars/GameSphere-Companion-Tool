@@ -13,7 +13,7 @@ No manual `apps.json` editing. Someone who is not the original author can downlo
 </p>
 
 <p align="center">
-  <a href="https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest"><strong>⬇ Download latest release</strong></a>
+  <a href="https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest"><strong>⬇ Download latest release</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/USER-GUIDE.md">Full user guide</a>
   &nbsp;·&nbsp;
@@ -24,7 +24,7 @@ No manual `apps.json` editing. Someone who is not the original author can downlo
 
 ## New Sunshine PC — from download to Invite
 
-1. **Download** the latest [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
+1. **Download** the latest [release](https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest).
 2. **Install** (Windows `.exe` as administrator, or Linux `install-linux.sh` / Flatpak script below).
 3. The **host daemon starts automatically** (`gamesphere-host-bridge`). Closing the importer does not stop it.
 4. Companion writes recommended Sunshine settings (`gamepad = x360`, never publish **47990**, `upnp` / `wan_encryption` / `origin_web_ui_allowed`) and opens game ports via **UPnP / NAT-PMP** when someone invites or a stream starts. Turn **UPnP** on on the router once.
@@ -54,7 +54,7 @@ Built for [GameSphere](https://github.com/trevlars/GameSphere) and works with **
 
 ### Windows — easiest if you use a gaming PC as the host
 
-1. Open **[Releases → Latest](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest)** and download **`GamesphereImportTool.exe`**.
+1. Open **[Releases → Latest](https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest)** and download **`GamesphereImportTool.exe`**.
 2. **Right-click → Run as administrator** (needed to write Sunshine/Apollo config under Program Files).
 3. Choose **Sunshine** or **Apollo**, then click **Run importer**.
 
@@ -73,14 +73,14 @@ Opt out: `GAMESPHERE_ENABLE_HOST_BRIDGE=0`, or `--host-daemon-uninstall`.
 **Recommended — one command (Flatpak):**
 
 ```bash
-curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-flatpak.sh | bash
+curl -fsSL https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest/download/install-flatpak.sh | bash
 flatpak run io.github.trevlars.GamesphereImportTool
 ```
 
 **Portable — AppImage (no install):**
 
 ```bash
-curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/GameSphere-Import-Tool-x86_64.AppImage -O
+curl -fsSL https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest/download/GameSphere-Import-Tool-x86_64.AppImage -O
 chmod +x GameSphere-Import-Tool-x86_64.AppImage
 ./GameSphere-Import-Tool-x86_64.AppImage
 ```
@@ -91,7 +91,7 @@ AppImage does **not** enable the daemon or udev by itself — use the Flatpak or
 <summary><strong>Shell installer</strong> — git checkout, host daemon, linger, udev, Decky</summary>
 
 ```bash
-curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-linux.sh | bash
+curl -fsSL https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest/download/install-linux.sh | bash
 ```
 
 That enables:
@@ -127,7 +127,7 @@ Steam-only CLI from source — see [User guide → macOS](docs/USER-GUIDE.md#mac
 
 You usually **do not** need a `.env` file on a standard Sunshine install.
 
-**Updates** happen from [GitHub Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest):
+**Updates** happen from [GitHub Releases](https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest):
 
 | Platform | How it stays current |
 |----------|----------------------|
@@ -208,7 +208,7 @@ CLI reference and all flags: **[docs/USER-GUIDE.md → Command reference](docs/U
 
 ## What's new
 
-Latest: **v1.5.16** — see [CHANGELOG.md](CHANGELOG.md). Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
+Latest: **v1.5.16** — see [CHANGELOG.md](CHANGELOG.md). Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest).
 
 Full history: **[CHANGELOG.md](CHANGELOG.md)**
 

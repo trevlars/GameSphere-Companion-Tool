@@ -295,6 +295,6 @@ function Content() {
 export default definePlugin(() => ({
   title: <div className="gamesphere-import-title">GameSphere Import</div>,
   content: <Content />,
-  icon: "https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/assets/readme-screenshot.png",
+  icon: "https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main/assets/readme-screenshot.png",
   onDismount() {},
 }));

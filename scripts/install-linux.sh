@@ -45,9 +45,9 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
 else
   echo "==> Cloning repository..."
   if [[ -n "$REF" ]]; then
-    git clone --branch "$REF" https://github.com/trevlars/Gamesphere-Import-Tool.git "$INSTALL_DIR"
+    git clone --branch "$REF" https://github.com/trevlars/GameSphere-Companion-Tool.git "$INSTALL_DIR"
   else
-    git clone https://github.com/trevlars/Gamesphere-Import-Tool.git "$INSTALL_DIR"
+    git clone https://github.com/trevlars/GameSphere-Companion-Tool.git "$INSTALL_DIR"
   fi
 fi
 
@@ -67,8 +67,8 @@ _gs_load_autoupdate_lib() {
   fi
   local tmp
   tmp="$(mktemp)"
-  if curl -fsSL "https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/${REF:-main}/scripts/linux-autoupdate-lib.sh" -o "$tmp" \
-    || curl -fsSL "https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/scripts/linux-autoupdate-lib.sh" -o "$tmp"; then
+  if curl -fsSL "https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/${REF:-main}/scripts/linux-autoupdate-lib.sh" -o "$tmp" \
+    || curl -fsSL "https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main/scripts/linux-autoupdate-lib.sh" -o "$tmp"; then
     # shellcheck disable=SC1090
     source "$tmp"
     return 0

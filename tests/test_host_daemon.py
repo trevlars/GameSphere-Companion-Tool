@@ -58,7 +58,7 @@ class HostDaemonArtifactTests(unittest.TestCase):
     def test_macos_plist_keepalive(self):
         plist = hd.macos_plist_body(
             ["/usr/bin/python3", "/tmp/main.py", "--host-bridge"],
-            "/tmp/Gamesphere-Import-Tool",
+            "/tmp/GameSphere-Companion-Tool",
         )
         self.assertIn("<key>KeepAlive</key>", plist)
         self.assertIn("<true/>", plist)

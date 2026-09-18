@@ -13,13 +13,13 @@ You need the Companion Tool installed on the host **once**. Pick either:
 **Flatpak (easiest):**
 
 ```bash
-curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-flatpak.sh | bash
+curl -fsSL https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest/download/install-flatpak.sh | bash
 ```
 
 **Or shell install** (same as older docs — also enables the daily auto-update timer):
 
 ```bash
-curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-linux.sh | bash
+curl -fsSL https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest/download/install-linux.sh | bash
 ```
 
 Sunshine should be running: `systemctl --user status sunshine`

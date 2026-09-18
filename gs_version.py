@@ -2,7 +2,7 @@
 
 __version__ = "1.5.16"
 GITHUB_OWNER = "trevlars"
-GITHUB_REPO = "Gamesphere-Import-Tool"
+GITHUB_REPO = "GameSphere-Companion-Tool"
 GITHUB_RELEASES_API = (
     f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
 )

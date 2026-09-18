@@ -15,7 +15,7 @@ APPIMAGE="${GAMESPHERE_APPIMAGE:-$HOME/.local/bin/GameSphere-Import-Tool-x86_64.
 if [[ ! -x "$APPIMAGE" && -x "$HOME/.local/bin/GameSphere-Import-Tool.AppImage" ]]; then
   APPIMAGE="$HOME/.local/bin/GameSphere-Import-Tool.AppImage"
 fi
-API="https://api.github.com/repos/trevlars/Gamesphere-Import-Tool/releases?per_page=20"
+API="https://api.github.com/repos/trevlars/GameSphere-Companion-Tool/releases?per_page=20"
 
 META="$(mktemp)"
 cleanup() { rm -f "$META"; }

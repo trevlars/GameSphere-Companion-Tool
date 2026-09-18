@@ -8,7 +8,7 @@ Plain-language help for **GameSphere Companion Tool** (the import wizard plus th
 
 Any Sunshine (or Apollo) PC. You do not SSH into a specific host, and you do not copy leftover helper scripts by hand.
 
-1. **Download** the latest [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
+1. **Download** the latest [release](https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest).
 2. **Install**
    - Windows: `GamesphereImportTool.exe` → Run as administrator. Daemon registers at logon (`--host-daemon-install`).
    - Linux: `install-linux.sh` or `install-flatpak.sh` (not AppImage alone). Enables `gamesphere-host-bridge.service` + linger.
@@ -34,7 +34,7 @@ Verbs the daemon serves: JOINPIN, INVITE, JOINREQ / JOINACK, WANNAPLAY, PLAYREG 
 
 ### Install
 
-1. [Download `GamesphereImportTool.exe`](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest) from Releases.
+1. [Download `GamesphereImportTool.exe`](https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest) from Releases.
 2. **Right-click → Run as administrator.**
 3. In the app, pick **Sunshine** or **Apollo** (buttons at the top).
 4. Click **Run importer**.
@@ -64,7 +64,7 @@ Opt out: `GAMESPHERE_ENABLE_HOST_BRIDGE=0`, or `GamesphereImportTool.exe --host-
 One command installs from the GitHub release bundle:
 
 ```bash
-curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-flatpak.sh | bash
+curl -fsSL https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest/download/install-flatpak.sh | bash
 ```
 
 That command also enables **`gamesphere-import-update.timer`** and the **`gamesphere-host-bridge`** user service (login/boot, restart on crash, journal logs). Downloading only the `.flatpak` bundle does not; use the install script for unattended updates and the always-on daemon.
@@ -87,7 +87,7 @@ flatpak install flathub org.freedesktop.Platform//24.08
 Download, make executable, run — nothing installed system-wide:
 
 ```bash
-curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/GameSphere-Import-Tool-x86_64.AppImage -O
+curl -fsSL https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest/download/GameSphere-Import-Tool-x86_64.AppImage -O
 chmod +x GameSphere-Import-Tool-x86_64.AppImage
 ./GameSphere-Import-Tool-x86_64.AppImage --dry-run
 ./GameSphere-Import-Tool-x86_64.AppImage
@@ -100,7 +100,7 @@ Move the file to `~/Applications` or `~/.local/bin` if you want it always handy.
 Creates `~/.local/bin/gamesphere-import` and a full source tree under `~/.local/share/gamesphere-import-tool`:
 
 ```bash
-curl -fsSL https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest/download/install-linux.sh | bash
+curl -fsSL https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest/download/install-linux.sh | bash
 gamesphere-import --dry-run
 gamesphere-import
 ```
@@ -148,8 +148,8 @@ The plugin supports dry run, skip restart, host tuning, and bridge toggle — sa
 macOS is **CLI only** (no GUI). Steam library import is supported; multi-store Windows scanners are not.
 
 ```bash
-git clone https://github.com/trevlars/Gamesphere-Import-Tool.git
-cd Gamesphere-Import-Tool
+git clone https://github.com/trevlars/GameSphere-Companion-Tool.git
+cd GameSphere-Companion-Tool
 uv sync
 uv run main.py --auto-config
 uv run main.py --dry-run
@@ -265,7 +265,7 @@ See [`.env.example`](../.env.example). Common overrides:
 
 ## Updates
 
-New versions come from [GitHub Releases](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest). Testers do **not** need to `git pull`.
+New versions come from [GitHub Releases](https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest). Testers do **not** need to `git pull`.
 
 | Platform | How |
 |----------|-----|
@@ -273,7 +273,7 @@ New versions come from [GitHub Releases](https://github.com/trevlars/Gamesphere-
 | **Linux** | `install-linux.sh` / `install-flatpak.sh` enable `gamesphere-import-update.timer` (linger when needed) so the newest release applies daily and ~5 minutes after boot. Manual: `gamesphere-import --apply-update`. |
 | **macOS** | No `.app` timer. Source tree: `uv run main.py --apply-update`. |
 | **AppImage** | Portable — no timer. `--apply-update`, or use Flatpak / `install-linux.sh`. |
-| **Any** | Re-run `install-flatpak.sh` / `install-linux.sh`, or download the latest [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest). |
+| **Any** | Re-run `install-flatpak.sh` / `install-linux.sh`, or download the latest [release](https://github.com/trevlars/GameSphere-Companion-Tool/releases/latest). |
 
 Disable the Linux timer: `systemctl --user disable --now gamesphere-import-update.timer` or `GAMESPHERE_AUTO_UPDATE=0`.
 

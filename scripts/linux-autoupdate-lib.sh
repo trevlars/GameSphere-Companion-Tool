@@ -137,7 +137,7 @@ gs_host_bridge_unit_body() {
   cat <<'EOF'
 [Unit]
 Description=GameSphere Companion host daemon (TCP 47998)
-Documentation=https://github.com/trevlars/Gamesphere-Import-Tool/blob/main/docs/HOST_INTEGRATION.md
+Documentation=https://github.com/trevlars/GameSphere-Companion-Tool/blob/main/docs/HOST_INTEGRATION.md
 After=network-online.target
 Wants=network-online.target
 
@@ -208,7 +208,7 @@ gs_install_linux_host_stack() {
   local fw_src="$install_dir/scripts/gamesphere-host-firewall.sh"
   local udev_src="$install_dir/scripts/udev/99-gamesphere-hide-steam-clones.rules"
   local bindir="$HOME/.local/bin"
-  local raw="https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main"
+  local raw="https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main"
   mkdir -p "$bindir"
   if [[ ! -f "$hide_src" ]]; then
     hide_src="$(mktemp)"

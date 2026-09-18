@@ -92,7 +92,7 @@ function Content() {
 var index = DFL.definePlugin(() => ({
     title: SP_JSX.jsx("div", { className: "gamesphere-import-title", children: "GameSphere Import" }),
     content: SP_JSX.jsx(Content, {}),
-    icon: "https://raw.githubusercontent.com/trevlars/Gamesphere-Import-Tool/main/assets/readme-screenshot.png",
+    icon: "https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main/assets/readme-screenshot.png",
     onDismount() { },
 }));
 

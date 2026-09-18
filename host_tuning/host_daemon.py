@@ -181,7 +181,7 @@ def linux_unit_body() -> str:
     return (
         "[Unit]\n"
         "Description=GameSphere Companion host daemon (TCP 47998)\n"
-        "Documentation=https://github.com/trevlars/Gamesphere-Import-Tool/blob/main/docs/HOST_INTEGRATION.md\n"
+        "Documentation=https://github.com/trevlars/GameSphere-Companion-Tool/blob/main/docs/HOST_INTEGRATION.md\n"
         "After=network-online.target\n"
         "Wants=network-online.target\n"
         "# Ordering only — never BindsTo/PartOf Sunshine. Restarting this unit must\n"

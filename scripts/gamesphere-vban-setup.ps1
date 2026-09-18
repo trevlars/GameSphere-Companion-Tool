@@ -203,7 +203,7 @@ switch ($Action) {
     "open-docs" {
         $doc = Join-Path $PSScriptRoot "..\docs\MIC-TO-PC.md"
         if (Test-Path $doc) { Start-Process $doc }
-        else { Start-Process "https://github.com/trevlars/Gamesphere-Import-Tool/blob/main/docs/MIC-TO-PC.md" }
+        else { Start-Process "https://github.com/trevlars/GameSphere-Companion-Tool/blob/main/docs/MIC-TO-PC.md" }
         break
     }
     "info" {

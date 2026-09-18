@@ -1,6 +1,6 @@
 [Unit]
 Description=GameSphere Companion host daemon (TCP 47998)
-Documentation=https://github.com/trevlars/Gamesphere-Import-Tool/blob/main/docs/HOST_INTEGRATION.md
+Documentation=https://github.com/trevlars/GameSphere-Companion-Tool/blob/main/docs/HOST_INTEGRATION.md
 After=network-online.target
 Wants=network-online.target
 # Ordering only — never BindsTo/PartOf Sunshine. Restarting this unit must
