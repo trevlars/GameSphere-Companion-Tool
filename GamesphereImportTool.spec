@@ -1,4 +1,4 @@
-# PyInstaller spec for Gamesphere Import Tool (Windows .exe)
+# PyInstaller spec for GameSphere Companion Tool (Windows .exe)
 # Build on Windows: pyinstaller GamesphereImportTool.spec
 # Or: uv run pyinstaller GamesphereImportTool.spec
 

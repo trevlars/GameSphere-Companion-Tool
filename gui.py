@@ -1,5 +1,5 @@
 """
-Gamesphere Import Tool — Windows GUI.
+GameSphere Companion Tool — Windows GUI.
 Configure paths, API key, and run the importer for Sunshine or Apollo.
 """
 
@@ -129,7 +129,7 @@ def save_env_to_file(values, host="sunshine"):
     """Write config dict to .env."""
     path = get_dotenv_path()
     lines = [
-        "# Gamesphere Import Tool configuration",
+        "# GameSphere Companion Tool configuration",
         "# Edit here or use the GUI. HOST = sunshine | apollo",
         "",
         f"HOST={host}",
@@ -299,7 +299,7 @@ class SunshineGUI:
             ctk.set_appearance_mode("dark")
             ctk.set_default_color_theme("blue")
         self.root = ctk.CTk() if HAS_CTK else tk.Tk()
-        self.root.title(f"GameSphere Import Tool  v{APP_VERSION}")
+        self.root.title(f"GameSphere Companion Tool  v{APP_VERSION}")
         self.root.minsize(640, 620)
         self.root.geometry("760x820")
         self._set_app_icon()
@@ -806,7 +806,7 @@ class SunshineGUI:
             "Download and install it now? The app will relaunch after the update."
             f"{extra}"
         )
-        if not messagebox.askyesno("Update GameSphere Import Tool", msg):
+        if not messagebox.askyesno("Update GameSphere Companion Tool", msg):
             return
         self._apply_update_now(info)
 
@@ -904,7 +904,7 @@ class SunshineGUI:
         except tk.TclError:
             return  # window went away mid-update
         for text in banners:
-            self.root.after(0, lambda t=text: messagebox.showinfo("GameSphere Import Tool", t))
+            self.root.after(0, lambda t=text: messagebox.showinfo("GameSphere Companion Tool", t))
         self._schedule_poll()
 
     def _trim_log(self):
@@ -959,7 +959,7 @@ def main():
         app = SunshineGUI()
         app.run()
     except Exception as e:
-        messagebox.showerror("GameSphere Import Tool — Error", f"The application failed to start:\n\n{e}")
+        messagebox.showerror("GameSphere Companion Tool — Error", f"The application failed to start:\n\n{e}")
         raise
 
 

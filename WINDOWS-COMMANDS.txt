@@ -1,4 +1,4 @@
-Gamesphere Import Tool — Windows commands
+GameSphere Companion Tool — Windows commands
 =========================================
 
 Run from the repo folder in PowerShell or Command Prompt:

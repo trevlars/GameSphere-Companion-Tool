@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily GameSphere Import Tool update check
+Description=Daily GameSphere Companion Tool update check
 
 [Timer]
 OnBootSec=5min

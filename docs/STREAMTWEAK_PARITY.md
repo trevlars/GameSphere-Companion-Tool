@@ -1,6 +1,6 @@
 # StreamTweak feature parity
 
-GameSphere Import Tool adapts host-side ideas from [StreamTweak](https://github.com/FoggyBytes/StreamTweak) (FoggyBytes, GPL-3.0). This document is an honest map of what is ported, partial, or intentionally out of scope for a **cross-platform, host-agnostic CLI**.
+GameSphere Companion Tool adapts host-side ideas from [StreamTweak](https://github.com/FoggyBytes/StreamTweak) (FoggyBytes, GPL-3.0). This document is an honest map of what is ported, partial, or intentionally out of scope for a **cross-platform, host-agnostic CLI**.
 
 StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compatible host** + **any Moonlight client** (including [GameSphere](https://github.com/trevlars/GameSphere)).
 
@@ -12,14 +12,14 @@ StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compati
 |--------|---------|
 | ✅ | Implemented (Windows + Linux where noted) |
 | 🟡 | Partial / best-effort |
-| ⬜ | Not planned in Import Tool (StreamTweak UI/service territory) |
+| ⬜ | Not planned in Companion Tool (StreamTweak UI/service territory) |
 | 🔌 | Bridge verb available for clients |
 
 ---
 
 ## Network
 
-| StreamTweak | Import Tool | Notes |
+| StreamTweak | Companion Tool | Notes |
 |-------------|-------------|-------|
 | Client-driven link speed (`NETINFO` / `SETSPEED`) | ✅ 🔌 | Windows PowerShell; Linux `ethtool` (may need root) |
 | Wired-only guard | 🟡 | Client should refuse Wi‑Fi; host does not enforce Tailscale source yet |
@@ -31,7 +31,7 @@ StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compati
 
 ## Launch & lock state
 
-| StreamTweak | Import Tool | Notes |
+| StreamTweak | Companion Tool | Notes |
 |-------------|-------------|-------|
 | Launch report (`GAMESTATE`) | 🟡 🔌 | Process + log heuristic; not full launcher-aware window watch |
 | Remote PIN unlock (`LOCKSTATE`) | 🟡 🔌 | Lock detection only; client sends PIN over stream |
@@ -42,7 +42,7 @@ StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compati
 
 ## Display & audio
 
-| StreamTweak | Import Tool | Notes |
+| StreamTweak | Companion Tool | Notes |
 |-------------|-------------|-------|
 | Per-monitor HDR toggle | 🟡 | Windows Auto HDR preference; Linux `wlr-randr` when available |
 | Auto spatial audio (Dolby / Sonic) | 🟡 | Device selection + user completes Windows spatial setting |
@@ -52,7 +52,7 @@ StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compati
 
 ## NVIDIA Sentinel
 
-| StreamTweak | Import Tool | Notes |
+| StreamTweak | Companion Tool | Notes |
 |-------------|-------------|-------|
 | Profile snapshot (.nip) | 🟡 | If NVIDIA Profile Inspector installed on Windows |
 | Auto-restore on driver reset | ⬜ | Needs background watcher + DRS port |
@@ -63,7 +63,7 @@ StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compati
 
 ## Game library sync
 
-| StreamTweak | Import Tool | Notes |
+| StreamTweak | Companion Tool | Notes |
 |-------------|-------------|-------|
 | Multi-store discovery | ✅ | Windows: Steam, Epic, GOG, Ubisoft, Battle.net, EA, Xbox |
 | Native cover art (600px+ rule) | ✅ | `store_covers.py` |
@@ -77,7 +77,7 @@ StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compati
 
 ## Streaming app manager
 
-| StreamTweak | Import Tool | Notes |
+| StreamTweak | Companion Tool | Notes |
 |-------------|-------------|-------|
 | Close on session start / reopen on end | ✅ | `managed_apps` in `host_tuning.json` + prep hooks |
 | Per-app exclude switch | ✅ | `auto_manage: false` |
@@ -86,7 +86,7 @@ StreamTweak targets **Windows + StreamLight**. We target **any Moonlight-compati
 
 ## Sessions & telemetry
 
-| StreamTweak | Import Tool | Notes |
+| StreamTweak | Companion Tool | Notes |
 |-------------|-------------|-------|
 | Session log + covers | ✅ | `sessions.json` |
 | Quality grade (Excellent/Good/Poor) | ✅ | From `SESSIONDATA` client samples |

@@ -1,6 +1,6 @@
 # GameSphere Companion Tool
 
-Formerly **GameSphere Import Tool**. Same GitHub repo and `gamesphere-import` command for now.
+Formerly **GameSphere Companion Tool**. Same GitHub repo and `gamesphere-import` command for now.
 
 **Fill Sunshine or Apollo with your game library, then keep the host paired with GameSphere** — cover art, always-on host daemon, couch co-op pads, WAN invites, and in-stream voice.
 
@@ -208,7 +208,7 @@ CLI reference and all flags: **[docs/USER-GUIDE.md → Command reference](docs/U
 
 ## What's new
 
-Latest: **v1.5.15** — see [CHANGELOG.md](CHANGELOG.md). Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
+Latest: **v1.5.16** — see [CHANGELOG.md](CHANGELOG.md). Flatpak, AppImage, and Windows `.exe` on every [release](https://github.com/trevlars/Gamesphere-Import-Tool/releases/latest).
 
 Full history: **[CHANGELOG.md](CHANGELOG.md)**
 

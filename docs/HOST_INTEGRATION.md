@@ -1,8 +1,8 @@
-# Integrating GameSphere Import Tool into any Moonlight host
+# Integrating GameSphere Companion Tool into any Moonlight host
 
 This document is for **maintainers of game-streaming hosts and clients** — [Sunshine](https://github.com/LizardByte/Sunshine), [Apollo](https://github.com/ClassicOldSong/Apollo), Vibeshine, Vibepollo, [GameSphere](https://github.com/trevlars/GameSphere), Decky plugins, distro images, or your own fork.
 
-GameSphere Import Tool is a **library importer plus an always-on host daemon**. The GUI/CLI import is optional after first setup. `gamesphere-host-bridge` must stay up for JOINPIN, couch coop, WAN maps, and in-stream voice.
+GameSphere Companion Tool is a **library importer plus an always-on host daemon**. The GUI/CLI import is optional after first setup. `gamesphere-host-bridge` must stay up for JOINPIN, couch coop, WAN maps, and in-stream voice.
 
 **Related docs**
 
@@ -161,7 +161,7 @@ WantedBy=timers.target
 ```ini
 # ~/.config/systemd/user/gamesphere-import.service
 [Unit]
-Description=GameSphere Import Tool
+Description=GameSphere Companion Tool
 
 [Service]
 Type=oneshot
@@ -345,7 +345,7 @@ Lock-screen Wanna play: APNs Auth Key `.p8` + Key ID — [APNS.md](APNS.md). Nev
 
 ### GameSphere client
 
-- Library sync is host-side ([Import Tool](https://github.com/trevlars/Gamesphere-Import-Tool)). GameSphere implements the bridge client in `GSHostCompanionBridge` / `GSHostStoreCatalog`:
+- Library sync is host-side ([Companion Tool](https://github.com/trevlars/Gamesphere-Import-Tool)). GameSphere implements the bridge client in `GSHostCompanionBridge` / `GSHostStoreCatalog`:
   - **`APPSTORES`** — store labels for IGDB platform hints (Steam, Epic, GOG, …)
   - **`PLAYTIMES`** — local Steam / Non-Steam hours + last played (no Web API key)
   - **`SESSIONDATA`** — telemetry every 15 s during a stream → host session grades
@@ -371,7 +371,7 @@ Link: `https://github.com/trevlars/Gamesphere-Import-Tool#quick-start`
 Optional second button:
 
 > **Advanced: host tuning**  
-> Optional link-speed matching, session stats, and background app management. Requires GameSphere Import Tool 1.2+ and a compatible Moonlight client.
+> Optional link-speed matching, session stats, and background app management. Requires GameSphere Companion Tool 1.2+ and a compatible Moonlight client.
 
 ---
 

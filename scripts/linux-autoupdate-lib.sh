@@ -7,7 +7,7 @@
 gs_update_service_body() {
   cat <<'EOF'
 [Unit]
-Description=GameSphere Import Tool auto-update from GitHub Releases
+Description=GameSphere Companion Tool auto-update from GitHub Releases
 After=network-online.target
 Wants=network-online.target
 
@@ -25,7 +25,7 @@ EOF
 gs_update_timer_body() {
   cat <<'EOF'
 [Unit]
-Description=Daily GameSphere Import Tool update check
+Description=Daily GameSphere Companion Tool update check
 
 [Timer]
 OnBootSec=5min
@@ -53,7 +53,7 @@ gs_write_git_path_wrapper() {
   mkdir -p "$(dirname "$bin_link")"
   cat >"$bin_link" <<EOF
 #!/usr/bin/env bash
-# GameSphere Import Tool — git/Decky checkout.
+# GameSphere Companion Tool — git/Decky checkout.
 # Lives in ~/.local/bin so leftover Flatpak exports cannot steal this command.
 set -euo pipefail
 export PATH="\$HOME/.local/bin:\${PATH}"

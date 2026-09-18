@@ -1,5 +1,5 @@
 """
-Host-side streaming tuning for GameSphere Import Tool.
+Host-side streaming tuning for GameSphere Companion Tool.
 
 Patterns adapted from StreamTweak (https://github.com/FoggyBytes/StreamTweak) — GPL-3.0.
 """

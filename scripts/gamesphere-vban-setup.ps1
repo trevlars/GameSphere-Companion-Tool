@@ -190,7 +190,7 @@ function Write-StatusHtml {
 <p>Port <code>$Port</code> · stream <code>$StreamName</code></p>
 <ul>$ipList</ul>
 <p>Discord / OBS microphone: <b>CABLE Output</b> (VB-Audio Virtual Cable).</p>
-<p>Import Tool’s VBAN feeder plays the phone into <b>CABLE Input</b>. Keep the feeder running (it starts at logon after setup). Allow UDP $Port if the firewall prompts.</p>
+<p>Companion Tool’s VBAN feeder plays the phone into <b>CABLE Input</b>. Keep the feeder running (it starts at logon after setup). Allow UDP $Port if the firewall prompts.</p>
 <p>If CABLE Output is missing, reboot once after installing VB-CABLE.</p>
 </body></html>
 "@
@@ -224,7 +224,7 @@ switch ($Action) {
     }
     "setup" {
         Write-Host "=== GameSphere Mic to PC — automatic setup ==="
-        Write-Host "Uses VB-CABLE (VB-Audio donationware) + Import Tool’s VBAN feeder."
+        Write-Host "Uses VB-CABLE (VB-Audio donationware) + Companion Tool’s VBAN feeder."
         Write-Host "Does not install VoiceMeeter."
         Write-Host ""
         $rc = Install-VBCable

@@ -4,7 +4,10 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
-Final cleanup from the stability audit.
+## [1.5.16] — 2026-09-18
+
+### Changed
+- **Renamed to GameSphere Companion Tool** everywhere it is shown to you: the app window, the Flatpak/desktop entry, the Deck plugin panel, update messages, systemd unit descriptions, installer output, and all docs. The command (`gamesphere-import`), Flatpak app ID, release filenames, and repo URL are unchanged, so existing installs and auto-update keep working.
 
 ### Fixed
 - **Deck bridge toggle** no longer reinstalls unit files when you switch the bridge *off* — a stale install dir could overwrite a working unit or leave the toggle stuck.

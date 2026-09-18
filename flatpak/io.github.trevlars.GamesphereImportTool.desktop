@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=GameSphere Import Tool
+Name=GameSphere Companion Tool
 Comment=Sync Steam libraries into Sunshine for GameSphere streaming
 Exec=gamesphere-import
 Icon=io.github.trevlars.GamesphereImportTool

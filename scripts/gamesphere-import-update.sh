@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unattended GameSphere Import Tool update from GitHub Releases.
+# Unattended GameSphere Companion Tool update from GitHub Releases.
 # Updates git / Flatpak / AppImage installs in place. Does not import games or
 # restart Sunshine/Steam. Opt out: GAMESPHERE_AUTO_UPDATE=0
 set -euo pipefail
@@ -188,7 +188,7 @@ if [[ -f "$APPIMAGE" ]] && [[ -n "${APPIMAGE_URL:-}" ]]; then
 fi
 
 if [[ "$updated" -eq 0 ]]; then
-  echo "==> Already up to date ($TAG), or no Import Tool install found."
+  echo "==> Already up to date ($TAG), or no Companion Tool install found."
 fi
 
 # Refresh the always-on host daemon after a code update. Never restart Sunshine.

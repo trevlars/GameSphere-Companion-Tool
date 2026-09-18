@@ -71,7 +71,7 @@ function Content() {
     const appsPath = status?.paths?.sunshine_apps_json_path || "—";
     const linkMbps = status?.host_tuning?.link?.current_mbps;
     const sessions = status?.host_tuning?.sessions_count ?? 0;
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Status", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Import Tool", children: status === null
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Status", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Companion Tool", children: status === null
                                 ? "…"
                                 : installed
                                     ? status.version || "Installed"

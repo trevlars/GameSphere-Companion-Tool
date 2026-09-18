@@ -195,7 +195,7 @@ Re-running import is safe — it refreshes the list and fixes older launch/quit 
 
 Same button on every OS: **Set up mic for GameSphere** (Windows GUI) or `gamesphere-import --setup-mic`.
 
-GameSphere sends the phone mic over VBAN (stream `GameSphere`, UDP `6980`). The Import Tool configures the PC receiver and shows your LAN IP — then you paste that IP in GameSphere → **Send mic to PC**.
+GameSphere sends the phone mic over VBAN (stream `GameSphere`, UDP `6980`). The Companion Tool configures the PC receiver and shows your LAN IP — then you paste that IP in GameSphere → **Send mic to PC**.
 
 - **Windows:** installs VB-CABLE (VB-Audio donationware; you accept the license) and starts a small OSS feeder into **CABLE Input**. Discord uses **CABLE Output**. No VoiceMeeter.
 - **Linux:** PipeWire OSS VBAN module.

@@ -1,4 +1,4 @@
-"""DeckyLoader backend for GameSphere Import Tool."""
+"""DeckyLoader backend for GameSphere Companion Tool."""
 
 from __future__ import annotations
 

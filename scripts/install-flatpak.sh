@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install GameSphere Import Tool from the GitHub Release Flatpak bundle.
+# Install GameSphere Companion Tool from the GitHub Release Flatpak bundle.
 set -euo pipefail
 
 # curl | bash pipes the script on stdin. flatpak can echo terminal CSI responses
@@ -25,7 +25,7 @@ LIB_TMP="$(mktemp)"
 cleanup() { rm -f "$LIB_TMP"; }
 trap cleanup EXIT
 
-echo "==> GameSphere Import Tool (${TAG:-latest}) — Flatpak install"
+echo "==> GameSphere Companion Tool (${TAG:-latest}) — Flatpak install"
 curl -fsSL "${BASE}/io.github.trevlars.GamesphereImportTool.flatpak" -o "${BUNDLE}"
 flatpak install --user -y "${BUNDLE}" </dev/null
 rm -f "${BUNDLE}"
@@ -52,7 +52,7 @@ else
     mkdir -p "$unit_dir"
     cat >"$unit_dir/gamesphere-import-update.service" <<'EOF'
 [Unit]
-Description=GameSphere Import Tool auto-update from GitHub Releases
+Description=GameSphere Companion Tool auto-update from GitHub Releases
 After=network-online.target
 Wants=network-online.target
 
@@ -67,7 +67,7 @@ WantedBy=default.target
 EOF
     cat >"$unit_dir/gamesphere-import-update.timer" <<'EOF'
 [Unit]
-Description=Daily GameSphere Import Tool update check
+Description=Daily GameSphere Companion Tool update check
 
 [Timer]
 OnBootSec=5min

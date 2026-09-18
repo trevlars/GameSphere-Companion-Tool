@@ -1,5 +1,5 @@
 [Unit]
-Description=GameSphere Import Tool auto-update from GitHub Releases
+Description=GameSphere Companion Tool auto-update from GitHub Releases
 After=network-online.target
 Wants=network-online.target
 

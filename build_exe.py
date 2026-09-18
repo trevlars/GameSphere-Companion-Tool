@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build a standalone Windows .exe for Gamesphere Import Tool.
+Build a standalone Windows .exe for GameSphere Companion Tool.
 Run on Windows: uv run build_exe.py   or   python build_exe.py
 Requires: uv sync --extra build   or   pip install pyinstaller
 """

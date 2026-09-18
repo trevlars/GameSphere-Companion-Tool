@@ -66,7 +66,7 @@ def auto_update_enabled() -> bool:
 
 
 _UPDATE_SERVICE_BODY = """[Unit]
-Description=GameSphere Import Tool auto-update from GitHub Releases
+Description=GameSphere Companion Tool auto-update from GitHub Releases
 After=network-online.target
 Wants=network-online.target
 
@@ -81,7 +81,7 @@ WantedBy=default.target
 """
 
 _UPDATE_TIMER_BODY = """[Unit]
-Description=Daily GameSphere Import Tool update check
+Description=Daily GameSphere Companion Tool update check
 
 [Timer]
 OnBootSec=5min
@@ -736,7 +736,7 @@ def format_notice(info: Dict[str, Any]) -> str:
     if info.get("error"):
         return f"Update check failed: {info['error']}"
     if not info.get("newer"):
-        return f"GameSphere Import Tool {info['current']} is up to date."
+        return f"GameSphere Companion Tool {info['current']} is up to date."
     latest = info.get("latest") or info.get("tag")
     return (
         f"Version {latest} is available (you have {info['current']}).\n"

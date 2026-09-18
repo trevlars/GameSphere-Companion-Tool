@@ -269,7 +269,7 @@ def fetch_store_cover(
     """
     Fetch cover art using store-native sources first, then Steam Store search.
     fallback_fetch_by_name(name, api_key, grids_folder, file_safe_id) is optional
-    (SteamGridDB / existing Import Tool helper).
+    (SteamGridDB / existing Companion Tool helper).
     """
     dest = os.path.join(grids_folder, f"{file_safe_id}.png")
     if os.path.isfile(dest):

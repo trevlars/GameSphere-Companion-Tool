@@ -115,7 +115,7 @@ function Content() {
     <>
       <PanelSection title="Status">
         <PanelSectionRow>
-          <Field label="Import Tool">
+          <Field label="Companion Tool">
             {status === null
               ? "…"
               : installed

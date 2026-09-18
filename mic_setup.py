@@ -188,7 +188,7 @@ def _run_bash(script: str, *args: str, log: Optional[LogFn] = None) -> subproces
 def _windows_recording_hint() -> str:
     return (
         "In Discord, OBS, or games: set microphone to “CABLE Output” "
-        "(VB-Audio Virtual Cable). Import Tool’s feeder plays the phone into CABLE Input."
+        "(VB-Audio Virtual Cable). Companion Tool’s feeder plays the phone into CABLE Input."
     )
 
 
@@ -206,7 +206,7 @@ def setup_mic(
     log: Optional[LogFn] = None,
 ) -> MicSetupResult:
     """
-    Single entry point for Import Tool GUI / CLI.
+    Single entry point for Companion Tool GUI / CLI.
 
     On Windows, accept_third_party=True means the user accepted VB-Audio donationware
     terms for VB-CABLE download/install (we never bundle the driver).
