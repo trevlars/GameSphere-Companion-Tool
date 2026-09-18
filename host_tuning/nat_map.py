@@ -487,6 +487,7 @@ def _discover_igd() -> Optional[Dict[str, str]]:
     if cached and now - float(_IGD_CACHE.get("at") or 0) < 120:
         return cached
     persisted = _load_igd_cache()
+    persisted_dead = False
     if persisted:
         # Re-validate quickly; keep if SOAP still answers.
         ip = _soap_external_ip(persisted)
@@ -494,6 +495,7 @@ def _discover_igd() -> Optional[Dict[str, str]]:
             _IGD_CACHE["svc"] = persisted
             _IGD_CACHE["at"] = now
             return persisted
+        persisted_dead = True
     locations: List[str] = []
     sts = (
         "urn:schemas-upnp-org:service:WANIPConnection:2",
@@ -549,9 +551,26 @@ def _discover_igd() -> Optional[Dict[str, str]]:
             _IGD_CACHE["at"] = time.time()
             _save_igd_cache(svc)
             return svc
-    if persisted:
+    if persisted and not persisted_dead:
         return persisted
+    if persisted_dead:
+        # The saved router no longer answers SOAP (replaced, new IP, UPnP off).
+        # Returning it anyway made every port map wait out a 3s timeout.
+        _log.info("UPnP: cached gateway no longer responds — forgetting it")
+        _forget_igd_cache()
     return None
+
+
+def _forget_igd_cache() -> None:
+    _IGD_CACHE["svc"] = None
+    _IGD_CACHE["at"] = 0.0
+    path = _igd_cache_path()
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def _igd_cache_path() -> str:

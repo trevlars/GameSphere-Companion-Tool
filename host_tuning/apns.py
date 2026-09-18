@@ -38,6 +38,11 @@ _JWT_TTL = 50 * 60
 _lock = threading.Lock()
 _jwt_cache: Dict[str, Any] = {"token": "", "exp": 0.0, "sig": ""}
 
+# Repeated "Wanna play" taps used to spawn an unbounded number of sender
+# threads, each doing JWT signing + HTTP/2. Cap the concurrency instead.
+_MAX_SEND_THREADS = 2
+_send_slots = threading.BoundedSemaphore(_MAX_SEND_THREADS)
+
 _HEX_RE = re.compile(r"[^0-9a-fA-F]")
 
 
@@ -476,19 +481,27 @@ def notify_devices(
             return
 
         def _run() -> None:
-            collapse = f"gs.wannaplay.{session_id}" if session_id else "gs.wannaplay"
-            for uuid, token, env in jobs:
-                try:
-                    send_alert(
-                        token,
-                        payload,
-                        environment=env,
-                        collapse_id=collapse,
-                        expires=expires,
-                    )
-                except Exception:
-                    _log.debug("APNs send failed uuid=%s", uuid, exc_info=True)
+            try:
+                collapse = f"gs.wannaplay.{session_id}" if session_id else "gs.wannaplay"
+                for uuid, token, env in jobs:
+                    try:
+                        send_alert(
+                            token,
+                            payload,
+                            environment=env,
+                            collapse_id=collapse,
+                            expires=expires,
+                        )
+                    except Exception:
+                        _log.debug("APNs send failed uuid=%s", uuid, exc_info=True)
+            finally:
+                _send_slots.release()
 
+        # Wait briefly for a slot rather than dropping the push outright — a
+        # second invite is usually a different session, not a duplicate tap.
+        if not _send_slots.acquire(timeout=2.0):
+            _log.warning("APNs send skipped — %d sender(s) still busy", _MAX_SEND_THREADS)
+            return
         threading.Thread(target=_run, name="gs-apns", daemon=True).start()
     except Exception:
         _log.debug("APNs notify_devices failed", exc_info=True)

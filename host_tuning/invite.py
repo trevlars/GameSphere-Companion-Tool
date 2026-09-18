@@ -19,6 +19,11 @@ from host_tuning import sunshine_admin
 
 INVITE_TTL_SECONDS = 15 * 60
 
+# INVITE / JOINPIN / INVITEEND arrive on separate bridge threads. Without this,
+# two read-modify-write cycles could interleave and drop a guest UUID or an
+# "ended" flag (last writer wins).
+_lock = threading.RLock()
+
 
 def _invites_path() -> str:
     return os.path.join(config_dir(), "invites.json")
@@ -168,13 +173,14 @@ def mint(payload: Dict[str, Any]) -> Dict[str, Any]:
         "guestUuids": [],
         "ended": False,
     }
-    data = _load()
-    invites: List[Dict[str, Any]] = [
-        i for i in data.get("invites", []) if not i.get("ended") and i.get("expires", 0) > now
-    ]
-    invites.append(invite)
-    data["invites"] = invites[-20:]
-    _save(data)
+    with _lock:
+        data = _load()
+        invites: List[Dict[str, Any]] = [
+            i for i in data.get("invites", []) if not i.get("ended") and i.get("expires", 0) > now
+        ]
+        invites.append(invite)
+        data["invites"] = invites[-20:]
+        _save(data)
 
     # Prefer LAN in host= so same-house iPads stream even if they ignore lan=.
     # Remote guests still get wan= for fallback. Never put only the public IP in host=
@@ -310,24 +316,30 @@ def end_invite(token: str = "") -> Dict[str, Any]:
     from host_tuning import join_request as join_req
 
     trusted = set(join_req.trusted_uuids())
-    data = _load()
     now = time.time()
     unpaired: List[str] = []
     skipped_trusted: List[str] = []
-    remaining = []
-    for invite in data.get("invites", []):
-        match = (not token) or invite.get("token") == token
-        if match or invite.get("expires", 0) < now:
-            for uuid in invite.get("guestUuids") or []:
-                if uuid in trusted:
-                    skipped_trusted.append(uuid)
-                    continue
-                if sunshine_admin.unpair(uuid):
-                    unpaired.append(uuid)
-            invite["ended"] = True
-        remaining.append(invite)
-    data["invites"] = remaining[-20:]
-    _save(data)
+    to_unpair: List[str] = []
+    # Mark ended and persist under the lock, then unpair outside it — the
+    # Sunshine admin calls are HTTP and must not block INVITE/JOINPIN.
+    with _lock:
+        data = _load()
+        remaining = []
+        for invite in data.get("invites", []):
+            match = (not token) or invite.get("token") == token
+            if match or invite.get("expires", 0) < now:
+                for uuid in invite.get("guestUuids") or []:
+                    if uuid in trusted:
+                        skipped_trusted.append(uuid)
+                        continue
+                    to_unpair.append(uuid)
+                invite["ended"] = True
+            remaining.append(invite)
+        data["invites"] = remaining[-20:]
+        _save(data)
+    for uuid in to_unpair:
+        if sunshine_admin.unpair(uuid):
+            unpaired.append(uuid)
     return {"ok": True, "unpaired": unpaired, "keptTrusted": skipped_trusted}
 
 
@@ -378,12 +390,13 @@ def _find(token: str) -> Optional[Dict[str, Any]]:
 
 
 def _replace(updated: Dict[str, Any]) -> None:
-    data = _load()
-    invites = []
-    for invite in data.get("invites", []):
-        if invite.get("token") == updated.get("token"):
-            invites.append(updated)
-        else:
-            invites.append(invite)
-    data["invites"] = invites
-    _save(data)
+    with _lock:
+        data = _load()
+        invites = []
+        for invite in data.get("invites", []):
+            if invite.get("token") == updated.get("token"):
+                invites.append(updated)
+            else:
+                invites.append(invite)
+        data["invites"] = invites
+        _save(data)

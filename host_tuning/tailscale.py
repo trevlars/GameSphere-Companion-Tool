@@ -4,25 +4,43 @@ from __future__ import annotations
 
 import re
 import subprocess
+import threading
 import time
 from typing import Tuple
 
 _CACHE_TTL = 60.0
 _cache: dict = {"at": 0.0, "detected": False, "ip": ""}
+# Serializes the refresh so concurrent HOSTINFO/TAILSCALE handlers do not each
+# shell out on a cache miss.
+_refresh_lock = threading.Lock()
+
+
+def _cached() -> Tuple[bool, str, float]:
+    return (
+        bool(_cache.get("detected")),
+        str(_cache.get("ip") or ""),
+        float(_cache.get("at") or 0),
+    )
 
 
 def detect_tailscale(*, force: bool = False) -> Tuple[bool, str]:
     """Return (detected, ipv4_or_empty). Cached — COOPSTATE/HOSTINFO must not shell out every poll."""
-    now = time.time()
-    if not force and now - float(_cache.get("at") or 0) < _CACHE_TTL:
-        return bool(_cache.get("detected")), str(_cache.get("ip") or "")
-    ip = _tailscale_cli_ip()
-    if ip:
-        _cache.update({"at": now, "detected": True, "ip": ip})
-        return True, ip
-    detected, ip = _detect_via_interfaces()
-    _cache.update({"at": now, "detected": detected, "ip": ip or ""})
-    return detected, ip or ""
+    detected, ip, at = _cached()
+    if not force and time.time() - at < _CACHE_TTL:
+        return detected, ip
+    with _refresh_lock:
+        # Another thread may have refreshed while we waited.
+        detected, ip, at = _cached()
+        if not force and time.time() - at < _CACHE_TTL:
+            return detected, ip
+        now = time.time()
+        ip = _tailscale_cli_ip()
+        if ip:
+            _cache.update({"at": now, "detected": True, "ip": ip})
+            return True, ip
+        detected, ip = _detect_via_interfaces()
+        _cache.update({"at": now, "detected": detected, "ip": ip or ""})
+        return detected, ip or ""
 
 
 def _tailscale_cli_ip() -> str:

@@ -5,12 +5,16 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
 import psutil
 
 _EXECUTING = re.compile(r'^Executing:\s*\["([^"]+)"\]', re.I)
+# The Sunshine log monitor writes these from its own thread while bridge
+# GAMESTATE / LAUNCHRESULT handlers read them, so guard both.
+_lock = threading.RLock()
 _LAST_LAUNCH: Optional[str] = None
 _LAST_RESULT: Dict[str, Any] = {
     "state": "idle",
@@ -29,23 +33,32 @@ def note_launch_from_log_line(line: str) -> None:
         return
     m = _EXECUTING.search(line.strip())
     if m:
-        _LAST_LAUNCH = m.group(1)
-        _touch(state="launching", game=os.path.basename(_LAST_LAUNCH), cmd=_LAST_LAUNCH)
+        with _lock:
+            _LAST_LAUNCH = m.group(1)
+            _touch(state="launching", game=os.path.basename(_LAST_LAUNCH), cmd=_LAST_LAUNCH)
 
 
 def note_launch_attempt(*, game: str = "", cmd: str = "", detail: str = "") -> None:
     global _LAST_LAUNCH
-    if cmd:
-        _LAST_LAUNCH = cmd
-    _touch(state="waiting_steam" if detail == "waiting_steam" else "launching", game=game, cmd=cmd or _LAST_LAUNCH or "", detail=detail)
-    _LAST_RESULT["attempts"] = int(_LAST_RESULT.get("attempts") or 0) + 1
+    with _lock:
+        if cmd:
+            _LAST_LAUNCH = cmd
+        _touch(
+            state="waiting_steam" if detail == "waiting_steam" else "launching",
+            game=game,
+            cmd=cmd or _LAST_LAUNCH or "",
+            detail=detail,
+        )
+        _LAST_RESULT["attempts"] = int(_LAST_RESULT.get("attempts") or 0) + 1
 
 
 def note_launch_failed(detail: str) -> None:
-    _touch(state="failed", detail=detail)
+    with _lock:
+        _touch(state="failed", detail=detail)
 
 
 def _touch(**fields: Any) -> None:
+    """Update launch state. Caller holds ``_lock``."""
     now = time.time()
     _LAST_RESULT.update(fields)
     _LAST_RESULT["updatedAt"] = now
@@ -98,22 +111,28 @@ def _compute_state(target: Optional[str]) -> Dict[str, Any]:
 
 
 def game_state_json(last_log_lines: Optional[List[str]] = None) -> str:
-    target = _LAST_LAUNCH
+    with _lock:
+        target = _LAST_LAUNCH
     if last_log_lines and not target:
         for line in reversed(last_log_lines):
             note_launch_from_log_line(line)
-            if _LAST_LAUNCH:
+            with _lock:
                 target = _LAST_LAUNCH
+            if target:
                 break
+    # Computed outside the lock: it scans the process table and must not block
+    # the Sunshine log monitor.
     payload = _compute_state(target)
-    _LAST_RESULT.update(payload)
+    with _lock:
+        _LAST_RESULT.update(payload)
     return json.dumps(payload)
 
 
 def launch_result_json(last_log_lines: Optional[List[str]] = None) -> str:
     """LAUNCHRESULT — richer status for GameSphere phone UI."""
     game_state_json(last_log_lines)
-    target = _LAST_LAUNCH
+    with _lock:
+        target = _LAST_LAUNCH
     base = _compute_state(target)
     steam_up = False
     try:

@@ -4,6 +4,44 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.14] — 2026-09-18
+
+Stability pass across every feature. Nothing here changes how you use the tool.
+
+### Fixed — data loss (important)
+- **Offline / Steam API outage no longer wipes your library.** Game names now come from local Steam manifests first, and a tile is only removed when Steam itself reports the app gone. Previously an unreachable Steam Store API made the importer treat the whole library as uninstalled, drop the tiles, and delete their cover art — while still printing success.
+- **`apps.json` is written atomically.** An interrupted import (reboot, taskkill, full disk) leaves the previous config intact instead of a truncated file Sunshine cannot parse.
+- **Cover art is deleted only after the save succeeds**, so a failed write no longer loses artwork.
+- **All host-daemon state writes are atomic** (paired devices, trusted clients, co-op seats, invites, sessions). A bad shutdown used to silently reset these, forcing you to re-pair every device.
+- **`libraryfolders.vdf`** falls back to `utf-8-sig` / `latin-1` instead of aborting the import.
+
+### Fixed — updates
+- Downloads are checked for size and format before anything is replaced; the previous binary is backed up and **restored if the swap fails**.
+- The update helper no longer suppresses its own errors, and no longer launches a second GUI copy.
+- The GUI says "Update downloaded" for swaps that finish after exit, instead of claiming success early.
+- Timeouts added to the Linux install script and Flatpak install so a stalled network cannot hang the updater.
+
+### Fixed — streaming, co-op, and remote play
+- **Telemetry no longer rewrites the whole session history on every packet.** This was continuous disk I/O during gameplay; samples are now capped and writes batched.
+- **Two friends joining at once can no longer land in the same player seat** — seats are claimed atomically and released when the stream ends.
+- A non-numeric `httpsPort` from a client can no longer fault a bridge handler, and preauth join no longer fails silently on a reused request.
+- Concurrent invites can no longer lose a guest, and `INVITEEND` no longer blocks other requests while unpairing.
+- Router port mapping is serialized, so an invite + stream start + voice start can no longer leave partial mappings; voice UDP is no longer skipped when mapping is still in flight.
+- A replaced router is detected instead of retried — a dead cached gateway no longer causes multi-minute mapping hangs.
+- Buddy-relay peers are evicted and capped, and relay state is cleared on restart so input cannot go to the previous session's phone.
+- Rapid "Wanna play" taps no longer spawn unbounded push threads.
+
+### Fixed — Windows and Deck
+- Autostart repairs itself when the app moves or updates, and reports failure instead of success when the daemon dies immediately.
+- No more console flashes from mic setup, `schtasks`, or daemon status checks.
+- **Mic setup now reports failure** when the audio feeder does not stay running, instead of showing a success dialog.
+- EA titles without a content ID keep a stable identity, so they are no longer removed and re-added every import.
+- Custom install locations (`GAMESPHERE_IMPORT_DIR`) are honoured by the systemd unit.
+- GUI: imports time out rather than disabling the buttons forever, the log pane stays bounded, and closing during an update no longer crashes.
+
+### Internal
+- Shared `host_tuning/json_store.py` for crash-safe writes; file handles closed in polling paths; test suite grew from 87 to 124.
+
 ## [1.5.13] — 2026-09-17
 
 ### Fixed — Windows host daemon / cmd spam

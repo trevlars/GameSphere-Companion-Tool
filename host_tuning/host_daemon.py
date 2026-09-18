@@ -138,6 +138,19 @@ def daemon_command() -> List[str]:
     return [sys.executable, main_py, "--host-bridge"]
 
 
+def _linux_unit_working_dir() -> str:
+    """systemd WorkingDirectory for the unit.
+
+    Keeps the portable ``%h`` form for a default install, but honours a custom
+    ``GAMESPHERE_IMPORT_DIR`` so the daemon does not start in the wrong tree.
+    """
+    default = os.path.expanduser("~/.local/share/gamesphere-import-tool")
+    install_dir = linux_install_dir()
+    if os.path.normpath(install_dir) == os.path.normpath(default):
+        return "%h/.local/share/gamesphere-import-tool"
+    return install_dir
+
+
 def linux_unit_body() -> str:
     return (
         "[Unit]\n"
@@ -150,7 +163,7 @@ def linux_unit_body() -> str:
         "\n"
         "[Service]\n"
         "Type=simple\n"
-        "WorkingDirectory=-%h/.local/share/gamesphere-import-tool\n"
+        f"WorkingDirectory=-{_linux_unit_working_dir()}\n"
         "Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin\n"
         "Environment=PYTHONUNBUFFERED=1\n"
         f"ExecStart=%h/.local/bin/{WRAPPER_NAME}\n"
