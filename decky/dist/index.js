@@ -19,10 +19,18 @@ function Content() {
     const [busy, setBusy] = SP_REACT.useState(false);
     const [log, setLog] = SP_REACT.useState("");
     const [status, setStatus] = SP_REACT.useState(null);
+    // A rejected callable (backend reload, missing binary) must surface as text
+    // instead of an unhandled rejection that leaves the panel blank.
+    const describeError = (err) => err instanceof Error ? err.message : String(err);
     const refreshStatus = SP_REACT.useCallback(async () => {
-        const s = await getStatus();
-        setStatus(s);
-        setBridgeOn(s.bridge_service === "active");
+        try {
+            const s = await getStatus();
+            setStatus(s);
+            setBridgeOn(s.bridge_service === "active");
+        }
+        catch (err) {
+            setLog(`Could not read Companion status: ${describeError(err)}`);
+        }
     }, []);
     const runAction = async (label, fn) => {
         setBusy(true);
@@ -31,6 +39,9 @@ function Content() {
             const text = result.output || (result.ok ? `${label} done.` : `${label} failed.`);
             setLog(result.banner ? `${result.banner}\n\n${text}` : text);
             await refreshStatus();
+        }
+        catch (err) {
+            setLog(`${label} failed: ${describeError(err)}`);
         }
         finally {
             setBusy(false);
@@ -44,12 +55,16 @@ function Content() {
             setLog(result.output || (result.ok ? "Bridge updated." : "Bridge toggle failed."));
             await refreshStatus();
         }
+        catch (err) {
+            setLog(`Bridge toggle failed: ${describeError(err)}`);
+            await refreshStatus();
+        }
         finally {
             setBusy(false);
         }
     };
     SP_REACT.useEffect(() => {
-        refreshStatus();
+        void refreshStatus();
     }, [refreshStatus]);
     const installed = status?.installed ?? false;
     const hostLabel = status?.paths?.GAMESPHERE_HOST_LABEL || status?.paths?.host_label || "";

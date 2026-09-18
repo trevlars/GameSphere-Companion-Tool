@@ -28,13 +28,22 @@ _auto_pause_latched = False
 
 
 def _cid(sample: Dict[str, Any]) -> str:
-    for key in ("client_id", "clientId", "uuid", "role"):
+    """Stable per-client key for pause decisions.
+
+    ``role`` alone is not identifying — two guests would share one entry and
+    auto-pause would act on a merged drop rate. Fall back through anything that
+    distinguishes one client from another before using the bare role.
+    """
+    for key in ("client_id", "clientId", "uuid"):
         val = sample.get(key)
         if val:
             return str(val)
     role = str(sample.get("role") or sample.get("client") or "unknown")
-    name = str(sample.get("client_name") or sample.get("clientName") or "")
-    return f"{role}:{name}" if name else role
+    for key in ("client_name", "clientName", "client_addr", "clientAddr", "address", "ip"):
+        val = sample.get(key)
+        if val:
+            return f"{role}:{val}"
+    return role
 
 
 def note_sample(sample: Dict[str, Any]) -> Dict[str, Any]:

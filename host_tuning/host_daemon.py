@@ -100,7 +100,7 @@ def _pid_alive(pid: int) -> bool:
     except OSError:
         return False
     if sys.platform == "win32":
-        return True
+        return _windows_pid_is_ours(pid)
     try:
         with open(f"/proc/{pid}/cmdline", "r", encoding="utf-8", errors="ignore") as fh:
             cmdline = fh.read()
@@ -110,6 +110,32 @@ def _pid_alive(pid: int) -> bool:
     if any(name in blob for name in SUNSHINE_NAMES) and "gamesphere" not in blob and "host-bridge" not in blob:
         return False
     return True
+
+
+def _windows_pid_is_ours(pid: int) -> bool:
+    """Confirm a live PID is actually the Companion daemon.
+
+    Windows recycles PIDs, so a stale host-bridge.pid could otherwise make
+    ``is_running()`` true for an unrelated process — leaving the bridge down
+    while autostart repair was skipped.
+    """
+    try:
+        from host_tuning.win_subprocess import run_hidden
+
+        listed = run_hidden(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return True  # cannot verify — assume alive rather than thrash autostart
+    out = (listed.stdout or "").strip().lower()
+    if not out or "no tasks" in out:
+        return False
+    expected = os.path.basename(daemon_command()[0]).lower()
+    # Source checkouts run python.exe; frozen builds run our own exe.
+    return expected in out or "python" in out
 
 
 def argv_touches_sunshine(argv: Sequence[str]) -> bool:

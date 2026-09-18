@@ -4,6 +4,17 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.15] — 2026-09-18
+
+Follow-up to the 1.5.14 stability pass.
+
+### Fixed
+- **Duplicate-named shortcuts are no longer pruned.** When two Non-Steam shortcuts share a display name (the same ROM under Eden and Ryujinx, or two Steam users), one is skipped when *adding* tiles — but it is still installed, so its existing Sunshine tile and artwork are now kept instead of removed.
+- **A partial import says so.** If some games could not be added (cover download or a bad path), the run now warns and the banner reports how many were skipped instead of claiming "SPHERICAL!".
+- **Auto-pause no longer merges guests.** Two guests whose telemetry omits an id were treated as one client, so pause decisions used a blended drop rate; they are now told apart by name or address.
+- **Windows PID reuse.** A stale `host-bridge.pid` pointing at an unrelated process no longer makes the daemon look healthy while the bridge is actually down.
+- **Deck plugin** shows the error text when a backend call fails, instead of leaving a blank panel.
+
 ## [1.5.14] — 2026-09-18
 
 Stability pass across every feature. Nothing here changes how you use the tool.

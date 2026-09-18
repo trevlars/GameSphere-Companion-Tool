@@ -52,10 +52,19 @@ function Content() {
   const [log, setLog] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
 
+  // A rejected callable (backend reload, missing binary) must surface as text
+  // instead of an unhandled rejection that leaves the panel blank.
+  const describeError = (err: unknown): string =>
+    err instanceof Error ? err.message : String(err);
+
   const refreshStatus = useCallback(async () => {
-    const s = await getStatus();
-    setStatus(s);
-    setBridgeOn(s.bridge_service === "active");
+    try {
+      const s = await getStatus();
+      setStatus(s);
+      setBridgeOn(s.bridge_service === "active");
+    } catch (err) {
+      setLog(`Could not read Companion status: ${describeError(err)}`);
+    }
   }, []);
 
   const runAction = async (
@@ -70,6 +79,8 @@ function Content() {
         result.banner ? `${result.banner}\n\n${text}` : text
       );
       await refreshStatus();
+    } catch (err) {
+      setLog(`${label} failed: ${describeError(err)}`);
     } finally {
       setBusy(false);
     }
@@ -82,13 +93,16 @@ function Content() {
       setBridgeOn(result.state === "active");
       setLog(result.output || (result.ok ? "Bridge updated." : "Bridge toggle failed."));
       await refreshStatus();
+    } catch (err) {
+      setLog(`Bridge toggle failed: ${describeError(err)}`);
+      await refreshStatus();
     } finally {
       setBusy(false);
     }
   };
 
   useEffect(() => {
-    refreshStatus();
+    void refreshStatus();
   }, [refreshStatus]);
 
   const installed = status?.installed ?? false;

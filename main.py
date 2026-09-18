@@ -1448,7 +1448,10 @@ def _find_shortcut_grid_source(userdata_config_dir: str, short_appid: int) -> Op
     return None
 
 
-def load_steam_nonsteam_shortcuts(library_vdf_path: str) -> Dict[str, Dict[str, str]]:
+def load_steam_nonsteam_shortcuts(
+    library_vdf_path: str,
+    all_ids: Optional[Set[str]] = None,
+) -> Dict[str, Dict[str, str]]:
     """
     Load Non-Steam games from userdata/*/config/shortcuts.vdf.
 
@@ -1516,6 +1519,12 @@ def load_steam_nonsteam_shortcuts(library_vdf_path: str) -> Dict[str, Dict[str, 
     result: Dict[str, Dict[str, str]] = {}
     for short_appid, info in by_short.items():
         result[_shortcut_rungameid(short_appid)] = info
+
+    # Every real shortcut id, including ones dedup drops below. Callers use this
+    # for pruning: a tile whose id lost the name-dedup still exists in Steam and
+    # must not be treated as uninstalled.
+    if all_ids is not None:
+        all_ids.update(result.keys())
 
     # Collapse duplicate display names across Steam users on the same PC.
     # Prefer Ryujinx over Eden for Switch titles.
@@ -2581,7 +2590,10 @@ def main() -> None:
         # Load installed games (Steam store library)
         installed_games = load_installed_games(config['STEAM_LIBRARY_VDF_PATH'])
         # Non-Steam shortcuts (Eden / emu / custom Steam tiles)
-        installed_shortcuts = load_steam_nonsteam_shortcuts(config['STEAM_LIBRARY_VDF_PATH'])
+        all_shortcut_ids: Set[str] = set()
+        installed_shortcuts = load_steam_nonsteam_shortcuts(
+            config['STEAM_LIBRARY_VDF_PATH'], all_shortcut_ids
+        )
         # Merge so process_existing_apps keeps shortcut entries and prunes removed ones
         steam_catalog: Dict[str, str] = dict(installed_games)
         for bpid, info in installed_shortcuts.items():
@@ -2626,7 +2638,9 @@ def main() -> None:
         shortcuts_folder = config.get('SUNSHINE_SHORTCUTS_FOLDER') or ''
         # Local Steam truth for pruning, plus shortcut ids (also locally sourced).
         steam_installed_ids = installed_steam_app_ids(config['STEAM_LIBRARY_VDF_PATH'])
-        steam_installed_ids |= set(installed_shortcuts.keys())
+        # Pre-dedup ids, so a shortcut that lost the display-name tie-break keeps
+        # its existing Sunshine tile instead of being pruned.
+        steam_installed_ids |= all_shortcut_ids or set(installed_shortcuts.keys())
         pending_grid_deletions: List[str] = []
         (
             updated_apps,
@@ -2757,7 +2771,19 @@ def main() -> None:
         new_custom_apps = add_custom_games(custom_list, existing_cmds, config['STEAMGRIDDB_API_KEY'], config['SUNSHINE_GRIDS_FOLDER'], shortcuts_folder)
         updated_apps.extend(new_custom_apps)
         stamp_apps(updated_apps, playtime_records)
-        
+
+        # Individual adds return None on failure (cover download, bad path).
+        # Count them so the run does not claim success it did not achieve.
+        requested = (
+            len(new_games) + len(new_shortcuts) + len(new_epic)
+            + len(new_xbox) + len(new_store) + len(new_custom)
+        )
+        added = (
+            len(new_steam_apps) + len(new_shortcut_apps) + len(new_epic_apps)
+            + len(new_xbox_apps) + len(new_store_apps) + len(new_custom_apps)
+        )
+        skipped = max(0, requested - added)
+
         # Update and save configuration
         sunshine_config['apps'] = updated_apps
         save_sunshine_config(config['SUNSHINE_APPS_JSON_PATH'], sunshine_config)
@@ -2768,6 +2794,13 @@ def main() -> None:
         if not args.no_restart:
             restart_sunshine(config['SUNSHINE_EXE_PATH'])
         
+        if skipped:
+            logging.warning(
+                "%d of %d new game(s) could not be added — see the warnings above. "
+                "Re-run the import to retry them.",
+                skipped,
+                requested,
+            )
         logging.info("Sunshine apps.json update process completed successfully")
         if args.host_tuning:
             from host_tuning.service import apply_host_tuning, write_prep_scripts
@@ -2778,7 +2811,13 @@ def main() -> None:
         if host_display.lower() not in ("sunshine", "apollo"):
             host_display = "sunshine"
         host_display = host_display.capitalize()
-        spherical_msg = f"Your {host_display} is now SPHERICAL!"
+        if skipped:
+            spherical_msg = (
+                f"Your {host_display} is updated, but {skipped} game(s) were skipped. "
+                "Re-run the import to retry them."
+            )
+        else:
+            spherical_msg = f"Your {host_display} is now SPHERICAL!"
         print()
         print("=" * 70)
         print(f"  {spherical_msg}")
