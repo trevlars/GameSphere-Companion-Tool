@@ -35,9 +35,9 @@ def _load() -> Dict[str, Any]:
 
 
 def _save(data: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(_SESSION_PATH()), exist_ok=True)
-    with open(_SESSION_PATH(), "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2)
+    from host_tuning.json_store import write_json_atomic
+
+    write_json_atomic(_SESSION_PATH(), data)
 
 
 def _push(event: Dict[str, Any]) -> None:

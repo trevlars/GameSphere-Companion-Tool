@@ -102,7 +102,8 @@ def _pid_alive(pid: int) -> bool:
     if sys.platform == "win32":
         return True
     try:
-        cmdline = open(f"/proc/{pid}/cmdline", "r", encoding="utf-8", errors="ignore").read()
+        with open(f"/proc/{pid}/cmdline", "r", encoding="utf-8", errors="ignore") as fh:
+            cmdline = fh.read()
     except OSError:
         return True
     blob = cmdline.lower()
@@ -856,6 +857,10 @@ def run_bridge_forever(port: int = 0) -> int:
             pass
         if not stop.is_set():
             time.sleep(3)
+    try:
+        session_telemetry.flush_client_telemetry()
+    except Exception:
+        logging.debug("telemetry flush on shutdown failed", exc_info=True)
     try:
         os.remove(pid_path())
     except OSError:

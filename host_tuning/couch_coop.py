@@ -385,7 +385,8 @@ def _write_player_slot_led(account_id: str, slot: int) -> bool:
             continue
         path = os.path.join(root, name)
         try:
-            text = open(path, encoding="utf-8", errors="replace").read()
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
         except OSError:
             continue
         if re.search(r'"player_slot_led"\s+"\d+"', text):
@@ -460,8 +461,9 @@ def write_runtime(pads: List[Pad], lock: Optional[List[Optional[str]]] = None) -
         ),
     }
     try:
-        with open(runtime_json_path(), "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
+        from host_tuning.json_store import write_json_atomic
+
+        write_json_atomic(runtime_json_path(), payload)
     except OSError as exc:
         logging.warning("couch_coop: write json failed: %s", exc)
 

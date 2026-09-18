@@ -285,6 +285,9 @@ def _rgb_to_hex(r, g, b):
 
 
 class SunshineGUI:
+    LOG_MAX_LINES = 2000
+    LOG_DRAIN_PER_TICK = 200
+
     def __init__(self):
         if HAS_CTK:
             ctk.set_appearance_mode("dark")
@@ -305,9 +308,11 @@ class SunshineGUI:
         self.log_text = None
         self.log_queue = queue.Queue()
         self.running = False
+        self._closing = False
 
         self._build_ui()
         self._load_config()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._poll_log()
         if auto_update_mode() != "off":
             self.root.after(1500, self._start_silent_update_check)
@@ -648,11 +653,16 @@ class SunshineGUI:
             info = check_for_update()
         except Exception:
             return
-        if info.get("newer") and not info.get("error"):
-            if auto_update_mode() == "apply":
+        if self._closing or not info.get("newer") or info.get("error"):
+            return
+        apply_now = auto_update_mode() == "apply"
+        try:
+            if apply_now:
                 self.root.after(0, lambda: self._apply_update_now(info))
             else:
                 self.root.after(0, lambda: self._prompt_update(info, silent=True))
+        except tk.TclError:
+            pass  # window closed while the check was in flight
 
     def _on_setup_mic(self):
         """One-button Mic to PC: Windows VB-CABLE + feeder, Linux PipeWire — same UX."""
@@ -817,7 +827,7 @@ class SunshineGUI:
             f"Updated to {info.get('latest')}.\n\n{dest}\n\nThe app will close so the new version can start.",
         )
         if sys.platform == "win32" and getattr(sys, "frozen", False):
-            self.root.destroy()
+            self._on_close()
             sys.exit(0)
         if sys.platform.startswith("linux"):
             wrapper = os.path.expanduser("~/.local/bin/gamesphere-import")
@@ -847,8 +857,12 @@ class SunshineGUI:
         )
 
     def _poll_log(self):
+        if self._closing:
+            return
+        banners = []
         try:
-            while True:
+            # Cap per tick so a chatty import cannot starve the UI thread.
+            for _ in range(self.LOG_DRAIN_PER_TICK):
                 msg = self.log_queue.get_nowait()
                 if msg[0] == "done":
                     self.running = False
@@ -858,18 +872,48 @@ class SunshineGUI:
                     except Exception:
                         pass
                     continue
-                kind, line = msg[0], msg[1]
+                line = msg[1]
                 self.log_text.configure(state="normal")
                 self.log_text.insert("end", line)
+                self._trim_log()
                 self.log_text.see("end")
                 self.log_text.configure(state="disabled")
                 if line.startswith("BANNER:"):
                     banner_text = line[7:].strip()
                     if banner_text:
-                        self.root.after(0, lambda t=banner_text: messagebox.showinfo("GameSphere Import Tool", t))
+                        banners.append(banner_text)
         except queue.Empty:
             pass
-        self.root.after(200, self._poll_log)
+        except tk.TclError:
+            return  # window went away mid-update
+        for text in banners:
+            self.root.after(0, lambda t=text: messagebox.showinfo("GameSphere Import Tool", t))
+        self._schedule_poll()
+
+    def _trim_log(self):
+        """Keep the log widget bounded — a full library import emits thousands of lines."""
+        try:
+            lines = int(self.log_text.index("end-1c").split(".")[0])
+            if lines > self.LOG_MAX_LINES:
+                self.log_text.delete("1.0", f"{lines - self.LOG_MAX_LINES}.0")
+        except (tk.TclError, ValueError):
+            pass
+
+    def _schedule_poll(self):
+        if self._closing:
+            return
+        try:
+            self.root.after(200, self._poll_log)
+        except tk.TclError:
+            self._closing = True
+
+    def _on_close(self):
+        """Stop the poll loop before teardown so no `after` callback outlives the window."""
+        self._closing = True
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
     def run(self):
         self.root.mainloop()

@@ -84,9 +84,9 @@ def _save_disk_cache() -> None:
                     "romHashes": list(_CACHE.get("romHashes") or []),
                 },
             }
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
+        from host_tuning.json_store import write_json_atomic
+
+        write_json_atomic(path, payload)
     except OSError:
         _log.debug("metadata_catalog disk cache write failed", exc_info=True)
 
@@ -123,7 +123,8 @@ def owned_steam_apps(limit: int = 512) -> List[Dict[str, str]]:
                 continue
             path = os.path.join(steamapps, name)
             try:
-                text = open(path, encoding="utf-8", errors="replace").read()
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
             except OSError:
                 continue
             meta = _parse_vdf_pairs(text)

@@ -17,6 +17,7 @@ hidden_imports = [
     'store_covers',
     'host_tuning',
     'host_tuning.config',
+    'host_tuning.json_store',
     'host_tuning.service',
     'host_tuning.bridge',
     'host_tuning.link_speed',

@@ -914,13 +914,30 @@ def get_sunshine_config(path: str) -> Dict:
         logging.error(f"Error loading Sunshine config: {e}")
         raise
 
+_ADMIN_HINT = (
+    "Cannot write to the config directory (e.g. Program Files). "
+    "Run this tool as Administrator: right-click the app and choose 'Run as administrator'."
+)
+
+
 def save_sunshine_config(path: str, config: Dict) -> None:
-    """Save Sunshine configuration with backup and error handling."""
+    """Save Sunshine configuration with backup and error handling.
+
+    The write is atomic: an interrupted run (reboot, taskkill, full disk) leaves
+    the previous apps.json intact rather than a truncated file Sunshine cannot
+    parse.
+    """
     import shutil
+
+    from host_tuning.json_store import write_text_atomic
+
     backup_path = f"{path}.backup"
     config_dir = os.path.dirname(path)
 
     try:
+        # Serialize before touching disk so a bad payload cannot destroy the config.
+        payload = json.dumps(config, indent=4, ensure_ascii=False)
+
         # Create backup if file exists (use fallback dir if Program Files is read-only)
         if os.path.exists(path):
             try:
@@ -942,22 +959,14 @@ def save_sunshine_config(path: str, config: Dict) -> None:
             os.makedirs(config_dir, exist_ok=True)
         except OSError as e:
             if e.errno == 13:
-                raise PermissionError(
-                    "Cannot write to the config directory (e.g. Program Files). "
-                    "Run this tool as Administrator: right-click the app and choose 'Run as administrator'."
-                ) from e
+                raise PermissionError(_ADMIN_HINT) from e
             raise
 
-        # Write config
         try:
-            with open(path, 'w', encoding='utf-8') as file:
-                json.dump(config, file, indent=4, ensure_ascii=False)
+            write_text_atomic(path, payload)
         except OSError as e:
             if e.errno == 13:
-                raise PermissionError(
-                    "Cannot write to the config directory (e.g. Program Files). "
-                    "Run this tool as Administrator: right-click the app and choose 'Run as administrator'."
-                ) from e
+                raise PermissionError(_ADMIN_HINT) from e
             raise
 
         logging.info(f"Saved Sunshine config with {len(config.get('apps', []))} apps")

@@ -31,12 +31,11 @@ def _load_runtime() -> Dict[str, Any]:
 
 
 def _save_runtime(extra: Dict[str, Any]) -> None:
-    path = runtime_json_path()
+    from host_tuning.json_store import write_json_atomic
+
     data = _load_runtime()
     data.update(extra)
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2)
+    write_json_atomic(runtime_json_path(), data)
 
 
 def handle(payload: Dict[str, Any]) -> Dict[str, Any]:

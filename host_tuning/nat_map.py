@@ -588,11 +588,9 @@ def _save_igd_cache(svc: Dict[str, str]) -> None:
     if not path:
         return
     try:
-        import json
+        from host_tuning.json_store import write_json_atomic
 
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(svc, fh)
+        write_json_atomic(path, svc, indent=None)
     except OSError:
         pass
 

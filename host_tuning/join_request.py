@@ -44,10 +44,9 @@ def _load() -> Dict[str, Any]:
 
 
 def _save(data: Dict[str, Any]) -> None:
-    path = _path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2)
+    from host_tuning.json_store import write_json_atomic
+
+    write_json_atomic(_path(), data)
 
 
 def _load_trusted() -> List[str]:
@@ -67,15 +66,14 @@ def _load_trusted() -> List[str]:
 
 
 def _save_trusted(uuids: List[str]) -> None:
-    path = _trusted_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    from host_tuning.json_store import write_json_atomic
+
     # Dedupe, keep recent
     seen = []
     for u in uuids:
         if u and u not in seen:
             seen.append(u)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump({"uuids": seen[-64:]}, fh, indent=2)
+    write_json_atomic(_trusted_path(), {"uuids": seen[-64:]})
 
 
 def mark_trusted(uuid: str) -> Dict[str, Any]:

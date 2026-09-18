@@ -50,9 +50,9 @@ def _load() -> Dict[str, Any]:
 
 
 def _save(data: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(_path()), exist_ok=True)
-    with open(_path(), "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2)
+    from host_tuning.json_store import write_json_atomic
+
+    write_json_atomic(_path(), data)
 
 
 def _q(value: str) -> str:

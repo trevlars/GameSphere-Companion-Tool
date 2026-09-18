@@ -121,8 +121,6 @@ def load_config(path: Optional[str] = None) -> HostTuningConfig:
 
 
 def save_config(cfg: HostTuningConfig, path: Optional[str] = None) -> str:
-    p = path or config_path()
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as fh:
-        json.dump(cfg.to_dict(), fh, indent=2)
-    return p
+    from host_tuning.json_store import write_json_atomic
+
+    return write_json_atomic(path or config_path(), cfg.to_dict())

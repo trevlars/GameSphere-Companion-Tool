@@ -93,29 +93,70 @@ def load_sessions() -> List[Dict[str, Any]]:
 
 
 def save_sessions(sessions: List[Dict[str, Any]]) -> None:
-    os.makedirs(os.path.dirname(sessions_path()), exist_ok=True)
-    with open(sessions_path(), "w", encoding="utf-8") as fh:
-        json.dump({"sessions": sessions[-200:]}, fh, indent=2)
+    from host_tuning.json_store import write_json_atomic
+
+    write_json_atomic(sessions_path(), {"sessions": sessions[-200:]})
 
 
 def last_session_json() -> str:
     sessions = load_sessions()
     if not sessions:
         return "{}"
-    return json.dumps(sessions[-1])
+    # Raw samples are host-side diagnostics; sending them would make this reply
+    # hundreds of KB on a long session.
+    summary = {k: v for k, v in sessions[-1].items() if k != "client_samples"}
+    return json.dumps(summary)
+
+
+# SESSIONDATA arrives on the bridge request path every few seconds while a
+# stream is live. Rewriting the whole history per packet caused disk thrash
+# during gameplay, so keep a bounded window and flush on a timer.
+_CLIENT_SAMPLE_WINDOW = 120
+_TELEMETRY_FLUSH_SECONDS = 15.0
+
+_pending_lock = threading.Lock()
+_pending_sessions: Optional[List[Dict[str, Any]]] = None
+_pending_flushed_at = 0.0
+
+
+def _flush_pending_locked() -> None:
+    """Persist telemetry buffered since the last flush. Caller holds the lock."""
+    global _pending_sessions, _pending_flushed_at
+    if _pending_sessions is not None:
+        save_sessions(_pending_sessions)
+        _pending_sessions = None
+    _pending_flushed_at = time.monotonic()
+
+
+def flush_client_telemetry() -> None:
+    """Write buffered samples now (session end / shutdown)."""
+    with _pending_lock:
+        _flush_pending_locked()
 
 
 def append_client_telemetry(batch: Dict[str, Any]) -> None:
-    sessions = load_sessions()
-    if not sessions:
+    global _pending_sessions, _pending_flushed_at
+    if not isinstance(batch, dict) or not batch:
         return
-    current = sessions[-1]
-    samples = current.setdefault("client_samples", [])
-    samples.append(batch)
-    if len(samples) > 3600:
-        current["client_samples"] = samples[-3600:]
-    _compute_grade(current)
-    save_sessions(sessions)
+    with _pending_lock:
+        sessions = _pending_sessions if _pending_sessions is not None else load_sessions()
+        if not sessions:
+            return
+        current = sessions[-1]
+        samples = current.setdefault("client_samples", [])
+        if not isinstance(samples, list):
+            samples = []
+            current["client_samples"] = samples
+        samples.append(batch)
+        if len(samples) > _CLIENT_SAMPLE_WINDOW:
+            del samples[: len(samples) - _CLIENT_SAMPLE_WINDOW]
+        _compute_grade(current)
+        now = time.monotonic()
+        if now - _pending_flushed_at >= _TELEMETRY_FLUSH_SECONDS:
+            _pending_sessions = sessions
+            _flush_pending_locked()
+        else:
+            _pending_sessions = sessions
 
 
 def _compute_grade(session: Dict[str, Any]) -> None:
@@ -255,6 +296,8 @@ class SessionLogMonitor:
             host_session_uuid=host_uuid,
         )
         self._active = entry
+        # Land the previous session's buffered samples before starting a new row.
+        flush_client_telemetry()
         sessions = load_sessions()
         sessions.append(asdict(entry))
         save_sessions(sessions)
@@ -265,6 +308,7 @@ class SessionLogMonitor:
     def _end_session(self, reason: str) -> None:
         if not self._active:
             return
+        flush_client_telemetry()
         cfg = load_config()
         if cfg.session_discard_empty and not self._active.games:
             sessions = load_sessions()

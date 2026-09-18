@@ -45,7 +45,8 @@ def account_id_to_steamid64(account_id: str) -> str:
 
 def _vdf_most_recent_steamid64(path: str) -> str:
     try:
-        text = open(path, encoding="utf-8", errors="replace").read()
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
     except OSError:
         return ""
     # loginusers.vdf: "7656…" { "MostRecent" "1" }
