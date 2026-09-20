@@ -92,6 +92,17 @@ def prep_start(cfg: Optional[HostTuningConfig] = None) -> Dict[str, Any]:
         log["actions"].append({"spatial_audio": ok, "message": msg})
 
     try:
+        from host_tuning import controller_policy
+
+        if cfg.controller_policy_enabled:
+            ctrl = controller_policy.prep_stream(cfg)
+            log["actions"].append({"controller_policy": ctrl})
+            if ctrl.get("ok") and ctrl.get("actions", {}).get("context"):
+                controller_policy.deferred_emulator_sync(ctrl["actions"]["context"])
+    except Exception as exc:
+        logging.warning("controller_policy prep_start: %s", exc)
+
+    try:
         from host_tuning import couch_coop
 
         log["actions"].append({"couch_coop": couch_coop.apply("prep_start")})
@@ -129,6 +140,15 @@ def prep_stop(cfg: Optional[HostTuningConfig] = None) -> Dict[str, Any]:
     if adapter and cfg.link_speed_enabled:
         ok, msg = link_speed.restore_link_speed(adapter)
         log["actions"].append({"link_restore": ok, "message": msg})
+
+    try:
+        from host_tuning import controller_policy
+
+        if cfg.controller_policy_enabled:
+            controller_policy.clear_stream_markers()
+            log["actions"].append({"controller_policy_cleared": True})
+    except Exception as exc:
+        logging.warning("controller_policy prep_stop: %s", exc)
 
     try:
         from host_tuning import wan_setup

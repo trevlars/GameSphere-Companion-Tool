@@ -4,6 +4,18 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.18] — 2026-09-20
+
+### Added
+- **Streaming controller policy** — Companion picks Sunshine virtual gamepad per client: GameSphere → **ds5** (gyro + touchpad) or **x360** (Xbox layout), Steam Link IPs → **x360** with Exlene-friendly P1 rules.
+- **Bridge verbs `GETCONTROLLER` / `SETCONTROLLER`** — read or override policy from GameSphere (`gamepad`: `auto` | `ds5` | `x360`, `context`, `applyNow`).
+- **`gamesphere-stream-controller-prep.sh`** — installed by `install-linux.sh`; runs on stream start and game launch (`bind sync`).
+- **EmuDeck-style emulator rebind** on stream start when optional host scripts are present (`bazzite-controller-detect.py`, Cemu bind, Harkinian sync).
+
+### Notes
+- Sunshine gamepad mode is applied **before** the virtual pad is created — reconnect after updating.
+- Emulator auto-bind requires optional per-host helper scripts; ds5/x360 switching works on any Linux host with Sunshine.
+
 ## [1.5.17] — 2026-09-20
 
 ### Added

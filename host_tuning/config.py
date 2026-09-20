@@ -84,6 +84,16 @@ class HostTuningConfig:
     apns_team_id: str = "ABG342Z7V2"
     apns_bundle_id: str = "com.moonlight.gamesphere"
     apns_key_path: str = ""
+    # Streaming controller policy (Sunshine gamepad + emulator prep)
+    controller_policy_enabled: bool = True
+    controller_default_context: str = "gamesphere-ds5"
+    controller_user_gamepad: str = "auto"  # auto | ds5 | x360
+    controller_active_context: str = ""  # set by SETCONTROLLER; empty = auto-detect
+    controller_persist_override: bool = False
+    controller_client_hint: str = ""
+    controller_steamlink_ips: str = ""  # comma-separated; empty = no Steam Link auto-x360
+    controller_hide_steam_clones: bool = True
+    controller_apply_emulators: bool = True
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HostTuningConfig":

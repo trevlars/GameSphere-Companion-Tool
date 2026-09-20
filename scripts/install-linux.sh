@@ -103,6 +103,10 @@ HOST_PREP_LINK="${GAMESPHERE_HOST_PREP_BIN:-$HOME/.local/bin/gamesphere-host-pre
 install -m 755 "$INSTALL_DIR/scripts/gamesphere-host-prep.sh" "$HOST_PREP_LINK"
 echo "==> Installed $HOST_PREP_LINK (StreamTweak-style host tuning prep hooks)"
 
+CTRL_PREP_LINK="${GAMESPHERE_STREAM_CONTROLLER_PREP_BIN:-$HOME/.local/bin/gamesphere-stream-controller-prep.sh}"
+install -m 755 "$INSTALL_DIR/scripts/gamesphere-stream-controller-prep.sh" "$CTRL_PREP_LINK"
+echo "==> Installed $CTRL_PREP_LINK (Sunshine gamepad mode + emulator controller prep)"
+
 PCMIC_LINK="${GAMESPHERE_PC_MIC_SETUP_BIN:-$HOME/.local/bin/gamesphere-pc-mic-setup.sh}"
 install -m 755 "$INSTALL_DIR/scripts/gamesphere-pc-mic-setup.sh" "$PCMIC_LINK"
 VBAN_LINK="${GAMESPHERE_VBAN_SETUP_BIN:-$HOME/.local/bin/gamesphere-vban-setup.sh}"

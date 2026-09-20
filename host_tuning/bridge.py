@@ -31,6 +31,7 @@ from host_tuning import tailscale
 from host_tuning import invite as guest_invite
 from host_tuning import join_request
 from host_tuning import couch_coop
+from host_tuning import controller_policy
 
 
 class _BridgeHandler(socketserver.StreamRequestHandler):
@@ -63,7 +64,7 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
             "CAPS NETINFO SETSPEED RESTORE STATUS STATS TAILSCALE "
             "LASTSESSION SESSIONDATA APPSTORES PLAYTIMES GAMESTATE LAUNCHRESULT LOCKSTATE "
             "INVITE JOINPIN INVITEEND JOINREQ JOINPENDING JOINACK JOINSTATUS TRUSTED "
-            "HOSTINFO COOPSTATE SLOTSWAP WANSETUP VOICE "
+            "HOSTINFO GETCONTROLLER SETCONTROLLER COOPSTATE SLOTSWAP WANSETUP VOICE "
             "WANNAPLAY PLAYREG PLAYPENDING PLAYCLAIM PLAYREPLY PROFILE "
             "INPUTRELAY COOPKICK SESSIONEND BUDDYSET SUNSHINEHEALTH SUNSHINERECOVER"
                 )
@@ -222,6 +223,18 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                         payload = {}
                     uuid = str(payload.get("uuid") or payload.get("guestUuid") or "").strip()
                     self._reply(json.dumps(join_request.mark_trusted(uuid)))
+                except json.JSONDecodeError:
+                    self._reply(json.dumps({"ok": False, "error": "bad_json"}))
+            elif verb == "GETCONTROLLER":
+                cfg = load_config()
+                self._reply(json.dumps(controller_policy.get_policy_json(cfg)))
+            elif verb == "SETCONTROLLER":
+                cfg = load_config()
+                try:
+                    payload = json.loads(arg or "{}") if arg else {}
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    self._reply(json.dumps(controller_policy.set_policy_json(payload, cfg)))
                 except json.JSONDecodeError:
                     self._reply(json.dumps({"ok": False, "error": "bad_json"}))
             elif verb == "HOSTINFO":
