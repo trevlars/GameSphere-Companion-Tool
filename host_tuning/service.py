@@ -165,6 +165,14 @@ def prep_stop(cfg: Optional[HostTuningConfig] = None) -> Dict[str, Any]:
     except Exception:
         pass
 
+    try:
+        from host_tuning import game_pause
+
+        if game_pause.pause_on_stream_drop("prep_stop"):
+            log["actions"].append({"game_pause": True})
+    except Exception as exc:
+        logging.warning("game_pause prep_stop: %s", exc)
+
     return log
 
 

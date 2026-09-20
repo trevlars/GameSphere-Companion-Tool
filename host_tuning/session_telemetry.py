@@ -324,6 +324,12 @@ class SessionLogMonitor:
                 save_sessions(sessions)
         if self.on_stop and self._active:
             self.on_stop(self._active)
+        try:
+            from host_tuning import game_pause
+
+            game_pause.pause_on_stream_drop(reason)
+        except Exception:
+            logging.debug("game_pause on session end failed", exc_info=True)
         logging.info("Session ended (%s, %s)", self._active.id, reason)
         self._active = None
         self._open_uuid = ""

@@ -36,6 +36,7 @@ hidden_imports = [
     "host_tuning.nat_map",
     "host_tuning.wanna_play",
     "host_tuning.coop_pause",
+    "host_tuning.game_pause",
     "host_tuning.host_identity",
     "host_tuning.steam_playtime",
     "host_tuning.host_daemon",

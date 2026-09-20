@@ -94,6 +94,8 @@ class HostTuningConfig:
     controller_steamlink_ips: str = ""  # comma-separated; empty = no Steam Link auto-x360
     controller_hide_steam_clones: bool = True
     controller_apply_emulators: bool = True
+    # Pulse host Start/Menu when a stream drops without SESSIONEND host_quit.
+    stream_pause_on_drop: bool = True
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HostTuningConfig":
