@@ -83,7 +83,14 @@ def _proc_matches(target: str) -> bool:
 
 def _compute_state(target: Optional[str]) -> Dict[str, Any]:
     if not target:
-        return {"v": 2, "state": "idle", "game": "", "cmd": "", "detail": ""}
+        return {
+            "v": 2,
+            "state": "idle",
+            "game": "",
+            "cmd": "",
+            "detail": "",
+            "processAlive": False,
+        }
 
     state = "starting"
     exe_name = os.path.basename(target.replace("\\", "/"))
@@ -99,12 +106,14 @@ def _compute_state(target: Optional[str]) -> Dict[str, Any]:
     else:
         detail = str(_LAST_RESULT.get("detail") or "")
 
+    process_alive = bool(target and _proc_matches(target))
     return {
         "v": 2,
         "state": state,
         "game": exe_name,
         "cmd": target,
         "detail": detail,
+        "processAlive": process_alive,
         "attempts": int(_LAST_RESULT.get("attempts") or 0),
         "updatedAt": int(_LAST_RESULT.get("updatedAt") or 0),
     }

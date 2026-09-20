@@ -61,6 +61,8 @@ if os.path.isdir(_scripts):
     for name in (
         "gamesphere-steam-close.sh",
         "gamesphere-steam-close.py",
+        "gamesphere-store-close.sh",
+        "gamesphere-store-close.py",
         "gamesphere-host-prep.sh",
         "gamesphere-vban-setup.sh",
         "gamesphere-host-bridge.sh",

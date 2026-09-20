@@ -342,6 +342,129 @@ def ensure_steam_close_helper() -> Optional[str]:
     return None
 
 
+def _store_close_helper_path() -> Optional[str]:
+    """Return the installed (or repo) Epic/Xbox close helper path."""
+    if os.name != "nt":
+        dest_sh = os.path.expanduser("~/.local/bin/gamesphere-store-close.sh")
+        if os.path.isfile(dest_sh) and os.access(dest_sh, os.X_OK):
+            return dest_sh
+        src_dir = _scripts_dir()
+        src_sh = os.path.join(src_dir, "gamesphere-store-close.sh") if src_dir else ""
+        return src_sh if src_sh and os.path.isfile(src_sh) else None
+    dest_dir = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "GameSphere")
+    dest_sh = os.path.join(dest_dir, "gamesphere-store-close.sh")
+    if os.path.isfile(dest_sh) and os.access(dest_sh, os.X_OK):
+        return dest_sh
+    src_dir = _scripts_dir()
+    src_sh = os.path.join(src_dir, "gamesphere-store-close.sh") if src_dir else ""
+    return src_sh if src_sh and os.path.isfile(src_sh) else None
+
+
+def ensure_store_close_helper() -> Optional[str]:
+    """Install/refresh the non-Steam Quit App close helper."""
+    src_dir = _scripts_dir()
+    dest_dir = (
+        os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "GameSphere")
+        if os.name == "nt"
+        else os.path.expanduser("~/.local/bin")
+    )
+    dest_sh = os.path.join(dest_dir, "gamesphere-store-close.sh")
+    dest_py = os.path.join(dest_dir, "gamesphere-store-close.py")
+    src_sh = os.path.join(src_dir, "gamesphere-store-close.sh") if src_dir else ""
+    src_py = os.path.join(src_dir, "gamesphere-store-close.py") if src_dir else ""
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        for src, dest in ((src_py, dest_py), (src_sh, dest_sh)):
+            if not src or not os.path.isfile(src):
+                continue
+            with open(src, "rb") as fh:
+                data = fh.read()
+            existing = b""
+            if os.path.isfile(dest):
+                with open(dest, "rb") as fh:
+                    existing = fh.read()
+            if existing != data:
+                with open(dest, "wb") as fh:
+                    fh.write(data)
+                os.chmod(dest, 0o755)
+                logging.info("Installed store close helper %s", dest)
+    except OSError as exc:
+        logging.warning("Could not install store close helper: %s", exc)
+    if os.path.isfile(dest_sh) and os.access(dest_sh, os.X_OK):
+        return dest_sh
+    if src_sh and os.path.isfile(src_sh):
+        return src_sh
+    return None
+
+
+def _store_close_undo_cmd(store_key: str) -> Optional[str]:
+    """Sunshine prep-cmd undo for Epic / Xbox / other non-Steam imports."""
+    key = (store_key or "").strip()
+    if not key or os.name != "nt":
+        return None
+    helper = ensure_store_close_helper() or _store_close_helper_path()
+    if not helper:
+        return None
+    return f'"{helper}" --store-key "{key}"'
+
+
+def _store_close_prep_entry(store_key: str) -> Optional[Dict]:
+    undo = _store_close_undo_cmd(store_key)
+    if not undo:
+        return None
+    return {"do": "", "undo": undo, "elevated": False}
+
+
+def _prep_has_store_close(prep_cmds: List[Dict], store_key: str) -> bool:
+    key = (store_key or "").strip()
+    needle = f'--store-key "{key}"'
+    for entry in prep_cmds or []:
+        undo = str((entry or {}).get("undo") or "")
+        if "gamesphere-store-close" in undo and needle in undo:
+            return True
+    return False
+
+
+def _merge_store_prep_cmds(store_key: str, existing: Optional[List] = None) -> List[Dict]:
+    """Stream-prep + host tuning prep + store close undo for Epic/Xbox tiles."""
+    close_entry = _store_close_prep_entry(store_key)
+    merged: List[Dict] = []
+    stream_prep = _linux_stream_prep_cmds()
+    stream_undo = stream_prep[0]["undo"] if stream_prep else None
+    if stream_prep:
+        merged.extend(stream_prep)
+    try:
+        from host_tuning.service import global_prep_cmds, write_prep_scripts
+
+        write_prep_scripts()
+        host_prep = global_prep_cmds()
+        host_undo = host_prep[0]["undo"] if host_prep else None
+        if host_prep:
+            merged.extend(host_prep)
+    except Exception as exc:
+        logging.debug("Host tuning prep unavailable: %s", exc)
+        host_undo = None
+    for entry in existing or []:
+        if not isinstance(entry, dict):
+            continue
+        undo = str(entry.get("undo") or "")
+        do = str(entry.get("do") or "")
+        if stream_undo and undo == stream_undo:
+            continue
+        if host_undo and undo == host_undo:
+            continue
+        if "sunshine-stream-prep.sh" in do or "sunshine-stream-prep.sh" in undo:
+            continue
+        if "gamesphere-host-prep" in do or "gamesphere-host-prep" in undo:
+            continue
+        if "gamesphere-store-close" in undo:
+            continue
+        merged.append(entry)
+    if close_entry and not _prep_has_store_close(merged, store_key):
+        merged.append(close_entry)
+    return merged
+
+
 def _steam_close_undo_cmd(app_id: str) -> Optional[str]:
     """
     Sunshine prep-cmd undo that closes a detached Steam game when the client
@@ -1832,13 +1955,33 @@ def _build_store_sunshine_app(
         "_gamesphere_store_key": store_key_val,
         "_gamesphere_store": store,
     }
+    exe_path = (info.get("exe_path") or "").strip()
+    if exe_path:
+        app["_gamesphere_exe_path"] = exe_path
     if detached and not cmd:
         app["cmd"] = ""
         app["detached"] = [detached] if isinstance(detached, str) else list(detached)
     else:
         app["cmd"] = cmd
         app["detached"] = ""
+    if os.name == "nt" and store_key_val and store not in ("Steam", ""):
+        prep_cmds = _merge_store_prep_cmds(store_key_val)
+        if prep_cmds:
+            app["prep-cmd"] = prep_cmds
     return app
+
+
+def _repair_store_app_entry(app: Dict) -> Dict:
+    """Ensure Epic/Xbox/GOG entries carry Quit App close undo."""
+    store_key_val = _app_gamesphere_store_key(app)
+    store = (app.get("_gamesphere_store") or "").strip()
+    if not store_key_val or store in ("Steam", "") or os.name != "nt":
+        return app
+    repaired = dict(app)
+    repaired["prep-cmd"] = _merge_store_prep_cmds(store_key_val, app.get("prep-cmd"))
+    if not repaired["prep-cmd"]:
+        repaired.pop("prep-cmd", None)
+    return repaired
 
 
 def process_existing_apps(
@@ -1889,6 +2032,7 @@ def process_existing_apps(
         store_key_val = _app_gamesphere_store_key(app)
         if store_key_val:
             if store_key_val in installed_stores:
+                app = _repair_store_app_entry(app)
                 updated_apps.append(app)
                 existing_store_keys.add(store_key_val)
                 if store_key_val.startswith("epic:"):
@@ -2582,6 +2726,9 @@ def main() -> None:
             helper = ensure_steam_close_helper()
             if helper:
                 logging.info("Quit App close helper: %s", helper)
+            store_helper = ensure_store_close_helper()
+            if store_helper:
+                logging.info("Store Quit App close helper: %s", store_helper)
         
         # Start Steam only if not already running (unless disabled or preview-only)
         if not args.no_restart and not args.dry_run:

@@ -74,6 +74,8 @@ if os.path.isdir(_scripts):
         "gamesphere-steam-close.ps1",
         "gamesphere-steam-close.py",
         "gamesphere-steam-close.sh",
+        "gamesphere-store-close.py",
+        "gamesphere-store-close.sh",
         "gamesphere-host-prep.ps1",
         "gamesphere-host-prep.sh",
         "gamesphere-vban-setup.ps1",

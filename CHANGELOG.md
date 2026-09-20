@@ -4,6 +4,13 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.17] — 2026-09-20
+
+### Added
+- **Epic / Xbox / GOG quit parity** — non-Steam imports get `gamesphere-store-close` prep-cmd undo on Windows (same one-tap Quit App behavior as Steam).
+- **`GAMESTATE.processAlive`** — Companion reports when the launched game process is gone so GameSphere can end the stream when Epic/Xbox titles exit without changing Sunshine `currentgame`.
+- **`sunshine_quit` apps.json routing** — `SESSIONEND host_quit` resolves the running tile from `apps.json` and spawns Steam vs store close helpers; accepts optional `{game, store}` hints from the phone.
+
 ## [1.5.16] — 2026-09-18
 
 ### Changed
