@@ -1,0 +1,10 @@
+[Unit]
+Description=Probe Sunshine every 45s for HTTPS/RTSP wedge
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=45s
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+[Unit]
+Description=Sunshine HTTPS/RTSP wedge recovery probe
+After=sunshine.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/sunshine-health-watch.sh watch
