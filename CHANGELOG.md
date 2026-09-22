@@ -5,6 +5,7 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 ## [Unreleased]
 
 ### Fixed
+- **Duplicate client certs after a guest re-pair** — invite joins force a re-pair, so Sunshine stored the same client certificate under a second name and then refused that device with `SSL Verification error :: Client certificate identity is not enabled`. After a PIN is accepted Companion now drops older entries that duplicate the newest entry's certificate.
 - **Guest join pairing (`JOINPIN ok=False error=pin_rejected`)** — newer Sunshine builds require a `pairing_id` on `POST /api/pin` (`pairing_id must contain exactly 32 hexadecimal characters`), so every invite pair was rejected. Companion now reads pending pair requests from `GET /api/pin`, matches the joining guest by client address (then name, then newest), and sends that id with the PIN. The PIN POST also waits up to 25s because Sunshine holds it open until the pair handshake finishes.
 
 ## [1.5.18] — 2026-09-20

@@ -126,16 +126,76 @@ def submit_pin(pin: str, name: str = "GameSphere Guest", address: str = "") -> T
     pairing_id = _pick_pairing_id(name or "", address or "")
     if pairing_id:
         body["pairing_id"] = pairing_id
-    # Sunshine holds this POST open until the guest finishes the pair handshake.
+    # Sunshine blocks this POST until the guest finishes the pair handshake.
     status, parsed = _request("POST", "/api/pin", body, timeout=25)
     if status in (200, 204) or (isinstance(parsed, dict) and parsed.get("status") in (True, "true", 1)):
+        try:
+            dedupe_named_devices()
+        except Exception as exc:
+            logging.debug("dedupe after pair failed: %s", exc)
         return True, "ok"
     message = ""
     if isinstance(parsed, dict):
         message = str(parsed.get("error") or parsed.get("status_message") or parsed.get("raw") or "")
     if not pairing_id:
         message = message or "no_pending_pairing"
-    return False, message or f"http_{status}"
+    return False, message or "http_%s" % status
+
+
+def _state_path() -> str:
+    """Sunshine keeps paired client certs next to its log."""
+    cfg = load_config()
+    log_path = (getattr(cfg, "sunshine_log_path", "") or "").strip()
+    if log_path:
+        candidate = os.path.join(os.path.dirname(log_path), "sunshine_state.json")
+        if os.path.exists(candidate):
+            return candidate
+    fallback = os.path.expanduser("~/.config/sunshine/sunshine_state.json")
+    return fallback if os.path.exists(fallback) else ""
+
+
+def dedupe_named_devices() -> int:
+    """Unpair stale entries that duplicate another entry's certificate.
+
+    Sunshine resolves a streaming client by certificate; two names holding the same
+    cert make it reject the client outright. Keep the newest entry per cert.
+    """
+    path = _state_path()
+    if not path:
+        return 0
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            state = json.load(handle)
+        devices = (state.get("root") or {}).get("named_devices") or []
+    except Exception as exc:
+        logging.debug("dedupe_named_devices: cannot read %s: %s", path, exc)
+        return 0
+    if len(devices) < 2:
+        return 0
+    newest_for_cert: Dict[str, str] = {}
+    for row in devices:
+        if not isinstance(row, dict):
+            continue
+        cert = str(row.get("cert") or "")
+        uuid = str(row.get("uuid") or "")
+        if cert and uuid:
+            newest_for_cert[cert] = uuid
+    removed = 0
+    for row in devices:
+        if not isinstance(row, dict):
+            continue
+        cert = str(row.get("cert") or "")
+        uuid = str(row.get("uuid") or "")
+        if not cert or not uuid or newest_for_cert.get(cert) == uuid:
+            continue
+        if unpair(uuid):
+            removed += 1
+            logging.info(
+                "Sunshine dropped duplicate client cert entry name=%s uuid=%s",
+                row.get("name") or "-",
+                uuid,
+            )
+    return removed
 
 
 def list_clients() -> List[Dict[str, str]]:
