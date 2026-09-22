@@ -4,7 +4,10 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.19] — 2026-09-21
+
 ### Fixed
+- **"Wanna play" pinged Player 1's own phone** — the host phone registers itself as a trusted client, so Send Invite included it and Player 1 got "Want to play … with <their own persona>?" on the device that sent the invite. Companion now skips the sending uuid, any device saved with `role=host`, and any device registered under the host persona. `PLAYREG` also stores `role` so the exclusion survives a restart.
 - **Duplicate client certs after a guest re-pair** — invite joins force a re-pair, so Sunshine stored the same client certificate under a second name and then refused that device with `SSL Verification error :: Client certificate identity is not enabled`. After a PIN is accepted Companion now drops older entries that duplicate the newest entry's certificate.
 - **Guest join pairing (`JOINPIN ok=False error=pin_rejected`)** — newer Sunshine builds require a `pairing_id` on `POST /api/pin` (`pairing_id must contain exactly 32 hexadecimal characters`), so every invite pair was rejected. Companion now reads pending pair requests from `GET /api/pin`, matches the joining guest by client address (then name, then newest), and sends that id with the PIN. The PIN POST also waits up to 25s because Sunshine holds it open until the pair handshake finishes.
 
