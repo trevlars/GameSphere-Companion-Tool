@@ -1,4 +1,4 @@
-"""Invite-link JOINREQ auto-accept (fresh token within TTL)."""
+"""Invite-link JOINREQ stays pending until Player 1 taps Accept."""
 
 from __future__ import annotations
 
@@ -69,12 +69,12 @@ class InviteJoinTests(unittest.TestCase):
         lan.start()
         self.addCleanup(lan.stop)
 
-    def test_active_invite_token_auto_joinacks(self):
+    def test_active_invite_token_waits_for_host_accept(self):
         minted = guest_invite.mint({"appId": "9", "appName": "Celeste", "hostId": "host1"})
         token = minted["token"]
         self.assertTrue(guest_invite.is_active_invite_token(token))
 
-        auto = join_request.create(
+        pending_req = join_request.create(
             {
                 "friendName": "Guest iPad",
                 "uuid": "guest-uuid",
@@ -83,14 +83,12 @@ class InviteJoinTests(unittest.TestCase):
                 "appName": "Celeste",
             }
         )
-        self.assertTrue(auto.get("ok"), auto)
-        self.assertTrue(auto.get("preauth"))
-        self.assertEqual(auto.get("status"), "accepted")
-        # First guest of the session takes the first free seat.
-        self.assertEqual(auto.get("playerSlot"), 1)
-        pending = join_request.pending()
-        ids = [r.get("reqId") for r in pending.get("requests") or []]
-        self.assertNotIn(auto["reqId"], ids)
+        self.assertTrue(pending_req.get("ok"), pending_req)
+        self.assertFalse(pending_req.get("preauth"))
+        self.assertNotEqual(pending_req.get("status"), "accepted")
+        open_reqs = join_request.pending()
+        ids = [r.get("reqId") for r in open_reqs.get("requests") or []]
+        self.assertIn(pending_req["reqId"], ids)
 
     def test_expired_invite_token_stays_pending(self):
         minted = guest_invite.mint({"appId": "9", "appName": "Celeste"})

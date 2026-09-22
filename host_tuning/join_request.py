@@ -125,7 +125,7 @@ def _find_active_request(
 
 
 def _should_auto_joinack(payload: Dict[str, Any], client_uuid: str, session_id: str) -> bool:
-    """Wanna-play preauth, or a fresh gamesphere://join invite token within TTL."""
+    """Wanna-play preauth only. A fresh invite still waits for Player 1 to tap Accept."""
     try:
         from host_tuning import wanna_play
 
@@ -133,12 +133,6 @@ def _should_auto_joinack(payload: Dict[str, Any], client_uuid: str, session_id: 
             return True
     except Exception:
         logging.exception("JOINREQ wanna_play preauth check")
-    invite_token = str(
-        payload.get("token") or payload.get("inviteToken") or session_id or ""
-    ).strip()
-    if invite_token and guest_invite.is_active_invite_token(invite_token):
-        logging.info("JOINREQ invite auto-accept token=%s", invite_token[:10] + "…" if len(invite_token) > 10 else invite_token)
-        return True
     return False
 
 
@@ -326,6 +320,7 @@ def pending() -> Dict[str, Any]:
                         "appId": r.get("appId"),
                         "appName": r.get("appName"),
                         "clientName": r.get("clientName"),
+                        "uuid": r.get("uuid") or "",
                         "role": r.get("role") or "guest",
                         "expiresIn": max(0, int(float(r.get("expires") or 0) - now)),
                     }
