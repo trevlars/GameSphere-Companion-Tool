@@ -130,6 +130,7 @@ def register_device(payload: Dict[str, Any]) -> Dict[str, Any]:
         token = str(payload.get("apnsToken") or "").strip()
         environment = "development"
     now = time.time()
+    role = str(payload.get("role") or "").strip().lower()
     with _lock:
         data = _load()
         devices: List[Dict[str, Any]] = []
@@ -142,6 +143,8 @@ def register_device(payload: Dict[str, Any]) -> Dict[str, Any]:
                     d["apnsToken"] = token
                     d["apnsEnvironment"] = environment
                 d["lastSeen"] = now
+                if role in ("host", "guest"):
+                    d["role"] = role
                 found = True
             devices.append(d)
         if not found:
@@ -153,6 +156,7 @@ def register_device(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "apnsToken": token,
                     "apnsEnvironment": environment if token else "",
                     "lastSeen": now,
+                    "role": role if role in ("host", "guest") else "",
                 }
             )
         data["devices"] = devices[-64:]
@@ -165,7 +169,6 @@ def register_device(payload: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         logging.debug("PLAYREG profile upsert failed", exc_info=True)
     join_request.mark_trusted(uuid)
-    role = str(payload.get("role") or "").strip().lower()
     try:
         from host_tuning import couch_coop
 
@@ -178,6 +181,25 @@ def register_device(payload: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         logging.debug("PLAYREG couch_coop seat hint failed", exc_info=True)
     return {"ok": True, "uuid": uuid, "apns": bool(token)}
+
+
+def _exclude_player_one(trusted: List[str], payload: Dict[str, Any], persona: str) -> List[str]:
+    """Player 1 is trusted because their phone PLAYREGs. Never ping that phone."""
+    sender = str(payload.get("uuid") or payload.get("senderUuid") or "").strip()
+    host_uuids = {sender} if sender else set()
+    persona_key = (persona or "").strip().casefold()
+    # "Player" is the fallback device name for guests who have no persona yet.
+    match_name = persona_key not in ("", "player", "player 1")
+    with _lock:
+        for device in (_load().get("devices") or []):
+            du = str(device.get("uuid") or "").strip()
+            if not du:
+                continue
+            role = str(device.get("role") or "").strip().lower()
+            name = str(device.get("name") or "").strip().casefold()
+            if role == "host" or (match_name and name == persona_key):
+                host_uuids.add(du)
+    return [u for u in trusted if u and u not in host_uuids]
 
 
 def start(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -216,16 +238,19 @@ def start(payload: Dict[str, Any]) -> Dict[str, Any]:
     for u in wanted:
         if u not in trusted:
             trusted.append(u)
+    session_id = secrets.token_urlsafe(16)
+    now = time.time()
+    ident = _identity()
+    persona = str(payload.get("hostPersona") or ident.get("hostPersona") or "Player 1").strip() or "Player 1"
+    # Player 1's phones PLAYREG as trusted, so a naive ping list includes them.
+    # Drop the sender, role=host, and any phone registered under the host persona.
+    trusted = _exclude_player_one(trusted, payload, persona)
     if not trusted:
         return {
             "ok": False,
             "error": "no_trusted_clients",
             "hint": "Friends must pair once and send TRUSTED / PLAYREG. One-shot invite strangers are not pinged.",
         }
-    session_id = secrets.token_urlsafe(16)
-    now = time.time()
-    ident = _identity()
-    persona = str(payload.get("hostPersona") or ident.get("hostPersona") or "Player 1").strip() or "Player 1"
     title = "Wanna play?"
     body = f"Want to play {app_name} with {persona}"
     play_url = _play_url(session_id, app_id, app_name, host_id, lan, wan, https_port, zt_host)

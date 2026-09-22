@@ -86,6 +86,26 @@ class WannaPlayTests(unittest.TestCase):
         self.assertTrue(self.wp.is_preauthorized("friend-a", ""))
         self.assertFalse(self.wp.is_preauthorized("stranger", result["sessionId"]))
 
+    def test_start_skips_player_one_phones(self):
+        self.wp.register_device({"uuid": "host-phone", "name": "tlarsen94", "role": "host"})
+        self.wp.register_device({"uuid": "friend-a", "name": "Krista", "role": "guest"})
+        with mock.patch(
+            "host_tuning.join_request.trusted_uuids",
+            return_value=["friend-a", "host-phone"],
+        ):
+            result = self.wp.start(
+                {
+                    "appId": "9",
+                    "appName": "Mario Kart 64",
+                    "hostPersona": "tlarsen94",
+                    "uuid": "host-phone",
+                }
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["preauthUuids"], ["friend-a"])
+        self.assertFalse(self.wp.is_preauthorized("host-phone", result["sessionId"]))
+        self.assertTrue(self.wp.is_preauthorized("friend-a", result["sessionId"]))
+
     def test_pending_and_claim(self):
         started = self.wp.start({"appId": "9", "appName": "Hades", "hostPersona": "P1"})
         pending = self.wp.pending_for("friend-a")
