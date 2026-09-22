@@ -4,6 +4,14 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.20] — 2026-09-21
+
+### Fixed
+- **Steam voice input stuck on Default** — when the PipeWire **GameSphere Mic** device is created (`VOICE start` / `--setup-mic`), Companion now patches each local Steam account's `SteamVoiceSettings` to `selectedMic: gamesphere_mic` and sets the Pulse default source. Steam still needs a restart once to load the new device list, but you no longer have to hunt the setting after every mic setup.
+
+### Notes
+- Matches GameSphere iOS **1(298)+** party voice + Mic to PC LAN routing (`10.0.5.x` UDP 48020).
+
 ## [1.5.19] — 2026-09-21
 
 ### Fixed

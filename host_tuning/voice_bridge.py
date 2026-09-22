@@ -189,15 +189,25 @@ def ensure_pc_mic_device() -> Dict:
 
         # Friendly card name in pavucontrol / Steam
         _pactl("set-source-property", PC_MIC_SOURCE, "device.description", PC_MIC_NAME)
+        steam_voice: Dict = {}
+        try:
+            from host_tuning.steam_voice import configure_steam_voice_mic
+
+            steam_voice = configure_steam_voice_mic(PC_MIC_SOURCE)
+        except Exception as exc:
+            logging.debug("steam voice mic configure: %s", exc)
         _pc_ready = True
         _pc_error = None
-        return {
+        out = {
             "ok": True,
             "device": PC_MIC_NAME,
             "source": PC_MIC_SOURCE,
             "sink": PC_MIC_SINK,
             "slot": PC_MIC_SLOT,
         }
+        if steam_voice:
+            out["steamVoice"] = steam_voice
+        return out
     except Exception as exc:
         _pc_ready = False
         _pc_error = str(exc)
