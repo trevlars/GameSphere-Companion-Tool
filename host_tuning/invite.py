@@ -278,7 +278,8 @@ def submit_pin(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": "invite_ended"}
     if time.time() > float(invite.get("expires") or 0):
         return {"ok": False, "error": "invite_expired"}
-    ok, message = sunshine_admin.submit_pin(pin, name)
+    address = _strip_host_port(str(payload.get("address") or ""))
+    ok, message = sunshine_admin.submit_pin(pin, name, address)
     if not ok:
         return {"ok": False, "error": "pin_rejected", "detail": message}
 

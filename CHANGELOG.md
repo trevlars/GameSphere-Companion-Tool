@@ -4,6 +4,9 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+### Fixed
+- **Guest join pairing (`JOINPIN ok=False error=pin_rejected`)** — newer Sunshine builds require a `pairing_id` on `POST /api/pin` (`pairing_id must contain exactly 32 hexadecimal characters`), so every invite pair was rejected. Companion now reads pending pair requests from `GET /api/pin`, matches the joining guest by client address (then name, then newest), and sends that id with the PIN. The PIN POST also waits up to 25s because Sunshine holds it open until the pair handshake finishes.
+
 ## [1.5.18] — 2026-09-20
 
 ### Added

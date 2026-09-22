@@ -161,6 +161,10 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                     payload = json.loads(arg or "{}") if arg else {}
                     if not isinstance(payload, dict):
                         payload = {}
+                    if not payload.get("address"):
+                        peer = getattr(self, "client_address", None)
+                        if peer:
+                            payload["address"] = peer[0]
                     result = guest_invite.submit_pin(payload)
                     logging.info("JOINPIN ok=%s error=%s", result.get("ok"), result.get("error"))
                     self._reply(json.dumps(result))

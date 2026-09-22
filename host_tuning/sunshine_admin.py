@@ -41,7 +41,8 @@ def has_credentials() -> bool:
     return bool(user and password)
 
 
-def _request(method: str, path: str, body: Optional[Dict[str, Any]] = None) -> Tuple[int, Any]:
+def _request(method: str, path: str, body: Optional[Dict[str, Any]] = None,
+             timeout: int = 8) -> Tuple[int, Any]:
     user, password = _creds()
     if not user or not password:
         return 0, {"error": "missing_sunshine_credentials"}
@@ -60,7 +61,7 @@ def _request(method: str, path: str, body: Optional[Dict[str, Any]] = None) -> T
         urllib.request.HTTPBasicAuthHandler(password_mgr),
     )
     try:
-        with opener.open(req, timeout=8) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             payload = resp.read().decode("utf-8", errors="replace")
             try:
                 parsed = json.loads(payload) if payload else {}
@@ -79,16 +80,61 @@ def _request(method: str, path: str, body: Optional[Dict[str, Any]] = None) -> T
         return 0, {"error": str(exc)}
 
 
-def submit_pin(pin: str, name: str = "GameSphere Guest") -> Tuple[bool, str]:
+def pending_pairings() -> List[Dict[str, str]]:
+    """Sunshine pending /pair requests. Newer builds require their id on POST /api/pin."""
+    status, parsed = _request("GET", "/api/pin")
+    if status != 200 or not isinstance(parsed, dict):
+        return []
+    rows = parsed.get("pairings")
+    if not isinstance(rows, list):
+        return []
+    out: List[Dict[str, str]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        pid = str(row.get("id") or "").strip()
+        if pid:
+            out.append({
+                "id": pid,
+                "name": str(row.get("name") or ""),
+                "address": str(row.get("address") or ""),
+            })
+    return out
+
+
+def _pick_pairing_id(name: str, address: str = "") -> str:
+    rows = pending_pairings()
+    if not rows:
+        return ""
+    if address:
+        for row in rows:
+            if row["address"] == address:
+                return row["id"]
+    if name:
+        for row in rows:
+            if row["name"] == name:
+                return row["id"]
+    # Sunshine appends new requests, so the newest pending pair is the joining guest.
+    return rows[-1]["id"]
+
+
+def submit_pin(pin: str, name: str = "GameSphere Guest", address: str = "") -> Tuple[bool, str]:
     pin = (pin or "").strip()
     if len(pin) != 4 or not pin.isdigit():
         return False, "pin_invalid"
-    status, parsed = _request("POST", "/api/pin", {"pin": pin, "name": name or "GameSphere Guest"})
+    body = {"pin": pin, "name": name or "GameSphere Guest"}
+    pairing_id = _pick_pairing_id(name or "", address or "")
+    if pairing_id:
+        body["pairing_id"] = pairing_id
+    # Sunshine holds this POST open until the guest finishes the pair handshake.
+    status, parsed = _request("POST", "/api/pin", body, timeout=25)
     if status in (200, 204) or (isinstance(parsed, dict) and parsed.get("status") in (True, "true", 1)):
         return True, "ok"
     message = ""
     if isinstance(parsed, dict):
         message = str(parsed.get("error") or parsed.get("status_message") or parsed.get("raw") or "")
+    if not pairing_id:
+        message = message or "no_pending_pairing"
     return False, message or f"http_{status}"
 
 
