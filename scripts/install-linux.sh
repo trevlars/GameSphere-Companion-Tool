@@ -2,7 +2,10 @@
 # Install GameSphere Companion Tool on Linux (Bazzite, Steam Deck, generic).
 set -euo pipefail
 
-if [[ -z "${GAMESPHERE_INSTALL_FROM_FILE:-}" && ! -t 0 ]]; then
+# curl | bash: re-read the rest of the script from stdin into a file first. A script
+# run as a file (auto-updater, systemd, ssh) also has a non-tty stdin — that stdin is
+# empty, so only take this path when there is no script file.
+if [[ -z "${GAMESPHERE_INSTALL_FROM_FILE:-}" && ! -t 0 && ! -f "${BASH_SOURCE[0]:-}" ]]; then
   tmp="$(mktemp "${TMPDIR:-/tmp}/gamesphere-install-linux.XXXXXX")"
   cat >"$tmp"
   chmod +x "$tmp"

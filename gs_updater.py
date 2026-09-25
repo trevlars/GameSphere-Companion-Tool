@@ -544,9 +544,11 @@ def _run_install_linux_sh(tag: str, script: str) -> str:
     env = os.environ.copy()
     env["GAMESPHERE_IMPORT_REF"] = tag
     env["GAMESPHERE_IMPORT_DIR"] = install_dir
+    # Without this, a non-tty stdin makes older installers re-read themselves from stdin.
+    env["GAMESPHERE_INSTALL_FROM_FILE"] = "1"
     # install-linux.sh clones, syncs deps, and enables units — cap it so a stalled
     # network cannot hang the GUI update worker forever.
-    subprocess.run(["bash", script], check=True, env=env, timeout=1800)
+    subprocess.run(["bash", script], check=True, env=env, timeout=1800, stdin=subprocess.DEVNULL)
     return install_dir
 
 

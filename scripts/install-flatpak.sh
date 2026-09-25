@@ -4,7 +4,8 @@ set -euo pipefail
 
 # curl | bash pipes the script on stdin. flatpak can echo terminal CSI responses
 # (e.g. ^[[24;1R) back into that stream and bash then hits "syntax error near '('".
-if [[ -z "${GAMESPHERE_INSTALL_FROM_FILE:-}" && ! -t 0 ]]; then
+# When run as a file (non-tty stdin from an updater/ssh) there is nothing to re-read.
+if [[ -z "${GAMESPHERE_INSTALL_FROM_FILE:-}" && ! -t 0 && ! -f "${BASH_SOURCE[0]:-}" ]]; then
   tmp="$(mktemp "${TMPDIR:-/tmp}/gamesphere-install-flatpak.XXXXXX")"
   cat >"$tmp"
   chmod +x "$tmp"

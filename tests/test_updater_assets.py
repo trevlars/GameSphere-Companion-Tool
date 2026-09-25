@@ -33,6 +33,43 @@ class WindowsAssetPickTests(unittest.TestCase):
         self.assertIsNone(gs_updater.pick_asset([], "win"))
 
 
+@unittest.skipIf(os.name == "nt", "bash installers")
+class InstallerStdinGuardTests(unittest.TestCase):
+    """Updaters run install-*.sh as a file with a non-tty stdin; that must not be a no-op."""
+
+    def _guard_script(self, name: str) -> str:
+        with open(os.path.join(ROOT, "scripts", name), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        start = next(i for i, line in enumerate(lines) if "GAMESPHERE_INSTALL_FROM_FILE:-" in line)
+        end = next(i for i in range(start, len(lines)) if lines[i].strip() == "fi")
+        return "\n".join(["#!/usr/bin/env bash", "set -euo pipefail", *lines[start : end + 1], "echo RAN_BODY"]) + "\n"
+
+    def _run(self, body: str, *, piped: bool) -> str:
+        import subprocess
+        import tempfile
+
+        env = {k: v for k, v in os.environ.items() if k != "GAMESPHERE_INSTALL_FROM_FILE"}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "installer.sh")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            if piped:
+                proc = subprocess.run(["bash"], input=body, capture_output=True, text=True, env=env, timeout=20)
+            else:
+                proc = subprocess.run(
+                    ["bash", path], stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env, timeout=20
+                )
+        return proc.stdout
+
+    def test_file_run_with_empty_stdin_executes_body(self):
+        for name in ("install-linux.sh", "install-flatpak.sh"):
+            self.assertIn("RAN_BODY", self._run(self._guard_script(name), piped=False), name)
+
+    def test_curl_pipe_still_executes_body(self):
+        for name in ("install-linux.sh", "install-flatpak.sh"):
+            self.assertIn("RAN_BODY", self._run(self._guard_script(name), piped=True), name)
+
+
 class DownloadValidationTests(unittest.TestCase):
     def test_asset_size_is_tolerant_of_junk(self):
         self.assertEqual(gs_updater._asset_size({"size": 1234}), 1234)  # noqa: SLF001

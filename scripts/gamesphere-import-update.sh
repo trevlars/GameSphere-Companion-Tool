@@ -144,7 +144,8 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
     GAMESPHERE_IMPORT_REF="$TAG" \
       GAMESPHERE_IMPORT_DIR="$INSTALL_DIR" \
       GAMESPHERE_SKIP_UPDATE_TIMER=1 \
-      bash "$SCRIPT"
+      GAMESPHERE_INSTALL_FROM_FILE=1 \
+      bash "$SCRIPT" </dev/null
     updated=1
   else
     echo "==> Git install already $LOCAL"

@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.23] — 2026-09-24
+
+### Fixed
+- **Git installs had silently stopped auto-updating since 1.5.12.** `install-linux.sh` / `install-flatpak.sh` treat a non-tty stdin as `curl | bash` and re-read themselves from it; the daily updater and **Apply update** run them as a file with an empty stdin, so the installer ran nothing and the install stayed on the old version while reporting an update. The installers now only re-read stdin when there is no script file, and both updaters pass `GAMESPHERE_INSTALL_FROM_FILE=1`. Existing installs pick up the fix on their next check, because the updater downloads the release's `install-linux.sh`.
+
 ## [1.5.22] — 2026-09-24
 
 ### Added
