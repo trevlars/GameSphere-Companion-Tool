@@ -60,6 +60,21 @@ class ControllerPolicyTests(unittest.TestCase):
             self.assertIn("gamepad = ds5", body)
             self.assertIn("motion_as_ds4 = enabled", body)
 
+    def test_prep_stream_hides_clones_only_for_steamlink(self):
+        from host_tuning import controller_policy as cp
+        from host_tuning.config import HostTuningConfig
+
+        cfg = HostTuningConfig(enabled=True, controller_policy_enabled=True, controller_hide_steam_clones=True)
+        for context, expect_hide in (("gamesphere-ds5", False), ("gamesphere-x360", False), ("steamlink-x360", True)):
+            state = cp.ControllerPolicyState(context=context, gamepad="", label="", peers=[], applied=True)
+            with mock.patch.object(cp, "apply_sunshine_profile", return_value=state), mock.patch.object(
+                cp, "hide_steam_x360_clones", return_value=True
+            ) as hide, mock.patch.object(cp, "start_steam_clone_watch", return_value=True) as watch:
+                result = cp.prep_stream(cfg, force=context)
+            self.assertEqual(hide.called, expect_hide, context)
+            self.assertEqual(watch.called, expect_hide, context)
+            self.assertEqual("hide_steam_clones" in result["actions"], expect_hide, context)
+
     def test_get_policy_json_shape(self):
         from host_tuning.controller_policy import get_policy_json
 

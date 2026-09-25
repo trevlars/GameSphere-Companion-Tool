@@ -292,7 +292,7 @@ Disable the Linux timer: `systemctl --user disable --now gamesphere-import-updat
 | **Flatpak can’t restart Sunshine** | Ensure `systemctl --user status sunshine` works; try native install or `--no-restart` then restart manually. |
 | **Discord hears nothing (Windows mic)** | Discord input = **CABLE Output**. Re-run **Set up mic for GameSphere**. Reboot once after VB-CABLE install. |
 | **Invite / WAN / JOINPIN dead** | Daemon must be up (`--host-daemon-status`). Router UPnP on. Never forward 47990. Restart the **bridge only**. |
-| **Guest pad steals host / extra Xbox pads (Linux)** | Confirm udev `99-gamesphere-hide-steam-clones.rules` and `gamesphere-hide-steam-clones.sh`. Steam `28de:11ff` nodes should be mode 000. |
+| **Guest pad steals host / extra Xbox pads (Linux)** | In emulators, the host daemon hides Steam `28de:11ff` clones (mode 000) while the emulator runs; launchers can run `gamesphere-hide-steam-clones.sh --force` before starting it. Native Steam / Proton games need the clones readable — `python3 -m host_tuning.couch_coop status` shows `clone_policy`. |
 
 Log file (CLI): `~/.local/share/gamesphere-import-tool/logs/gamesphere-import.log` (Linux) or `%LOCALAPPDATA%\\GameSphere\\logs\\` (Windows).
 

@@ -16,8 +16,8 @@ from host_tuning.config import load_config
 _log = logging.getLogger(__name__)
 
 # Sunshine UPnP would also publish 47990 (web UI). Companion maps the data ports.
+# `gamepad` is not here: controller_policy sets it per stream (ds5 GameSphere, x360 Steam Link).
 RECOMMENDED = {
-    "gamepad": "x360",
     "upnp": "disabled",
     "origin_web_ui_allowed": "pc",
     "wan_encryption_mode": "1",
@@ -192,7 +192,7 @@ def snippet() -> str:
     return (
         "# Sunshine / Apollo — Companion recommended. Do NOT change hevc/av1 for voice/mic work.\n"
         "# Companion maps game ports via UPnP/NAT-PMP. Never publish 47990.\n"
-        "gamepad = x360\n"
+        "# gamepad is chosen per stream by the Companion controller policy.\n"
         "upnp = disabled\n"
         "origin_web_ui_allowed = pc\n"
         "wan_encryption_mode = 1\n"

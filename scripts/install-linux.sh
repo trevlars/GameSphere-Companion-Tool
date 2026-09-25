@@ -179,7 +179,7 @@ echo ""
 echo "Auto-update: gamesphere-import-update.timer (opt out: GAMESPHERE_AUTO_UPDATE=0)"
 echo "Host daemon: gamesphere-host-bridge.service (opt out: GAMESPHERE_ENABLE_HOST_BRIDGE=0)"
 echo "  systemctl --user status gamesphere-host-bridge.service"
-echo "Couch co-op: Steam 28de:11ff clones hidden via udev + gamesphere-hide-steam-clones.sh"
+echo "Couch co-op: Steam 28de:11ff clones hidden only while an emulator runs (host daemon + gamesphere-hide-steam-clones.sh --force)"
 echo "Optional DeckyLoader plugin: see decky/README.md"
 
 DECKY_PLUGINS="${DECKY_PLUGINS_DIR:-$HOME/homebrew/plugins}"

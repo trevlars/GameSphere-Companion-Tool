@@ -234,24 +234,25 @@ class SunshineWanTests(unittest.TestCase):
         finally:
             os.unlink(tmp.name)
 
-    def test_writes_gamepad_when_missing(self):
+    def test_leaves_gamepad_to_controller_policy(self):
         from host_tuning import sunshine_wan
 
-        original = "upnp = enabled\nhevc_mode = 1\n"
-        tmp = tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False)
-        tmp.write(original)
-        tmp.close()
-        try:
-            result = sunshine_wan.apply_recommended(tmp.name)
-            self.assertTrue(result["ok"])
-            self.assertIn("gamepad", result.get("changed") or [])
-            with open(tmp.name, encoding="utf-8") as fh:
-                text = fh.read()
-            self.assertIn("gamepad = x360", text)
-            self.assertIn("hevc_mode = 1", text)
-            self.assertIn("upnp = disabled", text)
-        finally:
-            os.unlink(tmp.name)
+        for original in ("upnp = enabled\nhevc_mode = 1\ngamepad = ds5\n", "upnp = enabled\nhevc_mode = 1\n"):
+            tmp = tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False)
+            tmp.write(original)
+            tmp.close()
+            try:
+                result = sunshine_wan.apply_recommended(tmp.name)
+                self.assertTrue(result["ok"])
+                self.assertNotIn("gamepad", result.get("changed") or [])
+                with open(tmp.name, encoding="utf-8") as fh:
+                    text = fh.read()
+                self.assertNotIn("gamepad = x360", text)
+                self.assertEqual("gamepad = ds5" in original, "gamepad = ds5" in text)
+                self.assertIn("hevc_mode = 1", text)
+                self.assertIn("upnp = disabled", text)
+            finally:
+                os.unlink(tmp.name)
 
 
 class InviteTokenTests(unittest.TestCase):

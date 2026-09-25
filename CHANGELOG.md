@@ -4,6 +4,23 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.21] — 2026-09-24
+
+### Fixed
+- **Native Steam / Proton games had no controller during a GameSphere stream** (e.g. Big Walk). Proton games only read Steam Input's `28de:11ff` "Microsoft X-Box 360 pad N" clones, and the couch co-op watcher set those to mode 000 every second for the whole stream. Clones are now hidden only while an emulator is running (Eden, Ryujinx, Dolphin, RetroArch, Cemu, Azahar, HarbourMasters, …), on the Steam Link playroom profile (unchanged), or when forced — and made readable again within a second after the emulator exits.
+- **"Restored" clones stayed unreadable** — hiding drops the udev `uaccess` ACL, and the seat user is usually not in the `input` group, so restoring mode bits alone did nothing. Restore now re-grants the ACL.
+- **WAN setup flipped Sunshine to `gamepad = x360`**, overriding the per-stream DualSense profile on the next Sunshine restart. The controller policy alone now owns `gamepad`.
+
+### Changed
+- **`gamesphere-hide-steam-clones.sh`** follows the same policy by default and takes `--force` (or `GAMESPHERE_FORCE_HIDE_CLONES=1` / `BAZZITE_FORCE_HIDE_CLONES=1`) for emulator launchers, plus `--restore` and `--sync`. `python3 -m host_tuning.couch_coop status` reports `clone_policy`.
+- **Retired the always-on udev rule `99-gamesphere-hide-steam-clones.rules`** — install/update now moves an active copy aside (`.disabled`) instead of installing it.
+- **Stream-start clone hiding (`controller_hide_steam_clones`)** applies to the Steam Link profile only.
+- **Emulator re-bind timeouts** shortened (pad wait 10s → 2s, Cemu/Harkinian helpers 60s → 8s) so Sunshine prep-cmd cannot stall `/launch`.
+- `logs/` in the install dir is git-ignored so release updates (`git clean`) keep the CLI log.
+
+### Notes
+- Couch co-op trade-off: native Linux games that ignore Steam's SDL environment could see a duplicate pad in multi-player GameSphere sessions. Use `gamesphere-hide-steam-clones.sh --force` for those; Proton games need the clones and are the common case.
+
 ## [1.5.20] — 2026-09-21
 
 ### Fixed

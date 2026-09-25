@@ -2,8 +2,10 @@
 
 Sunshine (`gamepad = x360`) allocates Gamepad 0 (host) then 1–3 as guests join.
 Steam Input clones those as VID 28de / PID 11ff "Microsoft X-Box 360 pad N"
-— those *are* Steam player slots. The clones also show up as extra SDL pads and
-steal later players unless they are hidden from the joystick subsystem.
+— those *are* Steam player slots. Emulators read the Sunshine pads directly, so
+for them the clones are duplicate players; Proton / native Steam games read
+*only* the clones. Clones are therefore hidden only while an emulator is running
+(or on the Steam Link profile, or when forced) and kept readable otherwise.
 
 Slots are assigned once on join (connect-order). Re-apply never swaps two live
 players when a pad blips, Steam clones reappear, or the watcher fires. Host Swap
@@ -33,6 +35,38 @@ _JUNK_NAMES = (
     "mouse passthrough (absolute)",
     "mouse passthrough (relative)",
 )
+
+# Process-name prefixes (comm / argv[0] basename) of emulators that read Sunshine
+# pads directly. Proton-hosted emulators (e.g. Xenia) are deliberately absent:
+# under Proton they only see Steam Input clones, like any other Steam game.
+EMULATOR_PROCESS_PREFIXES = (
+    "eden",
+    "yuzu",
+    "citron",
+    "suyu",
+    "sudachi",
+    "torzu",
+    "ryujinx",
+    "dolphin-emu",
+    "retroarch",
+    "cemu",
+    "azahar",
+    "citra",
+    "lime3ds",
+    "ppsspp",
+    "pcsx2",
+    "duckstation",
+    "rpcs3",
+    "xemu",
+    "melonds",
+    "flycast",
+    "mgba",
+    "soh",
+    "2s2h",
+    "spaghettify",
+    "spaghettikart",
+)
+FORCE_HIDE_ENV = ("GAMESPHERE_FORCE_HIDE_CLONES", "BAZZITE_FORCE_HIDE_CLONES")
 
 _RUNTIME_JSON = "gamesphere-couch-coop.json"
 _RUNTIME_ENV = "gamesphere-couch-coop.env"
@@ -223,6 +257,87 @@ def armed() -> bool:
     return time.time() < _armed_until
 
 
+def _read_runtime(name: str) -> str:
+    try:
+        with open(os.path.join(_runtime_dir(), name), "r", encoding="utf-8") as fh:
+            return fh.read().strip().lower()
+    except OSError:
+        return ""
+
+
+def steamlink_stream() -> bool:
+    """Playroom Steam Link session (controller_policy `steamlink-x360`)."""
+    if _read_runtime("bazzite-sunshine-remote-xbox-p1") == "always":
+        return True
+    return _read_runtime("bazzite-controller-context").startswith("steamlink")
+
+
+def force_hide_requested() -> bool:
+    return any(
+        (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+        for name in FORCE_HIDE_ENV
+    )
+
+
+def _is_emulator_name(token: str) -> bool:
+    base = os.path.basename(token.strip()).lower()
+    for prefix in EMULATOR_PROCESS_PREFIXES:
+        if base.startswith(prefix):
+            rest = base[len(prefix):]
+            if not rest or not rest[0].isalnum():
+                return True
+    return False
+
+
+def running_emulator(proc_root: str = "/proc") -> str:
+    """Name of a running SDL/evdev emulator process, or "" when none is running."""
+    try:
+        entries = os.listdir(proc_root)
+    except OSError:
+        return ""
+    for pid in entries:
+        if not pid.isdigit():
+            continue
+        base = os.path.join(proc_root, pid)
+        names: List[str] = []
+        try:
+            with open(os.path.join(base, "comm"), "r", encoding="utf-8", errors="replace") as fh:
+                names.append(fh.read())
+        except OSError:
+            continue
+        try:
+            with open(os.path.join(base, "cmdline"), "rb") as fh:
+                names.append(fh.read().split(b"\0", 1)[0].decode("utf-8", "replace"))
+        except OSError:
+            pass
+        for name in names:
+            if name and _is_emulator_name(name):
+                return os.path.basename(name.strip())
+    return ""
+
+
+def clone_hide_reason(force: bool = False) -> str:
+    """Why Steam Input clones should be hidden right now ("" = keep them readable).
+
+    Proton / native Steam games only see Steam Input's 28de:11ff clones, so hiding
+    them leaves those games with no controller. Emulators read the Sunshine pads
+    directly and treat the clones as duplicate players, so hide only for them,
+    for the Steam Link playroom profile (unchanged legacy behavior), or on request.
+    """
+    if force or force_hide_requested():
+        return "forced"
+    if steamlink_stream():
+        return "steamlink"
+    emulator = running_emulator()
+    if emulator:
+        return f"emulator:{emulator}"
+    return ""
+
+
+def should_hide_steam_clones(force: bool = False) -> bool:
+    return bool(clone_hide_reason(force))
+
+
 def _run(cmd: List[str]) -> bool:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
@@ -257,14 +372,69 @@ def _chmod_000(path: str) -> bool:
         return False
 
 
-def hide_steam_clones(pads: Optional[List[Pad]] = None) -> int:
-    """Hide Steam Input 28de:11ff clones from SDL. Do not touch Sunshine virtual pads."""
+def _login_user() -> str:
+    if os.geteuid() == 0:
+        return (os.environ.get("SUDO_USER") or "").strip()
+    try:
+        import pwd
+
+        return pwd.getpwuid(os.getuid()).pw_name
+    except (ImportError, KeyError):
+        return ""
+
+
+def _restore_node(path: str) -> bool:
+    """Undo _chmod_000: udev default mode plus the uaccess ACL that setfacl -b dropped.
+
+    The seat user is usually not in the `input` group, so mode bits alone leave
+    the node unreadable for Steam games.
+    """
+    if not os.path.exists(path) or _mode(path) != 0:
+        return False
+    mode = "664" if os.path.basename(path).startswith("js") else "660"
+    prefix: List[str] = [] if os.geteuid() == 0 else ["sudo", "-n"]
+    if not _run(prefix + ["chmod", mode, path]):
+        return False
+    user = _login_user()
+    if user:
+        _run(prefix + ["setfacl", "-m", f"u:{user}:rw", path])
+    return True
+
+
+def hide_steam_clones(pads: Optional[List[Pad]] = None, force: bool = False) -> int:
+    """Hide Steam Input 28de:11ff clones when the policy wants them hidden (or force)."""
+    if not should_hide_steam_clones(force):
+        return 0
     hidden = 0
     for pad in steam_clones(pads):
         for node in pad.nodes:
             if _chmod_000(node):
                 hidden += 1
     return hidden
+
+
+def restore_steam_clones(pads: Optional[List[Pad]] = None) -> int:
+    """Make hidden Steam Input clones readable again (native Steam / Proton games)."""
+    restored = 0
+    for pad in steam_clones(pads):
+        for node in pad.nodes:
+            if _restore_node(node):
+                restored += 1
+    return restored
+
+
+def sync_steam_clones(pads: Optional[List[Pad]] = None) -> Dict[str, Any]:
+    """Hide clones while an emulator / Steam Link needs it; otherwise keep them readable.
+
+    Restores only during a live stream so a local session or another tool's
+    hide (e.g. the playroom udev rule outside a stream) is left alone.
+    """
+    pads = pads if pads is not None else read_live_pads()
+    reason = clone_hide_reason()
+    if reason:
+        return {"policy": reason, "hidden": hide_steam_clones(pads, force=True), "restored": 0}
+    restored = restore_steam_clones(pads) if (stream_active() or armed()) else 0
+    return {"policy": "visible", "hidden": 0, "restored": restored}
 
 
 def hide_junk_joysticks(pads: Optional[List[Pad]] = None) -> int:
@@ -529,7 +699,8 @@ def apply(reason: str = "manual", force: bool = False) -> Dict[str, Any]:
 
     if reason in ("session_start", "prep_start"):
         mark_stream_active()
-    hidden_clones = hide_steam_clones(pads)
+    clones = sync_steam_clones(pads)
+    hidden_clones = clones["hidden"]
     hidden_junk = hide_junk_joysticks(pads)
     watch = ensure_clone_watch() if (stream_active() or armed() or sunshine_pads(pads)) else False
     synced = False
@@ -542,6 +713,8 @@ def apply(reason: str = "manual", force: bool = False) -> Dict[str, Any]:
             "ok": True,
             "reason": reason,
             "hidden_clones": hidden_clones,
+            "restored_clones": clones["restored"],
+            "clone_policy": clones["policy"],
             "hidden_junk": hidden_junk,
             "clone_watch": watch,
             "player_order_sync": synced,
@@ -550,11 +723,13 @@ def apply(reason: str = "manual", force: bool = False) -> Dict[str, Any]:
         }
     )
     logging.info(
-        "couch_coop apply reason=%s sunshine=%s clones=%s hidden=%s lock=%s swapped=%s",
+        "couch_coop apply reason=%s sunshine=%s clones=%s hidden=%s restored=%s clone_policy=%s lock=%s swapped=%s",
         reason,
         payload.get("sunshine_count"),
         payload.get("steam_clone_count"),
         hidden_clones,
+        clones["restored"],
+        clones["policy"],
         _slot_lock,
         False,
     )
@@ -777,11 +952,13 @@ def status() -> Dict[str, Any]:
             for p in sunshine_pads(pads)
         ],
         "steam_slots": steam_slots_from_clones(pads),
+        "clone_policy": clone_hide_reason() or "visible",
         "junk": [{"name": p.name, "nodes": p.js_nodes} for p in pads if p.kind == "junk"],
         "runtime": saved,
         "verify": (
             "Sunshine pads stay in join-order seats (P1–P4). Steam clones 28de:11ff "
-            "should be mode 000 (ls -l /dev/input/js*). Host Swap is the only remap. "
+            "are mode 000 only while an emulator runs or on Steam Link; otherwise "
+            "native Steam games need them readable. Host Swap is the only remap. "
             "HarbourMasters still binds all SDL pads to Port 1."
         ),
     }
@@ -821,7 +998,7 @@ class CouchCoopWatch:
                         apply("pad_arrival", force=True)
                         last_keys = keys
                     else:
-                        hide_steam_clones(pads)  # no-op when clones already mode 000
+                        sync_steam_clones(pads)
             except Exception:
                 logging.exception("couch_coop watcher")
             self._stop.wait(self.interval)
@@ -838,7 +1015,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     if cmd == "status":
         print(json.dumps(status(), indent=2))
         return 0
-    print("usage: python3 -m host_tuning.couch_coop [status|apply]", file=sys.stderr)
+    if cmd == "hide":
+        force = "--force" in args[1:]
+        print(json.dumps({"policy": clone_hide_reason(force) or "visible", "hidden": hide_steam_clones(force=force)}))
+        return 0
+    if cmd == "restore":
+        print(json.dumps({"restored": restore_steam_clones()}))
+        return 0
+    if cmd == "sync":
+        print(json.dumps(sync_steam_clones()))
+        return 0
+    print("usage: python3 -m host_tuning.couch_coop [status|apply|hide [--force]|restore|sync]", file=sys.stderr)
     return 2
 
 

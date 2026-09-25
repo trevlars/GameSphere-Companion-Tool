@@ -57,46 +57,34 @@ def install_hide_helper() -> Dict[str, Any]:
     return {"ok": os.path.isfile(dest), "path": dest}
 
 
-def install_udev_rules() -> Dict[str, Any]:
-    src = os.path.join(repo_root(), "scripts", "udev", UDEV_NAME)
-    if not os.path.isfile(src):
-        return {"ok": False, "error": "udev_rule_missing"}
+def retire_udev_rules() -> Dict[str, Any]:
+    """Disable the always-on clone-hiding rule older releases installed.
+
+    Proton / native Steam games read only Steam Input's 28de:11ff clones, so a
+    global MODE=000 rule leaves them without a controller. The host daemon now
+    hides clones only while an emulator runs (host_tuning.couch_coop).
+    """
     user_copy = os.path.join(
         os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
         "gamesphere-import-tool",
         "udev",
         UDEV_NAME,
     )
-    os.makedirs(os.path.dirname(user_copy), exist_ok=True)
-    shutil.copy2(src, user_copy)
-    if os.path.isfile(UDEV_DEST):
-        try:
-            with open(src, encoding="utf-8") as a, open(UDEV_DEST, encoding="utf-8") as b:
-                if a.read() == b.read():
-                    return {"ok": True, "path": UDEV_DEST, "already": True, "userCopy": user_copy}
-        except OSError:
-            pass
-    copied = False
-    if os.geteuid() == 0:
-        copied = _run(["cp", src, UDEV_DEST]) and _run(["chmod", "644", UDEV_DEST])
-    else:
-        copied = _run(["sudo", "-n", "cp", src, UDEV_DEST]) and _run(
-            ["sudo", "-n", "chmod", "644", UDEV_DEST]
-        )
-    if copied:
-        _run(["sudo", "-n", "udevadm", "control", "--reload-rules"]) or _run(
-            ["udevadm", "control", "--reload-rules"]
-        )
-        _run(["sudo", "-n", "udevadm", "trigger", "--subsystem-match=input"]) or _run(
-            ["udevadm", "trigger", "--subsystem-match=input"]
-        )
-        return {"ok": True, "path": UDEV_DEST, "userCopy": user_copy, "enabled": True}
+    try:
+        os.remove(user_copy)
+    except OSError:
+        pass
+    if not os.path.isfile(UDEV_DEST):
+        return {"ok": True, "path": UDEV_DEST, "active": False}
+    prefix: List[str] = [] if os.geteuid() == 0 else ["sudo", "-n"]
+    retired = _run(prefix + ["mv", "-f", UDEV_DEST, UDEV_DEST + ".disabled"])
+    if retired:
+        _run(prefix + ["udevadm", "control", "--reload-rules"])
+        return {"ok": True, "path": UDEV_DEST, "retired": True}
     return {
         "ok": False,
         "path": UDEV_DEST,
-        "userCopy": user_copy,
-        "hint": f"sudo cp {user_copy} {UDEV_DEST} && sudo udevadm control --reload-rules",
-        "note": "Daemon still hides 28de:11ff clones while a stream is up.",
+        "hint": f"sudo mv {UDEV_DEST} {UDEV_DEST}.disabled && sudo udevadm control --reload-rules",
     }
 
 
@@ -164,7 +152,7 @@ def install_linux_stack() -> Dict[str, Any]:
     """Enable couch-coop helpers on any Linux Sunshine host. Does not restart Sunshine."""
     out: Dict[str, Any] = {
         "hideHelper": install_hide_helper(),
-        "udev": install_udev_rules(),
+        "udev": retire_udev_rules(),
         "firewall": open_linux_firewall(),
         "sunshine": apply_sunshine_recommended(),
         "sunshine_touched": False,

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
@@ -174,6 +176,137 @@ class CouchCoopTests(unittest.TestCase):
                 env = fh.read()
             self.assertNotIn("BAZZITE_REMOTE", env)
             self.assertIn("0x28de/0x11ff", env)
+
+
+class ClonePolicyTests(unittest.TestCase):
+    """Steam clones stay readable for Proton games; hidden for emulators / Steam Link."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        patcher = mock.patch.object(cc, "_runtime_dir", return_value=self.tmp.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        env = mock.patch.dict(os.environ, {k: "" for k in cc.FORCE_HIDE_ENV})
+        env.start()
+        self.addCleanup(env.stop)
+        self.pads = cc.parse_input_devices(DEVICES)
+
+    def _touch(self, name, body=""):
+        with open(os.path.join(self.tmp.name, name), "w", encoding="utf-8") as fh:
+            fh.write(body)
+
+    def test_emulator_names(self):
+        for name in (
+            "eden",
+            "Eden-Linux-v0.0.3-amd64.AppImage",
+            "Ryujinx",
+            "dolphin-emu",
+            "retroarch",
+            "Cemu",
+            "azahar",
+            "soh.elf",
+            "2s2h.elf",
+            "Spaghettify",
+            "/usr/bin/retroarch",
+        ):
+            self.assertTrue(cc._is_emulator_name(name), name)
+        for name in ("Big Walk.exe", "steam", "steamwebhelper", "wineserver", "sohu", "edenfoo", "gamescope"):
+            self.assertFalse(cc._is_emulator_name(name), name)
+
+    def test_running_emulator_scans_comm_and_argv0(self):
+        proc = os.path.join(self.tmp.name, "proc")
+        for pid, comm, argv0 in (
+            ("10", "steam", b"/home/u/.steam/steam"),
+            ("11", "AppRun.wrapped", b"/tmp/.mount_Eden/usr/bin/eden"),
+            ("self", "x", b"x"),
+        ):
+            os.makedirs(os.path.join(proc, pid))
+            with open(os.path.join(proc, pid, "comm"), "w") as fh:
+                fh.write(comm + "\n")
+            with open(os.path.join(proc, pid, "cmdline"), "wb") as fh:
+                fh.write(argv0 + b"\0--flag\0")
+        self.assertEqual(cc.running_emulator(proc), "eden")
+        os.remove(os.path.join(proc, "11", "cmdline"))
+        self.assertEqual(cc.running_emulator(proc), "")
+
+    def test_native_steam_game_keeps_clones_during_gamesphere_stream(self):
+        self._touch("gamesphere-stream-active")
+        self._touch("bazzite-sunshine-remote-xbox-p1", "never\n")
+        self._touch("bazzite-controller-context", "gamesphere-ds5")
+        with mock.patch.object(cc, "running_emulator", return_value=""), mock.patch.object(
+            cc, "_chmod_000"
+        ) as chmod0:
+            self.assertEqual(cc.clone_hide_reason(), "")
+            self.assertEqual(cc.hide_steam_clones(self.pads), 0)
+            chmod0.assert_not_called()
+
+    def test_emulator_hides_clones_not_sunshine_pads(self):
+        self._touch("gamesphere-stream-active")
+        with mock.patch.object(cc, "running_emulator", return_value="eden"), mock.patch.object(
+            cc, "_chmod_000", return_value=True
+        ) as chmod0:
+            result = cc.sync_steam_clones(self.pads)
+        self.assertEqual(result["policy"], "emulator:eden")
+        touched = sorted(c.args[0] for c in chmod0.call_args_list)
+        self.assertEqual(
+            touched,
+            ["/dev/input/event28", "/dev/input/event29", "/dev/input/js4", "/dev/input/js5"],
+        )
+
+    def test_steamlink_profile_keeps_legacy_hide(self):
+        self._touch("gamesphere-stream-active")
+        self._touch("bazzite-sunshine-remote-xbox-p1", "always\n")
+        with mock.patch.object(cc, "running_emulator", return_value=""):
+            self.assertEqual(cc.clone_hide_reason(), "steamlink")
+        os.remove(os.path.join(self.tmp.name, "bazzite-sunshine-remote-xbox-p1"))
+        self._touch("bazzite-controller-context", "steamlink-x360")
+        with mock.patch.object(cc, "running_emulator", return_value=""):
+            self.assertEqual(cc.clone_hide_reason(), "steamlink")
+
+    def test_force_env_and_flag(self):
+        with mock.patch.object(cc, "running_emulator", return_value=""):
+            self.assertEqual(cc.clone_hide_reason(force=True), "forced")
+            with mock.patch.dict(os.environ, {"BAZZITE_FORCE_HIDE_CLONES": "1"}):
+                self.assertEqual(cc.clone_hide_reason(), "forced")
+
+    def test_sync_restores_after_emulator_exits_during_stream(self):
+        self._touch("gamesphere-stream-active")
+        with mock.patch.object(cc, "running_emulator", return_value=""), mock.patch.object(
+            cc, "_restore_node", return_value=True
+        ) as restore:
+            result = cc.sync_steam_clones(self.pads)
+        self.assertEqual(result["policy"], "visible")
+        self.assertEqual(result["restored"], 4)
+        self.assertEqual(restore.call_count, 4)
+
+    def test_sync_does_not_restore_outside_stream(self):
+        with mock.patch.object(cc, "running_emulator", return_value=""), mock.patch.object(
+            cc, "armed", return_value=False
+        ), mock.patch.object(cc, "_restore_node") as restore:
+            result = cc.sync_steam_clones(self.pads)
+        self.assertEqual(result["restored"], 0)
+        restore.assert_not_called()
+
+    @unittest.skipIf(os.name == "nt", "POSIX permissions")
+    def test_restore_node_regrants_uaccess_acl(self):
+        calls = []
+        with mock.patch.object(cc, "_mode", return_value=0), mock.patch.object(
+            cc.os.path, "exists", return_value=True
+        ), mock.patch.object(cc, "_run", side_effect=lambda cmd: calls.append(cmd) or True), mock.patch.object(
+            cc, "_login_user", return_value="bazzite"
+        ), mock.patch.object(cc.os, "geteuid", return_value=1000):
+            self.assertTrue(cc._restore_node("/dev/input/js4"))
+            self.assertTrue(cc._restore_node("/dev/input/event28"))
+        self.assertEqual(
+            calls,
+            [
+                ["sudo", "-n", "chmod", "664", "/dev/input/js4"],
+                ["sudo", "-n", "setfacl", "-m", "u:bazzite:rw", "/dev/input/js4"],
+                ["sudo", "-n", "chmod", "660", "/dev/input/event28"],
+                ["sudo", "-n", "setfacl", "-m", "u:bazzite:rw", "/dev/input/event28"],
+            ],
+        )
 
 
 if __name__ == "__main__":

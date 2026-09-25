@@ -206,7 +206,7 @@ gs_install_linux_host_stack() {
   local install_dir="${1:-${GAMESPHERE_IMPORT_DIR:-$HOME/.local/share/gamesphere-import-tool}}"
   local hide_src="$install_dir/scripts/gamesphere-hide-steam-clones.sh"
   local fw_src="$install_dir/scripts/gamesphere-host-firewall.sh"
-  local udev_src="$install_dir/scripts/udev/99-gamesphere-hide-steam-clones.rules"
+  local udev_rule="/etc/udev/rules.d/99-gamesphere-hide-steam-clones.rules"
   local bindir="$HOME/.local/bin"
   local raw="https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main"
   mkdir -p "$bindir"
@@ -226,22 +226,15 @@ gs_install_linux_host_stack() {
     install -m 755 "$fw_src" "$bindir/gamesphere-host-firewall.sh"
     "$bindir/gamesphere-host-firewall.sh" || true
   fi
-  if [[ ! -f "$udev_src" ]]; then
-    udev_src="$(mktemp)"
-    curl -fsSL "$raw/scripts/udev/99-gamesphere-hide-steam-clones.rules" -o "$udev_src" 2>/dev/null || udev_src=""
-  fi
-  if [[ -n "$udev_src" && -f "$udev_src" ]]; then
-    local udev_user="${XDG_CONFIG_HOME:-$HOME/.config}/gamesphere-import-tool/udev/99-gamesphere-hide-steam-clones.rules"
-    mkdir -p "$(dirname "$udev_user")"
-    install -m 644 "$udev_src" "$udev_user"
-    if sudo -n cp "$udev_src" /etc/udev/rules.d/99-gamesphere-hide-steam-clones.rules 2>/dev/null; then
-      sudo -n chmod 644 /etc/udev/rules.d/99-gamesphere-hide-steam-clones.rules 2>/dev/null || true
+  # Older releases hid every Steam Input clone system-wide, which leaves Proton games
+  # without a controller. The host daemon now hides clones only while an emulator runs.
+  rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/gamesphere-import-tool/udev/99-gamesphere-hide-steam-clones.rules"
+  if [[ -f "$udev_rule" ]]; then
+    if sudo -n mv -f "$udev_rule" "$udev_rule.disabled" 2>/dev/null; then
       sudo -n udevadm control --reload-rules 2>/dev/null || true
-      sudo -n udevadm trigger --subsystem-match=input 2>/dev/null || true
-      echo "==> Enabled udev rule 99-gamesphere-hide-steam-clones.rules"
+      echo "==> Retired $udev_rule (Steam Input clones stay readable for Steam games)"
     else
-      echo "==> udev rule copied to $udev_user (needs sudo to enable system-wide)"
-      echo "    sudo cp $udev_user /etc/udev/rules.d/ && sudo udevadm control --reload-rules"
+      echo "==> Please disable $udev_rule: sudo mv $udev_rule $udev_rule.disabled"
     fi
   fi
   if [[ -f "$install_dir/host_tuning/host_stack.py" ]]; then

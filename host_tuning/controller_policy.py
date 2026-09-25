@@ -304,7 +304,7 @@ def apply_emulator_bindings(context: str, cfg: Optional[HostTuningConfig] = None
                     env=env,
                     capture_output=True,
                     text=True,
-                    timeout=60,
+                    timeout=8,
                 )
                 extra["cemu_tail"] = (cproc.stdout or "")[-1000:]
                 extra["cemu_ok"] = cproc.returncode == 0
@@ -318,7 +318,7 @@ def apply_emulator_bindings(context: str, cfg: Optional[HostTuningConfig] = None
                     env=env,
                     capture_output=True,
                     text=True,
-                    timeout=60,
+                    timeout=8,
                 )
                 extra["harkinian_tail"] = (hproc.stdout or "")[-1000:]
                 extra["harkinian_ok"] = hproc.returncode == 0
@@ -357,7 +357,9 @@ def prep_stream(
         "sunshine_applied": state.applied,
     }
 
-    if cfg.controller_hide_steam_clones:
+    # Stream-wide clone hiding breaks Proton games (they read only Steam Input clones).
+    # GameSphere streams leave it to couch_coop, which hides only while an emulator runs.
+    if cfg.controller_hide_steam_clones and CONTEXTS[state.context]["remote_xbox_p1"] == "always":
         actions["hide_steam_clones"] = hide_steam_x360_clones()
         actions["clone_watch"] = start_steam_clone_watch()
 
@@ -371,10 +373,13 @@ def apply_emulator_bindings_with_wait(
     context: str,
     cfg: Optional[HostTuningConfig] = None,
     *,
-    wait_secs: float = 10.0,
+    wait_secs: float = 2.0,
     poll_secs: float = 0.25,
 ) -> Dict[str, Any]:
-    """Sync bind for game launch: wait briefly for the Sunshine virtual pad, then apply."""
+    """Sync bind for game launch: wait briefly for the Sunshine virtual pad, then apply.
+
+    Kept short because it runs inside Sunshine prep-cmd; a long wait stalls /launch.
+    """
     cfg = cfg or load_config()
     detect = Path.home() / ".local/bin/bazzite-controller-detect.py"
     if not detect.is_file():

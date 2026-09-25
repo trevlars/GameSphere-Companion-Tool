@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
@@ -12,17 +14,30 @@ if ROOT not in sys.path:
 
 
 class HostStackArtifactTests(unittest.TestCase):
-    def test_udev_hides_steam_clones_only(self):
+    def test_no_global_clone_hiding_udev_rule(self):
+        # Proton games read only Steam Input clones; a global MODE=000 rule breaks them.
         path = os.path.join(ROOT, "scripts", "udev", "99-gamesphere-hide-steam-clones.rules")
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
-        self.assertIn("28de", text)
-        self.assertIn("11ff", text)
-        self.assertIn('MODE="000"', text)
-        self.assertNotIn("47990", text)
-        blob = text.lower()
-        self.assertNotIn("dualsense", blob)
-        self.assertNotIn("gemma", blob)
+        self.assertFalse(os.path.exists(path))
+        with open(os.path.join(ROOT, "scripts", "linux-autoupdate-lib.sh"), encoding="utf-8") as fh:
+            lib = fh.read()
+        self.assertNotIn("sudo -n cp", lib)
+        self.assertIn(".disabled", lib)
+
+    def test_retire_udev_rule_moves_active_copy_aside(self):
+        from host_tuning import host_stack
+
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"XDG_CONFIG_HOME": tmp}
+        ), mock.patch.object(host_stack.os.path, "isfile", return_value=True), mock.patch.object(
+            host_stack, "_run", side_effect=lambda cmd, **_: calls.append(cmd) or True
+        ), mock.patch.object(host_stack.os, "geteuid", return_value=1000):
+            result = host_stack.retire_udev_rules()
+        self.assertTrue(result["retired"])
+        self.assertEqual(
+            calls[0],
+            ["sudo", "-n", "mv", "-f", host_stack.UDEV_DEST, host_stack.UDEV_DEST + ".disabled"],
+        )
 
     def test_hide_helper_and_firewall_scripts_exist(self):
         hide = os.path.join(ROOT, "scripts", "gamesphere-hide-steam-clones.sh")

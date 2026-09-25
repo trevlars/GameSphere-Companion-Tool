@@ -231,7 +231,7 @@ Import GUI ≠ host daemon. Closing the wizard or a one-shot import must not dro
 
 Installers (`install-linux.sh`, `install-flatpak.sh`, Windows GUI first launch / `--host-daemon-install`) enable this by default. Opt out: `GAMESPHERE_ENABLE_HOST_BRIDGE=0`.
 
-Linux also ships **udev** `99-gamesphere-hide-steam-clones.rules` + `gamesphere-hide-steam-clones.sh` (Steam Input `28de:11ff`) and a firewall helper (never 47990). Linger is enabled so the unit starts in Game Mode / after reboot.
+Linux also ships `gamesphere-hide-steam-clones.sh` (Steam Input `28de:11ff`; hides only while an emulator runs, on the Steam Link profile, or with `--force`) and a firewall helper (never 47990). The old always-on udev rule `99-gamesphere-hide-steam-clones.rules` is retired on install because Proton games read only those clones. Linger is enabled so the unit starts in Game Mode / after reboot.
 
 ```bash
 systemctl --user status gamesphere-host-bridge.service   # Linux
