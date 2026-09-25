@@ -65,10 +65,14 @@ EMULATOR_PROCESS_PREFIXES = (
     "2s2h",
     "spaghettify",
     "spaghettikart",
+    "2ship",
+    "dusklight",
+    "mcpelauncher",
 )
 FORCE_HIDE_ENV = ("GAMESPHERE_FORCE_HIDE_CLONES", "BAZZITE_FORCE_HIDE_CLONES")
 
 _RUNTIME_JSON = "gamesphere-couch-coop.json"
+_OWNER_PIDS = "gamesphere-clone-hide.pids"
 _RUNTIME_ENV = "gamesphere-couch-coop.env"
 _ARM_SECONDS = 180.0
 _APPLY_DEBOUNCE = 0.8
@@ -316,6 +320,52 @@ def running_emulator(proc_root: str = "/proc") -> str:
     return ""
 
 
+def _proc_start_time(pid: int, proc_root: str = "/proc") -> str:
+    """Kernel start time of a pid (guards against pid reuse), or "" if it is gone."""
+    try:
+        with open(os.path.join(proc_root, str(pid), "stat"), "r", encoding="utf-8", errors="replace") as fh:
+            fields = fh.read().rsplit(")", 1)[1].split()
+        return fields[19]
+    except (OSError, IndexError):
+        return ""
+
+
+def _read_owner_pids(proc_root: str = "/proc") -> List[str]:
+    """Live `pid:starttime` entries registered by emulator launchers."""
+    try:
+        with open(os.path.join(_runtime_dir(), _OWNER_PIDS), "r", encoding="utf-8") as fh:
+            entries = [line.strip() for line in fh if line.strip()]
+    except OSError:
+        return []
+    live = []
+    for entry in entries:
+        pid, _, start = entry.partition(":")
+        if pid.isdigit() and start and _proc_start_time(int(pid), proc_root) == start:
+            live.append(entry)
+    return live
+
+
+def register_clone_owner(pid: int, proc_root: str = "/proc") -> bool:
+    """Keep clones hidden while `pid` lives.
+
+    Launchers pass their own pid and then `exec` the emulator, so the pid lives
+    exactly as long as the emulator — no process-name list needed.
+    """
+    start = _proc_start_time(pid, proc_root) if pid > 0 else ""
+    if not start:
+        return False
+    entries = _read_owner_pids(proc_root)
+    entry = f"{pid}:{start}"
+    if entry not in entries:
+        entries.append(entry)
+    try:
+        with open(os.path.join(_runtime_dir(), _OWNER_PIDS), "w", encoding="utf-8") as fh:
+            fh.write("\n".join(entries) + "\n")
+    except OSError:
+        return False
+    return True
+
+
 def clone_hide_reason(force: bool = False) -> str:
     """Why Steam Input clones should be hidden right now ("" = keep them readable).
 
@@ -328,6 +378,9 @@ def clone_hide_reason(force: bool = False) -> str:
         return "forced"
     if steamlink_stream():
         return "steamlink"
+    owners = _read_owner_pids()
+    if owners:
+        return f"launcher:{owners[0].partition(':')[0]}"
     emulator = running_emulator()
     if emulator:
         return f"emulator:{emulator}"
@@ -1017,7 +1070,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
     if cmd == "hide":
         force = "--force" in args[1:]
-        print(json.dumps({"policy": clone_hide_reason(force) or "visible", "hidden": hide_steam_clones(force=force)}))
+        owner = ""
+        if "--owner-pid" in args[1:]:
+            idx = args.index("--owner-pid")
+            owner = args[idx + 1] if idx + 1 < len(args) else ""
+        registered = register_clone_owner(int(owner)) if owner.isdigit() else False
+        print(
+            json.dumps(
+                {
+                    "policy": clone_hide_reason(force) or "visible",
+                    "hidden": hide_steam_clones(force=force),
+                    "owner_registered": registered,
+                }
+            )
+        )
         return 0
     if cmd == "restore":
         print(json.dumps({"restored": restore_steam_clones()}))
@@ -1025,7 +1091,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if cmd == "sync":
         print(json.dumps(sync_steam_clones()))
         return 0
-    print("usage: python3 -m host_tuning.couch_coop [status|apply|hide [--force]|restore|sync]", file=sys.stderr)
+    print(
+        "usage: python3 -m host_tuning.couch_coop [status|apply|hide [--force] [--owner-pid PID]|restore|sync]",
+        file=sys.stderr,
+    )
     return 2
 
 

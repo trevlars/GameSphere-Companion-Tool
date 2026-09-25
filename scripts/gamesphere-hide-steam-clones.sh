@@ -4,31 +4,38 @@
 #
 # Proton / native Steam games only see the clones, so by default this hides them only
 # while an emulator is running or on the Steam Link profile (host_tuning.couch_coop).
-#   --force    hide now regardless (emulator launchers, before the emulator starts)
-#              also: GAMESPHERE_FORCE_HIDE_CLONES=1 or BAZZITE_FORCE_HIDE_CLONES=1
-#   --restore  make hidden clones readable again
-#   --sync     hide or restore to match the current policy
+#   --force            hide now regardless (emulator launchers, before the emulator starts)
+#                      also: GAMESPHERE_FORCE_HIDE_CLONES=1 or BAZZITE_FORCE_HIDE_CLONES=1
+#   --owner-pid PID    keep them hidden until PID exits (launcher passes $$, then execs)
+#   --restore          make hidden clones readable again
+#   --sync             hide or restore to match the current policy
 set -euo pipefail
 
 INSTALL_DIR="${GAMESPHERE_IMPORT_DIR:-$HOME/.local/share/gamesphere-import-tool}"
 DEVICES="${GAMESPHERE_INPUT_DEVICES:-/proc/bus/input/devices}"
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
+usage() { echo "usage: $0 [--force] [--owner-pid PID] | --restore | --sync" >&2; exit 2; }
+
 cmd=(hide)
 force=0
-for arg in "$@"; do
-  case "$arg" in
+owner=""
+while (( $# )); do
+  case "$1" in
     --force) force=1 ;;
+    --owner-pid) owner="${2:-}"; [[ "$owner" =~ ^[0-9]+$ ]] || usage; shift ;;
     --restore) cmd=(restore) ;;
     --sync) cmd=(sync) ;;
-    *) echo "usage: $0 [--force|--restore|--sync]" >&2; exit 2 ;;
+    *) usage ;;
   esac
+  shift
 done
 for var in GAMESPHERE_FORCE_HIDE_CLONES BAZZITE_FORCE_HIDE_CLONES; do
   case "${!var:-}" in 1|true|yes|on) force=1 ;; esac
 done
-if [[ "${cmd[0]}" == "hide" ]] && (( force )); then
-  cmd+=(--force)
+if [[ "${cmd[0]}" == "hide" ]]; then
+  (( force )) && cmd+=(--force)
+  [[ -n "$owner" ]] && cmd+=(--owner-pid "$owner")
 fi
 
 if [[ -f "$INSTALL_DIR/host_tuning/couch_coop.py" ]]; then
@@ -47,7 +54,7 @@ fi
 # Fallback without a Companion install: no emulator detection, so only hide when
 # forced or on the Steam Link profile. Restore needs the Companion module.
 [[ "${cmd[0]}" == "hide" ]] || exit 0
-remote="$(tr -d '[:space:]' <"$RUNTIME/bazzite-sunshine-remote-xbox-p1" 2>/dev/null || true)"
+remote="$(tr -d '[:space:]' 2>/dev/null <"$RUNTIME/bazzite-sunshine-remote-xbox-p1" || true)"
 if (( ! force )) && [[ "$remote" != "always" ]]; then
   exit 0
 fi

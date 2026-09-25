@@ -4,6 +4,14 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.22] — 2026-09-24
+
+### Added
+- **`gamesphere-hide-steam-clones.sh --force --owner-pid $$`** — an emulator launcher registers its own pid and then `exec`s the emulator; Steam Input clones stay hidden exactly until that process exits, whatever the emulator binary is called. Entries are checked against the kernel start time, so a reused pid does not count.
+
+### Fixed
+- Emulator detection now also covers 2 Ship 2 Harkinian (`2ship*.AppImage`), Dusklight, and Minecraft Bedrock (`mcpelauncher`).
+
 ## [1.5.21] — 2026-09-24
 
 ### Fixed

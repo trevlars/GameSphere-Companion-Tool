@@ -270,6 +270,31 @@ class ClonePolicyTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"BAZZITE_FORCE_HIDE_CLONES": "1"}):
                 self.assertEqual(cc.clone_hide_reason(), "forced")
 
+    def _fake_proc(self, pid, start):
+        proc = os.path.join(self.tmp.name, "proc")
+        os.makedirs(os.path.join(proc, str(pid)), exist_ok=True)
+        fields = ["S"] + ["0"] * 18 + [str(start)] + ["0"] * 5
+        with open(os.path.join(proc, str(pid), "stat"), "w") as fh:
+            fh.write(f"{pid} (retro arch) " + " ".join(fields) + "\n")
+        return proc
+
+    def test_launcher_owner_pid_keeps_clones_hidden_until_it_exits(self):
+        proc = self._fake_proc(4242, 777)
+        self.assertTrue(cc.register_clone_owner(4242, proc))
+        self.assertEqual(cc._read_owner_pids(proc), ["4242:777"])
+        real_read = cc._read_owner_pids
+        with mock.patch.object(cc, "_read_owner_pids", side_effect=lambda: real_read(proc)), mock.patch.object(
+            cc, "running_emulator", return_value=""
+        ):
+            self.assertEqual(cc.clone_hide_reason(), "launcher:4242")
+        # pid reused by an unrelated process (different start time) no longer counts
+        self._fake_proc(4242, 999)
+        self.assertEqual(cc._read_owner_pids(proc), [])
+        # pid gone entirely
+        os.remove(os.path.join(proc, "4242", "stat"))
+        self.assertEqual(cc._read_owner_pids(proc), [])
+        self.assertFalse(cc.register_clone_owner(4242, proc))
+
     def test_sync_restores_after_emulator_exits_during_stream(self):
         self._touch("gamesphere-stream-active")
         with mock.patch.object(cc, "running_emulator", return_value=""), mock.patch.object(
