@@ -21,7 +21,7 @@ Older Bazzite scripts used `module-echo-cancel` with `sink_master=<HDMI>`. That 
 3. `gamesphere_aec_ref` ← null sink fed by **loopback from `HDMI.monitor` only**  
 4. WebRTC AEC(`raw`, `ref`) → **`gamesphere_mic`** (Steam selects this)
 
-Sunshine keeps capturing the real HDMI / `bazzite-stream-stereo` path. Opt out: `GAMESPHERE_MIC_AEC=0` or `gamesphere-pc-mic-setup.sh aec-off`.
+Sunshine captures a separate HDMI tap (`bazzite-stream-surround51` by default, or stereo) so games stay on the real HDMI AVR path. Opt out of AEC: `GAMESPHERE_MIC_AEC=0` or `gamesphere-pc-mic-setup.sh aec-off`.
 
 ---
 

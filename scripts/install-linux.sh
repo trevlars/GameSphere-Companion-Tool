@@ -124,6 +124,14 @@ VBAN_LINK="${GAMESPHERE_VBAN_SETUP_BIN:-$HOME/.local/bin/gamesphere-vban-setup.s
 install -m 755 "$INSTALL_DIR/scripts/gamesphere-vban-setup.sh" "$VBAN_LINK"
 echo "==> Installed $PCMIC_LINK (GameSphere Mic PipeWire source; no VBAN)"
 
+# HTPC Sunshine HDMI→stream tap (5.1 by default). Safe no-op on non-Bazzite hosts
+# if the user never runs it; overwrites the local helper when present.
+if [[ -f "$INSTALL_DIR/scripts/bazzite-sunshine-capture-audio.sh" ]]; then
+  CAPTURE_LINK="${GAMESPHERE_SUNSHINE_CAPTURE_BIN:-$HOME/.local/bin/bazzite-sunshine-capture-audio.sh}"
+  install -m 755 "$INSTALL_DIR/scripts/bazzite-sunshine-capture-audio.sh" "$CAPTURE_LINK"
+  echo "==> Installed $CAPTURE_LINK (Sunshine HDMI capture tap; default 5.1)"
+fi
+
 echo "==> Initializing host tuning config..."
 uv run python3 host_tuning_cli.py init || true
 
