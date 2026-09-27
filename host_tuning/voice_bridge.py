@@ -32,11 +32,16 @@ MAGIC = b"GSVC"
 VERSION = 1
 HEADER_SIZE = 12  # magic(4) + ver(1) + slot(1) + seq(2) + samples(2) + rate(2)
 DEFAULT_PORT = int(os.environ.get("GAMESPHERE_VOICE_PORT", "48020"))
-SAMPLE_RATE = 16000
-# Match gamesphere-pc-mic-setup.sh. Default 16 kHz (native phone rate). Use 48000
-# only when HDMI-monitor AEC is on (GAMESPHERE_MIC_AEC=1).
-PC_SINK_RATE = int(os.environ.get("GAMESPHERE_PC_MIC_RATE", "16000"))
-MAX_PACKET = 2048
+# Graph / mix / Steam mic rate. Phone GSVC sends 48 kHz × 10 ms (under Wi‑Fi MTU).
+SAMPLE_RATE = int(os.environ.get("GAMESPHERE_VOICE_RATE", "48000"))
+LEGACY_RATE = 16000
+FRAME_MS = 10
+FRAME_SAMPLES = SAMPLE_RATE * FRAME_MS // 1000  # 480 @ 48 kHz
+FRAME_BYTES = FRAME_SAMPLES * 2  # 960
+LEGACY_FRAME_BYTES = 640  # old clients: 20 ms @ 16 kHz
+# Match gamesphere-pc-mic-setup.sh (48 kHz raw by default).
+PC_SINK_RATE = int(os.environ.get("GAMESPHERE_PC_MIC_RATE", str(SAMPLE_RATE)))
+MAX_PACKET = 4096
 CLIENT_TTL = 2.5
 # Couch co-op is 4 seats; the cap only exists to bound an adversarial flood.
 _MAX_CLIENTS = 16
@@ -44,12 +49,11 @@ PC_MIC_SLOT = int(os.environ.get("GAMESPHERE_PC_MIC_SLOT", "0"))
 PC_MIC_NAME = os.environ.get("GAMESPHERE_PC_MIC_NAME", "GameSphere Mic")
 PC_MIC_SINK = os.environ.get("GAMESPHERE_PC_MIC_SINK", "gamesphere_mic_sink")
 PC_MIC_SOURCE = os.environ.get("GAMESPHERE_PC_MIC_SOURCE", "gamesphere_mic")
-FRAME_BYTES = 640  # 320 samples * 2 bytes (20 ms @ 16 kHz)
-# 20 ms @ PC_SINK_RATE mono s16le after optional upsample from the phone frame.
-PC_FRAME_BYTES = FRAME_BYTES * max(1, PC_SINK_RATE // SAMPLE_RATE)
-# ~100 ms of queued audio before we start draining (absorbs jitter).
-_PC_PREBUFFER_FRAMES = 5
-_PC_QUEUE_MAX = 12  # drop oldest beyond ~240 ms
+PC_FRAME_BYTES = FRAME_BYTES * max(1, PC_SINK_RATE // SAMPLE_RATE) if PC_SINK_RATE >= SAMPLE_RATE else FRAME_BYTES
+# ~80–100 ms of queued audio before we start draining (absorbs jitter).
+_PC_PREBUFFER_FRAMES = 8
+_PC_QUEUE_MAX = 20  # drop oldest beyond ~200 ms
+_FRAME_PERIOD = FRAME_MS / 1000.0
 
 _lock = threading.Lock()
 _clients: Dict[Tuple[str, int], Dict] = {}
@@ -97,7 +101,7 @@ def _evict_stale_clients_locked(now: float) -> None:
 
 
 def _mix_minus(target_addr, now: float) -> bytes:
-    chunks = []
+    chunks: List[bytes] = []
     with _lock:
         _evict_stale_clients_locked(now)
         for addr, row in list(_clients.items()):
@@ -106,14 +110,17 @@ def _mix_minus(target_addr, now: float) -> bytes:
             if addr == target_addr:
                 continue
             pcm = row.get("pcm") or b""
-            if pcm:
-                chunks.append(pcm)
+            if not pcm:
+                continue
+            rate = int(row.get("rate") or 0)
+            norm = _normalize_to_graph(pcm, rate)
+            if len(norm) == FRAME_BYTES * 2:
+                chunks.append(norm[:FRAME_BYTES])
+            elif len(norm) >= FRAME_BYTES:
+                chunks.append(norm[:FRAME_BYTES])
     if not chunks:
         return b""
-    n = min(len(c) for c in chunks)
-    n -= n % 2
-    if n <= 0:
-        return b""
+    n = FRAME_BYTES
     acc = [0] * (n // 2)
     for pcm in chunks:
         for i in range(0, n, 2):
@@ -280,44 +287,70 @@ def _retire_vban_conf() -> None:
         logging.debug("vban conf remove: %s", exc)
 
 
-def _upsample_phone_to_sink(pcm16: bytes) -> bytes:
-    """Linear-upsample one 16 kHz mono frame to PC_SINK_RATE for PipeWire/AEC."""
-    if PC_SINK_RATE == SAMPLE_RATE:
-        return pcm16
-    ratio = PC_SINK_RATE // SAMPLE_RATE
-    if ratio < 2 or PC_SINK_RATE % SAMPLE_RATE:
-        # Fallback: naive repeat (still better than feeding 16 kHz into a 48 kHz graph).
-        ratio = max(1, round(PC_SINK_RATE / SAMPLE_RATE))
-    n = len(pcm16) // 2
+def _linear_resample(pcm: bytes, src_rate: int, dst_rate: int, dst_bytes: int) -> bytes:
+    """Linear-resample mono s16le PCM to dst_bytes at dst_rate."""
+    if not pcm or src_rate <= 0 or dst_rate <= 0 or dst_bytes <= 0:
+        return b"\x00" * max(0, dst_bytes)
+    if src_rate == dst_rate and len(pcm) == dst_bytes:
+        return pcm
+    n = len(pcm) // 2
     if n <= 0:
-        return b"\x00" * PC_FRAME_BYTES
-    samples = struct.unpack("<" + ("h" * n), pcm16[: n * 2])
+        return b"\x00" * dst_bytes
+    samples = struct.unpack("<" + ("h" * n), pcm[: n * 2])
+    out_n = dst_bytes // 2
     out: List[int] = []
-    for i, s in enumerate(samples):
-        nxt = samples[i + 1] if i + 1 < n else s
-        for k in range(ratio):
-            t = k / float(ratio)
-            out.append(int(s + (nxt - s) * t))
-    raw = struct.pack("<" + ("h" * len(out)), *out)
-    if len(raw) < PC_FRAME_BYTES:
-        raw = raw + (b"\x00" * (PC_FRAME_BYTES - len(raw)))
-    elif len(raw) > PC_FRAME_BYTES:
-        raw = raw[:PC_FRAME_BYTES]
-    return raw
+    for i in range(out_n):
+        pos = (i * (n - 1) / max(1, out_n - 1)) if out_n > 1 else 0.0
+        i0 = int(pos)
+        i1 = min(n - 1, i0 + 1)
+        t = pos - i0
+        out.append(int(samples[i0] + (samples[i1] - samples[i0]) * t))
+    return struct.pack("<" + ("h" * len(out)), *out)
 
 
-def _set_pc_pcm(pcm: bytes) -> None:
+def _normalize_to_graph(pcm: bytes, rate: int = 0) -> bytes:
+    """Normalize a client uplink frame to SAMPLE_RATE × FRAME_MS mono s16le."""
+    if not pcm:
+        return b"\x00" * FRAME_BYTES
+    rate = int(rate or 0)
+    # Legacy GameSphere: 20 ms @ 16 kHz (640 bytes) → one 10 ms @ 48 kHz is half;
+    # upsample the whole 20 ms then take/emit as two graph frames via caller.
+    if len(pcm) == LEGACY_FRAME_BYTES or rate == LEGACY_RATE:
+        # 20 ms @ 48 kHz = 1920 bytes → return first 10 ms; second half queued by caller.
+        twenty = _linear_resample(pcm, LEGACY_RATE, SAMPLE_RATE, FRAME_BYTES * 2)
+        return twenty  # special: 2× FRAME_BYTES — split in _set_pc_pcm / mix
+    if rate in (0, SAMPLE_RATE) or len(pcm) == FRAME_BYTES:
+        if len(pcm) < FRAME_BYTES:
+            return pcm + (b"\x00" * (FRAME_BYTES - len(pcm)))
+        return pcm[:FRAME_BYTES]
+    return _linear_resample(pcm, rate, SAMPLE_RATE, FRAME_BYTES)
+
+
+def _set_pc_pcm(pcm: bytes, rate: int = 0) -> None:
     global _pc_at
     if not pcm:
         return
-    # Pad / trim to one phone frame, then optionally upsample for the sink rate.
-    if len(pcm) < FRAME_BYTES:
-        pcm = pcm + (b"\x00" * (FRAME_BYTES - len(pcm)))
-    elif len(pcm) > FRAME_BYTES:
-        pcm = pcm[:FRAME_BYTES]
-    frame = _upsample_phone_to_sink(pcm)
+    norm = _normalize_to_graph(pcm, rate)
+    frames: List[bytes]
+    if len(norm) == FRAME_BYTES * 2:
+        frames = [norm[:FRAME_BYTES], norm[FRAME_BYTES:]]
+    elif len(norm) == FRAME_BYTES:
+        frames = [norm]
+    else:
+        frames = [_linear_resample(norm, SAMPLE_RATE, SAMPLE_RATE, FRAME_BYTES)]
+
+    sink_frames: List[bytes] = []
+    for fr in frames:
+        if PC_SINK_RATE == SAMPLE_RATE:
+            sink_frames.append(fr)
+        else:
+            sink_frames.append(
+                _linear_resample(fr, SAMPLE_RATE, PC_SINK_RATE, PC_FRAME_BYTES)
+            )
+
     with _pc_lock:
-        _pc_queue.append(frame)
+        for fr in sink_frames:
+            _pc_queue.append(fr)
         while len(_pc_queue) > _PC_QUEUE_MAX:
             _pc_queue.popleft()
         _pc_at = time.time()
@@ -407,11 +440,11 @@ def _pc_feeder_loop() -> None:
             _pc_proc = None
             continue
 
-        next_t += 0.02
+        next_t += _FRAME_PERIOD
         delay = next_t - time.monotonic()
         if delay > 0.0005:
             time.sleep(delay)
-        elif delay < -0.06:
+        elif delay < -(_FRAME_PERIOD * 3):
             # More than ~3 frames behind — resync and shed backlog.
             next_t = time.monotonic()
             with _pc_lock:
@@ -468,11 +501,19 @@ def _loop(sock: socket.socket) -> None:
         now = time.time()
         with _lock:
             row = _clients.get(addr) or {"seq": 0}
-            row.update({"pcm": parsed["pcm"], "at": now, "slot": parsed["slot"], "seq": parsed["seq"]})
+            row.update(
+                {
+                    "pcm": parsed["pcm"],
+                    "at": now,
+                    "slot": parsed["slot"],
+                    "seq": parsed["seq"],
+                    "rate": parsed["rate"],
+                }
+            )
             _clients[addr] = row
             _evict_stale_clients_locked(now)
         if parsed["slot"] == PC_MIC_SLOT:
-            _set_pc_pcm(parsed["pcm"])
+            _set_pc_pcm(parsed["pcm"], parsed["rate"])
         mix = _mix_minus(addr, now)
         if not mix:
             continue

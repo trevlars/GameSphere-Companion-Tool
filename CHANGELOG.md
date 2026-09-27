@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.32] — 2026-09-27
+
+### Changed
+- **GameSphere Mic / GSVC at 48 kHz** — phone captures and sends 48 kHz (10 ms frames); PipeWire sink matches. Clearer than 16 kHz without bringing back AEC chop.
+
 ## [1.5.31] — 2026-09-27
 
 ### Fixed

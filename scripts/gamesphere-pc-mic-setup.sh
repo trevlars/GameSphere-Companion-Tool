@@ -20,15 +20,8 @@ AEC_SINK="${GAMESPHERE_AEC_SINK:-gamesphere_aec_sink}"
 AEC_LOOP_NAME="gamesphere-hdmi-aec-ref"
 # 1 = WebRTC AEC against HDMI monitor. 0 = raw remap only (default — cleaner voice).
 USE_AEC="${GAMESPHERE_MIC_AEC:-0}"
-# PipeWire capture rate. Native 16 kHz when AEC is off; 48 kHz when AEC is on
-# (must match HDMI reference). Override with GAMESPHERE_PC_MIC_RATE.
-if [[ -n "${GAMESPHERE_PC_MIC_RATE:-}" ]]; then
-  MIC_RATE="$GAMESPHERE_PC_MIC_RATE"
-elif [[ "$USE_AEC" =~ ^(0|false|no|off)$ ]]; then
-  MIC_RATE=16000
-else
-  MIC_RATE=48000
-fi
+# PipeWire capture rate — 48 kHz matches phone GSVC + Steam. Override with env.
+MIC_RATE="${GAMESPHERE_PC_MIC_RATE:-48000}"
 VBAN_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/pipewire/pipewire.conf.d/50-gamesphere-vban-recv.conf"
 ACTION="${1:-install}"
 
@@ -327,7 +320,7 @@ case "$ACTION" in
     ;;
   aec-off)
     USE_AEC=0
-    MIC_RATE="${GAMESPHERE_PC_MIC_RATE:-16000}"
+    MIC_RATE="${GAMESPHERE_PC_MIC_RATE:-48000}"
     do_install
     exit 0
     ;;

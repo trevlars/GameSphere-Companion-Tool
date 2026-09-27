@@ -7,8 +7,8 @@ GameSphere sends your **phone mic to the streaming PC** so Steam, Discord, OBS, 
 | Device name | `GameSphere Mic` |
 | Transport | Companion co-op voice (GSVC UDP **48020**) |
 | Slot published | **0** (local / host seat) — guests stay party-only |
-| Sample rate | Phone 16 kHz mono → PipeWire **16 kHz** (native; clearest) |
-| AEC | Off by default. Optional WebRTC vs HDMI monitor @ 48 kHz (`aec-on`) |
+| Sample rate | Phone **48 kHz** mono (10 ms GSVC frames) → PipeWire **48 kHz** |
+| AEC | Off by default. Optional WebRTC vs HDMI monitor (`aec-on`) |
 
 **How it works:** while Companion `VOICE` is running, `voice_bridge` mixes phone↔phone party audio **and** writes slot 0 into a PipeWire null-sink. With AEC on (default), that raw feed is cleaned against a **copy** of the HDMI monitor so room gameplay is subtracted before Steam/Discord hear you — no headphones required.
 
@@ -16,9 +16,9 @@ GameSphere sends your **phone mic to the streaming PC** so Steam, Discord, OBS, 
 
 Older Bazzite scripts used `module-echo-cancel` with `sink_master=<HDMI>`. That inserts into the HDMI playback graph and **crackles Sunshine**. Companion never does that. Instead:
 
-**Default (clearest speech):** phone PCM → `gamesphere_mic_sink` @ 16 kHz → remap → **`gamesphere_mic`**.
+**Default (clearest speech):** phone 48 kHz PCM → `gamesphere_mic_sink` → remap → **`gamesphere_mic`**.
 
-**Optional AEC** (`gamesphere-pc-mic-setup.sh aec-on`): same path at 48 kHz with WebRTC vs an HDMI *monitor* copy. Use if game audio bleeds into Discord; raw is better when you just need a clean mic.
+**Optional AEC** (`gamesphere-pc-mic-setup.sh aec-on`): WebRTC vs an HDMI *monitor* copy. Use if game audio bleeds into Discord.
 
 Sunshine captures a separate HDMI tap (`bazzite-stream-surround51` by default, or stereo) so games stay on the real HDMI AVR path. Opt out of AEC: `GAMESPHERE_MIC_AEC=0` or `gamesphere-pc-mic-setup.sh aec-off`.
 
