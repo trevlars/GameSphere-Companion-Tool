@@ -8,8 +8,14 @@ import json
 import os
 import sys
 
-INSTALL_DIR = os.path.expanduser("~/.local/share/gamesphere-import-tool")
-PLUGIN_PATH = os.path.join(INSTALL_DIR, "decky", "main.py")
+USER_HOME = os.environ.get("DECKY_USER_HOME") or os.path.expanduser("~")
+INSTALL_DIR = os.path.join(USER_HOME, ".local/share/gamesphere-import-tool")
+PLUGIN_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "main.py",
+)
+if not os.path.isfile(PLUGIN_PATH):
+    PLUGIN_PATH = os.path.join(INSTALL_DIR, "decky", "main.py")
 
 
 class FakeLogger:
@@ -22,6 +28,8 @@ class FakeDecky:
 
 
 def load_plugin():
+    os.environ.setdefault("DECKY_USER_HOME", USER_HOME)
+    os.environ.setdefault("DECKY_USER", os.environ.get("USER") or os.environ.get("LOGNAME") or "")
     spec = importlib.util.spec_from_file_location("decky_plugin", PLUGIN_PATH)
     if not spec or not spec.loader:
         raise SystemExit(f"Missing plugin backend: {PLUGIN_PATH}")

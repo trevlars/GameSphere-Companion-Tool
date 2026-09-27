@@ -4,6 +4,14 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.24] — 2026-09-27
+
+### Fixed
+- **Decky plugin was broken on Bazzite/Steam Deck** — it ran as root (`_root_`) and looked for the Companion CLI under `/root/.local/...`, so the panel only showed an error even when Companion was installed for the real user. Paths now use `DECKY_USER_HOME`, commands run as the Steam user, and the root flag is removed.
+
+### Changed
+- **Decky plugin renamed to GameSphere Companion** (plugin id `gamesphere-companion`, UI title updated). Installer replaces the old `gamesphere-import` symlink.
+
 ## [1.5.23] — 2026-09-24
 
 ### Fixed

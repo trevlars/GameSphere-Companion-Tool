@@ -1,4 +1,4 @@
-# GameSphere Import — Decky plugin
+# GameSphere Companion — Decky plugin
 
 Sync your Steam library into Sunshine **from Steam Deck Game Mode** — no keyboard required.
 
@@ -32,7 +32,9 @@ Prebuilt UI is included — you usually **do not** need Node/npm on the Deck.
 
 ```bash
 ln -sfn "$HOME/.local/share/gamesphere-import-tool/decky" \
-  "$HOME/homebrew/plugins/gamesphere-import"
+  "$HOME/homebrew/plugins/gamesphere-companion"
+# Remove the old symlink name if present:
+rm -f "$HOME/homebrew/plugins/gamesphere-import"
 ```
 
 On Bazzite, if `~/homebrew/plugins` is root-owned, use `sudo` for the symlink.
@@ -50,7 +52,7 @@ cd decky && npm install && npm run build
 
 ## Using the plugin
 
-Open **Quick Access → GameSphere Import**.
+Open **Quick Access → GameSphere Companion**.
 
 | Section | What it does |
 |---------|----------------|
@@ -72,16 +74,16 @@ Open **Quick Access → GameSphere Import**.
 
 - Linux import covers **Steam + Non-Steam shortcuts** (Eden, Ryujinx, etc.). Epic/GOG/Xbox scanning is **Windows only**.
 - **Remove all games** keeps only stock Desktop / Big Picture entries — use with care.
-- Bridge toggle needs Companion Tool **1.2.1+** and installs `gamesphere-host-bridge.service` if missing. New installs enable the daemon automatically; closing Decky or the import CLI does not stop it.
+- Bridge toggle needs Companion Tool **1.2.1+** and installs `gamesphere-host-bridge.service` if missing. New installs enable the daemon automatically; closing Decky or the Companion CLI does not stop it.
 
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
 | Plugin says CLI not installed | Run `install-flatpak.sh` or `install-linux.sh` (SSH or desktop terminal) |
+| Status error / blank panel after update | Reload Decky plugins. v1.3.0+ no longer runs as root (old builds looked for the CLI under `/root`) |
 | Auto-update timer missing | Reload this plugin, or re-run `install-linux.sh`. Check `systemctl --user status gamesphere-import-update.timer` |
 | Import hangs | Enable **Skip Sunshine restart**, then restart Sunshine manually |
 | Bridge toggle fails | Update to latest release; check `scripts/systemd/gamesphere-host-bridge.service` exists |
-| Blank plugin after update | Pull latest repo; reload Decky plugins |
 
 More help: [User guide](../docs/USER-GUIDE.md) · [Main README](../README.md)

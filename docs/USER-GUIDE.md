@@ -137,7 +137,7 @@ Use the **DeckyLoader plugin** so you can sync from the quick menu without a key
 
 1. Install the CLI first (Flatpak or `install-linux.sh` — see above).
 2. Follow **[decky/README.md](../decky/README.md)** to enable the plugin.
-3. In Game Mode: **Quick Access → GameSphere Import → Sync Steam library**.
+3. In Game Mode: **Quick Access → GameSphere Companion → Sync Steam library**.
 
 The plugin supports dry run, skip restart, host tuning, and bridge toggle — same options as the CLI.
 

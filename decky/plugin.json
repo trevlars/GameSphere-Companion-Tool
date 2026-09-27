@@ -1,10 +1,10 @@
 {
-  "name": "gamesphere-import",
+  "name": "gamesphere-companion",
   "author": "trevlars",
-  "flags": ["_root_"],
+  "flags": [],
   "publish": {
-    "tags": ["streaming", "sunshine", "gamesphere"],
-    "description": "Import Steam into Sunshine, host tuning, and GameSphere bridge from Game Mode.",
+    "tags": ["streaming", "sunshine", "gamesphere", "companion"],
+    "description": "GameSphere Companion Tool — sync Steam into Sunshine, host tuning, and bridge from Game Mode.",
     "image": "https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main/assets/readme-screenshot.png"
   }
 }

@@ -90,7 +90,7 @@ function Content() {
                             }, disabled: busy || !installed, children: removeConfirm ? "Confirm remove all games" : "Remove all games (stock apps only)" }) })] }), log ? (SP_JSX.jsx(DFL.PanelSection, { title: "Log", children: SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("pre", { style: { whiteSpace: "pre-wrap", fontSize: "0.82em", maxHeight: "40vh", overflow: "auto" }, children: log }) }) })) : null] }));
 }
 var index = DFL.definePlugin(() => ({
-    title: SP_JSX.jsx("div", { className: "gamesphere-import-title", children: "GameSphere Import" }),
+    title: SP_JSX.jsx("div", { className: "gamesphere-companion-title", children: "GameSphere Companion" }),
     content: SP_JSX.jsx(Content, {}),
     icon: "https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main/assets/readme-screenshot.png",
     onDismount() { },

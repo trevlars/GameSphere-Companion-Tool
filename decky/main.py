@@ -5,28 +5,75 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import pwd
 import re
 import shutil
 import subprocess
 
 import decky
 
-INSTALL_DIR = os.path.expanduser("~/.local/share/gamesphere-import-tool")
+
+def _user_home() -> str:
+    """Home of the Steam/Bazzite user — not /root when PluginLoader is privileged.
+
+    Root-flagged plugins get HOME=/root, so expanduser("~") misses the Companion
+    install under /home/<user>. Prefer Decky's DECKY_USER_HOME.
+    """
+    for key in ("DECKY_USER_HOME",):
+        value = (os.environ.get(key) or "").strip()
+        if value and os.path.isdir(value):
+            return value
+    homebrew = (os.environ.get("DECKY_HOME") or os.environ.get("UNPRIVILEGED_PATH") or "").strip()
+    if homebrew:
+        parent = os.path.dirname(os.path.abspath(homebrew))
+        if parent and os.path.isdir(parent) and os.path.basename(parent) != "root":
+            return parent
+    for key in ("DECKY_USER",):
+        user = (os.environ.get(key) or "").strip()
+        if user and user != "root":
+            try:
+                return pwd.getpwnam(user).pw_dir
+            except KeyError:
+                pass
+    # Last resort: if we are root, prefer a real login home over /root.
+    expanded = os.path.expanduser("~")
+    if expanded in ("/root", "/") or os.geteuid() == 0:
+        for name in ("bazzite", "deck", "steam"):
+            try:
+                return pwd.getpwnam(name).pw_dir
+            except KeyError:
+                continue
+    return expanded
+
+
+def _user_name() -> str:
+    for key in ("DECKY_USER",):
+        user = (os.environ.get(key) or "").strip()
+        if user:
+            return user
+    try:
+        return pwd.getpwuid(os.stat(_user_home()).st_uid).pw_name
+    except (KeyError, OSError):
+        return os.environ.get("USER") or os.environ.get("LOGNAME") or "deck"
+
+
+_USER_HOME = _user_home()
+INSTALL_DIR = os.path.join(_USER_HOME, ".local/share/gamesphere-import-tool")
 BIN_CANDIDATES = [
-    os.path.expanduser("~/.local/bin/gamesphere-import"),
+    os.path.join(_USER_HOME, ".local/bin/gamesphere-import"),
     os.path.join(INSTALL_DIR, "main.py"),
 ]
 BRIDGE_UNIT_NAME = "gamesphere-host-bridge.service"
 BRIDGE_UNIT_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-host-bridge.service")
-BRIDGE_UNIT_DST = os.path.expanduser(f"~/.config/systemd/user/{BRIDGE_UNIT_NAME}")
+BRIDGE_UNIT_DST = os.path.join(_USER_HOME, f".config/systemd/user/{BRIDGE_UNIT_NAME}")
 BRIDGE_WRAPPER_SRC = os.path.join(INSTALL_DIR, "scripts/gamesphere-host-bridge.sh")
-BRIDGE_WRAPPER_DST = os.path.expanduser("~/.local/bin/gamesphere-host-bridge")
+BRIDGE_WRAPPER_DST = os.path.join(_USER_HOME, ".local/bin/gamesphere-host-bridge")
 UPDATE_UNIT_NAME = "gamesphere-import-update.timer"
 UPDATE_SERVICE_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-import-update.service")
 UPDATE_TIMER_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-import-update.timer")
 UPDATE_SCRIPT_SRC = os.path.join(INSTALL_DIR, "scripts/gamesphere-import-update.sh")
-UPDATE_BIN_DST = os.path.expanduser("~/.local/bin/gamesphere-import-update.sh")
-UPDATE_UNIT_DIR = os.path.expanduser("~/.config/systemd/user")
+UPDATE_BIN_DST = os.path.join(_USER_HOME, ".local/bin/gamesphere-import-update.sh")
+UPDATE_UNIT_DIR = os.path.join(_USER_HOME, ".config/systemd/user")
 FLATPAK_APP_ID = "io.github.trevlars.GamesphereImportTool"
 
 
@@ -82,21 +129,65 @@ def _host_tuning_cmd() -> list[str] | None:
     return None
 
 
+def _subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["HOME"] = _USER_HOME
+    env["USER"] = _user_name()
+    env["LOGNAME"] = env["USER"]
+    try:
+        uid = pwd.getpwnam(env["USER"]).pw_uid
+        env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+    except KeyError:
+        pass
+    return env
+
+
+def _run_as_user(args: list[str], *, cwd: str | None, timeout: int) -> subprocess.CompletedProcess[str]:
+    """Run a command as the Decky/Steam user when the plugin process is root."""
+    env = _subprocess_env()
+    if os.geteuid() == 0:
+        user = _user_name()
+        try:
+            pw = pwd.getpwnam(user)
+        except KeyError:
+            pw = None
+        if pw is not None:
+            def _preexec() -> None:
+                os.setgid(pw.pw_gid)
+                os.setuid(pw.pw_uid)
+
+            return subprocess.run(
+                args,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+                preexec_fn=_preexec,
+            )
+    return subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+    )
+
+
 def _run_sync(args: list[str], timeout: int = 600) -> tuple[bool, str, str | None]:
     cmd = _resolve_command()
     if not cmd:
         return False, (
-            "GameSphere Import not found. Run install-flatpak.sh or install-linux.sh on the host."
+            "GameSphere Companion Tool not found. Run install-flatpak.sh or install-linux.sh on the host."
         ), None
 
     full = cmd + args
     decky.logger.info("Running: %s", " ".join(full))
     try:
-        result = subprocess.run(
+        result = _run_as_user(
             full,
             cwd=INSTALL_DIR if os.path.isdir(INSTALL_DIR) else None,
-            capture_output=True,
-            text=True,
             timeout=timeout,
         )
         output = (result.stdout or "") + (result.stderr or "")
@@ -121,11 +212,9 @@ def _run_host_tuning_sync(args: list[str], timeout: int = 120) -> tuple[bool, st
     full = cmd + args
     decky.logger.info("Running host tuning: %s", " ".join(full))
     try:
-        result = subprocess.run(
+        result = _run_as_user(
             full,
             cwd=INSTALL_DIR if os.path.isdir(INSTALL_DIR) else None,
-            capture_output=True,
-            text=True,
             timeout=timeout,
         )
         output = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -141,12 +230,7 @@ def _run_systemctl(args: list[str]) -> tuple[bool, str]:
     if not systemctl:
         return False, "systemctl not found"
     try:
-        result = subprocess.run(
-            [systemctl, "--user"] + args,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        result = _run_as_user([systemctl, "--user"] + args, cwd=None, timeout=30)
         output = ((result.stdout or "") + (result.stderr or "")).strip()
         return result.returncode == 0, output
     except Exception as exc:
@@ -179,7 +263,7 @@ def _ensure_bridge_unit() -> tuple[bool, str]:
 
 
 def _enable_linger() -> None:
-    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+    user = _user_name()
     loginctl = shutil.which("loginctl")
     if not loginctl or not user:
         return
@@ -347,7 +431,10 @@ class Plugin:
         return {"ok": ok, "output": output}
 
     async def _main(self):
-        decky.logger.info("GameSphere Import Decky plugin loaded (no systemd side effects on reload)")
+        decky.logger.info(
+            "GameSphere Companion Decky plugin loaded (user_home=%s, no systemd side effects on reload)",
+            _USER_HOME,
+        )
 
     async def _unload(self):
         pass

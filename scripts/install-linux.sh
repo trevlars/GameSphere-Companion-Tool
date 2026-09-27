@@ -188,10 +188,12 @@ echo "Optional DeckyLoader plugin: see decky/README.md"
 DECKY_PLUGINS="${DECKY_PLUGINS_DIR:-$HOME/homebrew/plugins}"
 if [[ -d "$DECKY_PLUGINS" ]] && [[ -f "$INSTALL_DIR/decky/dist/index.js" ]]; then
   if [[ -w "$DECKY_PLUGINS" ]]; then
-    ln -sfn "$INSTALL_DIR/decky" "$DECKY_PLUGINS/gamesphere-import"
-    echo "==> Decky plugin linked → $DECKY_PLUGINS/gamesphere-import (reload Decky in Game Mode)"
+    ln -sfn "$INSTALL_DIR/decky" "$DECKY_PLUGINS/gamesphere-companion"
+    rm -f "$DECKY_PLUGINS/gamesphere-import"
+    echo "==> Decky plugin linked → $DECKY_PLUGINS/gamesphere-companion (reload Decky in Game Mode)"
   elif command -v sudo >/dev/null 2>&1; then
-    sudo ln -sfn "$INSTALL_DIR/decky" "$DECKY_PLUGINS/gamesphere-import" && \
-      echo "==> Decky plugin linked (sudo) → $DECKY_PLUGINS/gamesphere-import"
+    sudo ln -sfn "$INSTALL_DIR/decky" "$DECKY_PLUGINS/gamesphere-companion" && \
+      sudo rm -f "$DECKY_PLUGINS/gamesphere-import" && \
+      echo "==> Decky plugin linked (sudo) → $DECKY_PLUGINS/gamesphere-companion"
   fi
 fi

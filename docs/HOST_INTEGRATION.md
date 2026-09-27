@@ -198,7 +198,8 @@ Bundle `GamesphereImportTool.exe` from [GitHub Releases](https://github.com/trev
 ### 5. DeckyLoader / Game Mode (Steam Deck, Bazzite + Decky)
 
 ```bash
-ln -sfn ~/.local/share/gamesphere-import-tool/decky ~/homebrew/plugins/gamesphere-import
+ln -sfn ~/.local/share/gamesphere-import-tool/decky ~/homebrew/plugins/gamesphere-companion
+rm -f ~/homebrew/plugins/gamesphere-import
 cd ~/.local/share/gamesphere-import-tool/decky && pnpm install && pnpm run build
 ```
 
