@@ -4,6 +4,9 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+### Fixed
+- **HTPC Mic Test feedback howl** — Game Mode `mic-test` no longer live-echoes the mic into room speakers by default (that looped through GameSphere Mic / Moonlight). Meter-only; optional echo via Y/A when safe.
+
 ## [1.5.29] — 2026-09-27
 
 ### Fixed
