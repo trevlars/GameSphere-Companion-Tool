@@ -41,9 +41,10 @@ The always-on **host-bridge** also creates/feeds the device when a client sends 
 ### Steam / Discord
 
 1. Start a GameSphere stream (Pro) — co-op voice starts automatically — **or** open **Send mic to PC** and Start.
-2. On the PC: set microphone input to **GameSphere Mic** (the AEC output).
+2. On a **GameSphere device** stream, Companion **auto-selects** Steam Voice + the Pulse default source as **GameSphere Mic** (`gamesphere-stream-mic.sh` / host prep). Steam Link sessions leave DualSense / rear mic alone.
 3. Mic level / mute in GameSphere control the same uplink Steam hears.
 4. Play on TV/AVR speakers — AEC should cancel most game bleed from the phone mic.
+5. If Steam was already open, it may need one restart the first time the PipeWire device appears; after that, stream-start keeps the preference.
 
 ---
 
@@ -73,3 +74,4 @@ In-stream couch voice (phone ↔ phone) and PC mic share the same uplink for sea
 | Want raw mic (no cancel) | `GAMESPHERE_MIC_AEC=0 gamesphere-pc-mic-setup.sh install` or `… aec-off` |
 | Legacy VBAN still listed | Re-run `--setup-mic` (removes `50-gamesphere-vban-recv.conf`) |
 | Profile-audio strips AEC | HTPC `bazzite-profile-audio.sh` must not unload `module-echo-cancel` modules whose names contain `gamesphere` |
+| Steam still on Default / DualSense mid-stream | Confirm client is GameSphere (`remote_xbox_p1=never`); run `gamesphere-stream-mic.sh start`; Steam Link intentionally skips this pin |

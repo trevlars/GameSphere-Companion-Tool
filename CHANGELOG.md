@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.27] — 2026-09-27
+
+### Added
+- **Auto Steam mic on GameSphere streams** — when a GameSphere (iPhone/iPad) Sunshine session starts, Companion sets Steam `selectedMic` + Pulse default source to **GameSphere Mic** (`gamesphere-stream-mic.sh` / host prep). Steam Link sessions are skipped. Prior Pulse default is restored on stream stop. Bazzite `profile-audio` honors the stream mic pin so DualSense / voice-iso cannot steal the default mid-stream.
+
 ## [1.5.26] — 2026-09-27
 
 ### Added

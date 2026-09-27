@@ -116,6 +116,13 @@ def prep_start(cfg: Optional[HostTuningConfig] = None) -> Dict[str, Any]:
     except Exception as exc:
         logging.warning("wan map prep_start: %s", exc)
 
+    try:
+        from host_tuning import steam_voice
+
+        log["actions"].append({"steam_mic": steam_voice.apply_for_gamesphere_stream()})
+    except Exception as exc:
+        logging.warning("steam_voice prep_start: %s", exc)
+
     return log
 
 
@@ -172,6 +179,13 @@ def prep_stop(cfg: Optional[HostTuningConfig] = None) -> Dict[str, Any]:
             log["actions"].append({"game_pause": True})
     except Exception as exc:
         logging.warning("game_pause prep_stop: %s", exc)
+
+    try:
+        from host_tuning import steam_voice
+
+        log["actions"].append({"steam_mic": steam_voice.restore_after_stream()})
+    except Exception as exc:
+        logging.warning("steam_voice prep_stop: %s", exc)
 
     return log
 

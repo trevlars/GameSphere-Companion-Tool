@@ -110,6 +110,10 @@ CTRL_PREP_LINK="${GAMESPHERE_STREAM_CONTROLLER_PREP_BIN:-$HOME/.local/bin/gamesp
 install -m 755 "$INSTALL_DIR/scripts/gamesphere-stream-controller-prep.sh" "$CTRL_PREP_LINK"
 echo "==> Installed $CTRL_PREP_LINK (Sunshine gamepad mode + emulator controller prep)"
 
+STREAM_MIC_LINK="${GAMESPHERE_STREAM_MIC_BIN:-$HOME/.local/bin/gamesphere-stream-mic.sh}"
+install -m 755 "$INSTALL_DIR/scripts/gamesphere-stream-mic.sh" "$STREAM_MIC_LINK"
+echo "==> Installed $STREAM_MIC_LINK (GameSphere stream → Steam mic = GameSphere Mic)"
+
 PULSE_START_LINK="${GAMESPHERE_PULSE_START_BIN:-$HOME/.local/bin/gamesphere-pulse-start.py}"
 install -m 755 "$INSTALL_DIR/scripts/gamesphere-pulse-start.py" "$PULSE_START_LINK"
 echo "==> Installed $PULSE_START_LINK (host Start pulse on abrupt stream drop)"
