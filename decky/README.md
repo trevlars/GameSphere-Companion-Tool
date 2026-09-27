@@ -57,7 +57,8 @@ Open **Quick Access → GameSphere Companion**.
 | Section | What it does |
 |---------|----------------|
 | **Status** | Version, config path, bridge on/off |
-| **Sync Steam library** | Run import (try **Dry run** first) |
+| **Mic** | GameSphere Mic / PipeWire status + one-tap setup |
+| **Sync Steam library** | Auto-sync toggle (~15 min), Sync now, manual import |
 | **Host tuning** | Optional streaming tweaks + bridge toggle |
 | **Maintenance** | Refresh config, check updates, remove all games |
 

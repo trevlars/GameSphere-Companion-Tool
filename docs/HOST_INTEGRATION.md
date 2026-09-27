@@ -143,39 +143,15 @@ if paths:
 
 Steam installs/uninstalls while the host keeps running. A timer keeps `apps.json` fresh.
 
-**systemd user timer (Linux — works for Sunshine, Apollo, most forks):**
-
-```ini
-# ~/.config/systemd/user/gamesphere-import.timer
-[Unit]
-Description=Sync Steam library into host apps.json
-
-[Timer]
-OnBootSec=5min
-OnUnitActiveSec=6h
-
-[Install]
-WantedBy=timers.target
-```
-
-```ini
-# ~/.config/systemd/user/gamesphere-import.service
-[Unit]
-Description=GameSphere Companion Tool
-
-[Service]
-Type=oneshot
-ExecStart=%h/.local/bin/gamesphere-import
-Environment=HOST=apollo
-```
+**Linux (default since 1.5.25):** `install-linux.sh` enables `gamesphere-library-sync.timer`, which runs:
 
 ```bash
-systemctl --user enable --now gamesphere-import.timer
+gamesphere-import --library-sync --no-restart
 ```
 
-Change `Environment=HOST=` for Apollo vs Sunshine. Override paths with `EnvironmentFile=%h/.config/gamesphere-import-tool/.env` if needed.
+about every 15 minutes (and a few minutes after boot). `--no-restart` means Sunshine is never bounced mid-stream; new tiles appear in `apps.json` and show up after the next safe host reload / client refresh. Status: `gamesphere-import --library-sync-status`. Opt out: `GAMESPHERE_AUTO_SYNC=0`, or toggle **Auto-sync** in the Decky plugin.
 
-**Windows Task Scheduler:** run `GamesphereImportTool.exe` or `uv run main.py` daily after login.
+**Windows Task Scheduler:** run `GamesphereImportTool.exe` or `uv run main.py --library-sync --no-restart` periodically after login.
 
 ---
 

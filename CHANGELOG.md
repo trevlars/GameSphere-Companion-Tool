@@ -4,6 +4,18 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.25] — 2026-09-27
+
+### Added
+- **Library auto-sync** — `gamesphere-library-sync.timer` runs `gamesphere-import --library-sync --no-restart` about every 15 minutes so new Steam games and Non-Steam shortcuts land in Sunshine without a mid-stream restart. Opt out: `GAMESPHERE_AUTO_SYNC=0`. Decky toggle + **Sync now** + last-run status.
+- **Decky Mic section** — shows GameSphere Mic / PipeWire status and a one-tap **Set up GameSphere Mic** (`--mic-status` / `--setup-mic`).
+
+### Fixed
+- **Steam tool/runtime filter** — versioned Proton and Steam Linux Runtime names (e.g. `Proton 10.0`, `Steam Linux Runtime 4.0`) are skipped, and existing tool tiles are pruned on sync so auto-sync does not keep them in Sunshine.
+
+### Changed
+- Decky plugin **1.3.1** — auto-sync + mic panels.
+
 ## [1.5.24] — 2026-09-27
 
 ### Fixed

@@ -21,6 +21,26 @@ type Status = {
   };
   bridge_service?: string;
   bridge_unit_installed?: boolean;
+  library_sync_timer?: string;
+  library_sync?: {
+    ok?: boolean | null;
+    message?: string;
+    added?: number;
+    removed?: number;
+    changed?: boolean;
+    iso?: string;
+    ever_run?: boolean;
+    timer?: { active?: boolean; enabled?: boolean; active_state?: string };
+  };
+  mic?: {
+    ok?: boolean;
+    detail?: string;
+    device?: string;
+    voiceRunning?: boolean;
+    pcMicReady?: boolean;
+    pipewireSourcePresent?: boolean | null;
+    clients?: number;
+  };
 };
 
 type RunResult = { ok: boolean; output: string; banner?: string };
@@ -39,7 +59,35 @@ const setBridgeEnabled = callable<
   [boolean],
   { ok: boolean; output: string; state?: string }
 >("set_bridge_enabled");
+const setLibrarySyncEnabled = callable<
+  [boolean],
+  { ok: boolean; output: string; state?: string }
+>("set_library_sync_enabled");
+const runLibrarySyncNow = callable<[], RunResult>("run_library_sync_now");
+const runSetupMic = callable<[], RunResult>("run_setup_mic");
 const initHostTuning = callable<[], RunResult>("init_host_tuning");
+
+function formatSyncLabel(status: Status | null): string {
+  const sync = status?.library_sync;
+  if (!sync || sync.ever_run === false || (!sync.iso && !sync.message)) {
+    return "Never ran";
+  }
+  const when = sync.iso ? sync.iso.replace("T", " ").slice(0, 19) : "";
+  const bits: string[] = [];
+  if (when) bits.push(when);
+  if (typeof sync.added === "number" && sync.added > 0) bits.push(`+${sync.added}`);
+  if (typeof sync.removed === "number" && sync.removed > 0) bits.push(`-${sync.removed}`);
+  if (sync.message) bits.push(sync.message);
+  return bits.join(" · ") || "—";
+}
+
+function formatMicLabel(status: Status | null): string {
+  const mic = status?.mic;
+  if (!mic) return "…";
+  if (mic.detail) return mic.detail;
+  if (mic.pcMicReady || mic.pipewireSourcePresent) return "GameSphere Mic ready";
+  return "Idle — appears when voice starts";
+}
 
 function Content() {
   const [dryRun, setDryRun] = useState(true);
@@ -48,6 +96,7 @@ function Content() {
   const [removeConfirm, setRemoveConfirm] = useState(false);
   const [verbose, setVerbose] = useState(false);
   const [bridgeOn, setBridgeOn] = useState(false);
+  const [autoSyncOn, setAutoSyncOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
@@ -62,6 +111,8 @@ function Content() {
       const s = await getStatus();
       setStatus(s);
       setBridgeOn(s.bridge_service === "active");
+      const timer = s.library_sync_timer || "";
+      setAutoSyncOn(timer === "active" || timer === "waiting");
     } catch (err) {
       setLog(`Could not read Companion status: ${describeError(err)}`);
     }
@@ -101,6 +152,29 @@ function Content() {
     }
   };
 
+  const onAutoSyncToggle = async (enabled: boolean) => {
+    setBusy(true);
+    try {
+      const result = await setLibrarySyncEnabled(enabled);
+      const state = result.state || "";
+      setAutoSyncOn(state === "active" || state === "waiting");
+      setLog(
+        result.output ||
+          (result.ok
+            ? enabled
+              ? "Auto-sync on — new Steam games land in Sunshine ~every 15 minutes."
+              : "Auto-sync off."
+            : "Auto-sync toggle failed.")
+      );
+      await refreshStatus();
+    } catch (err) {
+      setLog(`Auto-sync toggle failed: ${describeError(err)}`);
+      await refreshStatus();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
@@ -110,6 +184,7 @@ function Content() {
   const appsPath = status?.paths?.sunshine_apps_json_path || "—";
   const linkMbps = status?.host_tuning?.link?.current_mbps;
   const sessions = status?.host_tuning?.sessions_count ?? 0;
+  const mic = status?.mic;
 
   return (
     <>
@@ -153,7 +228,59 @@ function Content() {
         ) : null}
       </PanelSection>
 
+      <PanelSection title="Mic (GameSphere Mic)">
+        <PanelSectionRow>
+          <Field label="Status">{formatMicLabel(status)}</Field>
+        </PanelSectionRow>
+        {installed && mic ? (
+          <>
+            <PanelSectionRow>
+              <Field label="PipeWire source">
+                {mic.pipewireSourcePresent === true
+                  ? "Present"
+                  : mic.pipewireSourcePresent === false
+                  ? "Missing"
+                  : "—"}
+                {mic.voiceRunning ? " · voice running" : ""}
+                {typeof mic.clients === "number" && mic.clients > 0
+                  ? ` · ${mic.clients} client(s)`
+                  : ""}
+              </Field>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                onClick={() => runAction("Mic setup", () => runSetupMic())}
+                disabled={busy || !installed}
+              >
+                Set up GameSphere Mic
+              </ButtonItem>
+            </PanelSectionRow>
+          </>
+        ) : null}
+      </PanelSection>
+
       <PanelSection title="Sync Steam library">
+        <PanelSectionRow>
+          <ToggleField
+            label="Auto-sync new Steam games (~15 min)"
+            checked={autoSyncOn}
+            onChange={onAutoSyncToggle}
+            disabled={busy || !installed}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <Field label="Last auto-sync">{formatSyncLabel(status)}</Field>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            onClick={() => runAction("Auto-sync", () => runLibrarySyncNow())}
+            disabled={busy || !installed}
+          >
+            Sync now (no Sunshine restart)
+          </ButtonItem>
+        </PanelSectionRow>
         <PanelSectionRow>
           <ToggleField
             label="Dry run (preview only)"

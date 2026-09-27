@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from platform_paths import apply_detected_paths, detect_paths, paths_to_env, write_env_file
 from gs_version import __version__
 from store_scanners import (
-    STEAM_TOOL_EXCLUSIONS,
+    is_steam_tool_name,
     build_windows_display_name_lookup,
     discover_xbox_roots,
     enhance_epic_entry,
@@ -1201,7 +1201,6 @@ def load_installed_games(library_vdf_path: str) -> Dict[str, str]:
 
     logging.info(f"Processing {total_apps} Steam apps...")
 
-    excluded = {x.lower() for x in STEAM_TOOL_EXCLUSIONS}
     local_names = _local_steam_app_names(steam_data, library_vdf_path)
 
     installed_games: Dict[str, str] = {}
@@ -1211,7 +1210,7 @@ def load_installed_games(library_vdf_path: str) -> Dict[str, str]:
         if not name:
             needs_api.append(app_id)
             continue
-        if name.lower() in excluded:
+        if is_steam_tool_name(name):
             logging.debug(f"Skipping Steam tool/runtime: {name} (ID: {app_id})")
             continue
         installed_games[app_id] = name
@@ -1234,7 +1233,7 @@ def load_installed_games(library_vdf_path: str) -> Dict[str, str]:
                 try:
                     game_name = future.result()
                     if game_name:
-                        if game_name.lower() in excluded:
+                        if is_steam_tool_name(game_name):
                             logging.debug(f"Skipping Steam tool/runtime: {game_name} (ID: {app_id})")
                             continue
                         installed_games[app_id] = game_name
@@ -2563,6 +2562,21 @@ def main() -> None:
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     parser.add_argument('--no-restart', action='store_true', help='Skip starting Steam (if not running) and skip restarting Sunshine/Apollo')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be done without making changes')
+    parser.add_argument(
+        '--library-sync',
+        action='store_true',
+        help='Import Steam + Non-Steam shortcuts into Sunshine, record last-sync state (implies --no-restart; for the auto-sync timer)',
+    )
+    parser.add_argument(
+        '--library-sync-status',
+        action='store_true',
+        help='Print last library auto-sync status JSON (timer + last run) and exit',
+    )
+    parser.add_argument(
+        '--mic-status',
+        action='store_true',
+        help='Print GameSphere Mic / voice bridge status JSON and exit',
+    )
     parser.add_argument('--remove-games', action='store_true', help='Remove all games (Steam + manually added); keep only stock apps Desktop, Steam, Virtual Display')
     parser.add_argument('--auto-config', action='store_true', help='Write a .env file from auto-detected paths and exit')
     parser.add_argument('--print-config', action='store_true', help='Print auto-detected paths as JSON and exit')
@@ -2603,6 +2617,10 @@ def main() -> None:
         help='Stop a running GameSphere VBAN feeder',
     )
     args = parser.parse_args()
+
+    # Auto-sync timer always skips Sunshine restart so mid-stream runs stay safe.
+    if args.library_sync:
+        args.no_restart = True
     
     # Setup logging
     setup_logging(args.verbose)
@@ -2612,6 +2630,18 @@ def main() -> None:
     daemon_code = _host_daemon_argv(sys.argv[1:])
     if daemon_code is not None:
         sys.exit(daemon_code)
+
+    if args.library_sync_status:
+        from host_tuning import library_sync as _library_sync
+
+        print(json.dumps(_library_sync.status_summary(), indent=2))
+        sys.exit(0)
+
+    if args.mic_status:
+        from host_tuning.doctor import mic_status_report
+
+        print(json.dumps(mic_status_report(), indent=2))
+        sys.exit(0)
 
     if args.vban_feeder or args.vban_feeder_stop:
         from vban_feeder import main as feeder_main, stop_feeder
@@ -2693,6 +2723,31 @@ def main() -> None:
 
     logging.info("Starting Sunshine Steam Game Automation")
     
+    def _record_library_sync(
+        *,
+        ok: bool,
+        message: str,
+        added: int = 0,
+        removed: int = 0,
+        changed: bool = False,
+    ) -> None:
+        if not args.library_sync:
+            return
+        try:
+            from host_tuning import library_sync as _library_sync
+
+            _library_sync.record(
+                ok=ok,
+                message=message,
+                added=added,
+                removed=removed,
+                changed=changed,
+                dry_run=bool(args.dry_run),
+                no_restart=bool(args.no_restart),
+            )
+        except Exception as exc:
+            logging.warning("library sync state write failed: %s", exc)
+
     try:
         # Load and validate configuration
         config = validate_config()
@@ -2783,8 +2838,9 @@ def main() -> None:
         
         # Process existing apps (Steam store + Non-Steam shortcuts, Epic, custom, Xbox, other stores)
         shortcuts_folder = config.get('SUNSHINE_SHORTCUTS_FOLDER') or ''
-        # Local Steam truth for pruning, plus shortcut ids (also locally sourced).
-        steam_installed_ids = installed_steam_app_ids(config['STEAM_LIBRARY_VDF_PATH'])
+        # Prune using playable Steam titles only (not Proton / Steam Linux Runtime tools).
+        # Using the raw Steam applist would keep tool tiles forever once auto-sync added them.
+        steam_installed_ids = set(installed_games.keys())
         # Pre-dedup ids, so a shortcut that lost the display-name tie-break keeps
         # its existing Sunshine tile instead of being pruned.
         steam_installed_ids |= all_shortcut_ids or set(installed_shortcuts.keys())
@@ -2884,14 +2940,41 @@ def main() -> None:
                 sunshine_config['apps'] = updated_apps
                 save_sunshine_config(config['SUNSHINE_APPS_JSON_PATH'], sunshine_config)
                 logging.info("Playtime metadata written (Sunshine not restarted)")
+                _record_library_sync(
+                    ok=True,
+                    message="Playtime metadata updated (no library changes)",
+                    changed=True,
+                )
             elif playtime_changed and args.dry_run:
                 logging.info("Dry run: would update playtime metadata only (no file writes)")
+                _record_library_sync(
+                    ok=True,
+                    message="Dry run: playtime metadata only",
+                    changed=True,
+                )
             else:
                 logging.info("No changes needed - all games are up to date")
+                _record_library_sync(
+                    ok=True,
+                    message="No changes needed — Sunshine already matches Steam",
+                    changed=False,
+                )
             return
         
         if args.dry_run:
+            would_add = (
+                len(new_games) + len(new_shortcuts) + len(new_epic)
+                + len(new_xbox) + len(new_store) + len(new_custom)
+            )
+            would_remove = len(removed_steam) + len(removed_epic) + len(removed_stores)
             logging.info("Dry run complete — no files written, Steam/host untouched")
+            _record_library_sync(
+                ok=True,
+                message=f"Dry run: would add {would_add}, remove {would_remove}",
+                added=would_add,
+                removed=would_remove,
+                changed=True,
+            )
             return
         
         # Add new Steam store games
@@ -2971,12 +3054,22 @@ def main() -> None:
         print("=" * 70)
         print()
         print(f"BANNER:{spherical_msg}")
+        removed_n = len(removed_steam) + len(removed_epic) + len(removed_stores)
+        _record_library_sync(
+            ok=skipped == 0,
+            message=spherical_msg,
+            added=added,
+            removed=removed_n,
+            changed=True,
+        )
         
     except KeyboardInterrupt:
         logging.info("Process interrupted by user")
+        _record_library_sync(ok=False, message="Interrupted")
         sys.exit(1)
     except Exception as e:
         logging.exception("Fatal error")
+        _record_library_sync(ok=False, message=str(e))
         sys.exit(1)
 
 if __name__ == "__main__":

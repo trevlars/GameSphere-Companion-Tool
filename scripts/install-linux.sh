@@ -163,6 +163,24 @@ else
   fi
 fi
 
+# Auto-sync Steam / Non-Steam shortcuts into Sunshine every ~15 minutes.
+if [[ -f "$INSTALL_DIR/scripts/systemd/gamesphere-library-sync.timer" ]]; then
+  install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-library-sync.service" \
+    "$UNIT_DIR/gamesphere-library-sync.service"
+  install -m 644 "$INSTALL_DIR/scripts/systemd/gamesphere-library-sync.timer" \
+    "$UNIT_DIR/gamesphere-library-sync.timer"
+  if [[ "${GAMESPHERE_AUTO_SYNC:-1}" =~ ^(0|false|no|off)$ ]]; then
+    echo "==> Library auto-sync timer skipped (GAMESPHERE_AUTO_SYNC=0)"
+  elif command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload 2>/dev/null || true
+    if systemctl --user enable --now gamesphere-library-sync.timer 2>/dev/null; then
+      echo "==> Enabled gamesphere-library-sync.timer (Steam → Sunshine every ~15m; opt out: GAMESPHERE_AUTO_SYNC=0)"
+    else
+      echo "==> Could not enable gamesphere-library-sync.timer from this session."
+    fi
+  fi
+fi
+
 if command -v gs_install_linux_host_stack >/dev/null 2>&1; then
   gs_install_linux_host_stack "$INSTALL_DIR"
 fi
@@ -180,6 +198,7 @@ echo "  gamesphere-import --check-update"
 echo "  gamesphere-import --apply-update"
 echo ""
 echo "Auto-update: gamesphere-import-update.timer (opt out: GAMESPHERE_AUTO_UPDATE=0)"
+echo "Library sync: gamesphere-library-sync.timer (opt out: GAMESPHERE_AUTO_SYNC=0)"
 echo "Host daemon: gamesphere-host-bridge.service (opt out: GAMESPHERE_ENABLE_HOST_BRIDGE=0)"
 echo "  systemctl --user status gamesphere-host-bridge.service"
 echo "Couch co-op: Steam 28de:11ff clones hidden only while an emulator runs (host daemon + gamesphere-hide-steam-clones.sh --force)"

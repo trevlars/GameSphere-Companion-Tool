@@ -1,0 +1,14 @@
+[Unit]
+Description=GameSphere Companion — sync Steam library into Sunshine apps.json
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Nice=10
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# --no-restart: never bounce Sunshine mid-stream; apps.json updates still apply.
+ExecStart=%h/.local/bin/gamesphere-import --library-sync --no-restart
+
+[Install]
+WantedBy=default.target

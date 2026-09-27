@@ -28,6 +28,24 @@ STEAM_TOOL_EXCLUSIONS = {
     "steam client",
 }
 
+# Prefixes / substrings for versioned runtimes (Proton 10.0, Steam Linux Runtime 4.0, …)
+STEAM_TOOL_NAME_PREFIXES = (
+    "steam linux runtime",
+    "proton ",
+    "proton-",
+    "steamworks common",
+)
+
+
+def is_steam_tool_name(name: str) -> bool:
+    """True for Steam redistributables / Proton / runtimes that should not become Sunshine tiles."""
+    n = (name or "").strip().lower()
+    if not n:
+        return False
+    if n in STEAM_TOOL_EXCLUSIONS:
+        return True
+    return any(n.startswith(p) for p in STEAM_TOOL_NAME_PREFIXES)
+
 BNET_SKIP_IDS = {"bna", "agent", "bnetlauncher", "bnet"}
 
 UBISOFT_SYSTEM_EXE = (

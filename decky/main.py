@@ -73,6 +73,9 @@ UPDATE_SERVICE_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-impor
 UPDATE_TIMER_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-import-update.timer")
 UPDATE_SCRIPT_SRC = os.path.join(INSTALL_DIR, "scripts/gamesphere-import-update.sh")
 UPDATE_BIN_DST = os.path.join(_USER_HOME, ".local/bin/gamesphere-import-update.sh")
+SYNC_UNIT_NAME = "gamesphere-library-sync.timer"
+SYNC_SERVICE_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-library-sync.service")
+SYNC_TIMER_SRC = os.path.join(INSTALL_DIR, "scripts/systemd/gamesphere-library-sync.timer")
 UPDATE_UNIT_DIR = os.path.join(_USER_HOME, ".config/systemd/user")
 FLATPAK_APP_ID = "io.github.trevlars.GamesphereImportTool"
 
@@ -299,18 +302,46 @@ def _ensure_update_timer() -> tuple[bool, str]:
     return ok, output or UPDATE_UNIT_NAME
 
 
-def _parse_print_config(raw: str) -> dict:
+def _ensure_library_sync_timer() -> tuple[bool, str]:
+    if not os.path.isfile(SYNC_TIMER_SRC):
+        return False, f"Missing unit template: {SYNC_TIMER_SRC}"
+    os.makedirs(UPDATE_UNIT_DIR, exist_ok=True)
+    if os.path.isfile(SYNC_SERVICE_SRC):
+        shutil.copy2(SYNC_SERVICE_SRC, os.path.join(UPDATE_UNIT_DIR, "gamesphere-library-sync.service"))
+    shutil.copy2(SYNC_TIMER_SRC, os.path.join(UPDATE_UNIT_DIR, SYNC_UNIT_NAME))
+    _enable_linger()
+    _run_systemctl(["daemon-reload"])
+    ok, output = _run_systemctl(["enable", "--now", SYNC_UNIT_NAME])
+    return ok, output or SYNC_UNIT_NAME
+
+
+def _library_sync_timer_state() -> str:
+    ok, output = _run_systemctl(["is-active", SYNC_UNIT_NAME])
+    if ok and output.strip() in ("active", "waiting"):
+        return output.strip() or "active"
+    enabled_ok, enabled_out = _run_systemctl(["is-enabled", SYNC_UNIT_NAME])
+    if enabled_ok and "enabled" in enabled_out:
+        return "waiting"
+    if "inactive" in output:
+        return "inactive"
+    if "failed" in output:
+        return "failed"
+    return "unknown"
+
+
+def _parse_json(raw: str) -> dict:
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         return {"raw": raw}
+
+
+def _parse_print_config(raw: str) -> dict:
+    return _parse_json(raw)
 
 
 def _parse_host_tuning_status(raw: str) -> dict:
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return {"raw": raw}
+    return _parse_json(raw)
 
 
 class Plugin:
@@ -319,7 +350,10 @@ class Plugin:
         version = ""
         paths: dict = {}
         host_tuning: dict = {}
+        library_sync: dict = {}
+        mic: dict = {}
         bridge_state = _bridge_service_state() if installed else "unknown"
+        sync_timer = _library_sync_timer_state() if installed else "unknown"
 
         if installed:
             ok, output, _ = await asyncio.get_event_loop().run_in_executor(
@@ -340,6 +374,18 @@ class Plugin:
             if ok:
                 host_tuning = _parse_host_tuning_status(ht_out)
 
+            ok, sync_out, _ = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _run_sync(["--library-sync-status"], timeout=20)
+            )
+            if ok:
+                library_sync = _parse_json(sync_out)
+
+            ok, mic_out, _ = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _run_sync(["--mic-status"], timeout=20)
+            )
+            if ok:
+                mic = _parse_json(mic_out)
+
         return {
             "installed": installed,
             "install_kind": _install_kind(),
@@ -348,6 +394,9 @@ class Plugin:
             "host_tuning": host_tuning,
             "bridge_service": bridge_state,
             "bridge_unit_installed": os.path.isfile(BRIDGE_UNIT_DST),
+            "library_sync_timer": sync_timer,
+            "library_sync": library_sync,
+            "mic": mic,
         }
 
     async def run_import(
@@ -423,6 +472,34 @@ class Plugin:
                 lambda: _run_systemctl(["disable", "--now", BRIDGE_UNIT_NAME]),
             )
         return {"ok": ok, "output": output, "state": _bridge_service_state()}
+
+    async def set_library_sync_enabled(self, enabled: bool):
+        if enabled:
+            ok, msg = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _ensure_library_sync_timer()
+            )
+            return {
+                "ok": ok,
+                "output": msg,
+                "state": _library_sync_timer_state(),
+            }
+        ok, output = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: _run_systemctl(["disable", "--now", SYNC_UNIT_NAME]),
+        )
+        return {"ok": ok, "output": output, "state": _library_sync_timer_state()}
+
+    async def run_library_sync_now(self):
+        ok, output, banner = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _run_sync(["--library-sync", "--no-restart"], timeout=600)
+        )
+        return {"ok": ok, "output": output, "banner": banner}
+
+    async def run_setup_mic(self):
+        ok, output, banner = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _run_sync(["--setup-mic"], timeout=120)
+        )
+        return {"ok": ok, "output": output, "banner": banner}
 
     async def init_host_tuning(self):
         ok, output = await asyncio.get_event_loop().run_in_executor(

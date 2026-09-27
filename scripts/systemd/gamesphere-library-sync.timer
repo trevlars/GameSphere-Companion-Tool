@@ -1,0 +1,11 @@
+[Unit]
+Description=Auto-sync Steam / Non-Steam shortcuts into Sunshine for GameSphere
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+Persistent=true
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target

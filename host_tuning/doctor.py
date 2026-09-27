@@ -125,6 +125,59 @@ def _mic_check() -> Dict[str, Any]:
         return {"ok": False, "detail": f"mic check failed: {exc}"}
 
 
+def mic_status_report() -> Dict[str, Any]:
+    """Lightweight mic JSON for Decky / ``--mic-status`` (no full doctor catalog scan)."""
+    check = _mic_check()
+    out: Dict[str, Any] = {
+        "ok": bool(check.get("ok")),
+        "detail": check.get("detail") or "",
+        "info": bool(check.get("info")),
+        "device": "GameSphere Mic",
+    }
+    if sys.platform == "win32":
+        out["platform"] = "windows"
+        return out
+    try:
+        from host_tuning import voice_bridge
+
+        st = voice_bridge.status()
+        out.update(
+            {
+                "platform": "linux",
+                "voiceRunning": bool(st.get("running")),
+                "pcMicReady": bool(st.get("pcMicReady")),
+                "pcMicSource": st.get("pcMicSource") or "",
+                "pcMicError": st.get("pcMicError"),
+                "clients": int(st.get("clients") or 0),
+                "port": st.get("port"),
+            }
+        )
+    except Exception as exc:
+        out["voiceError"] = str(exc)
+    # PipeWire presence (works even when voice bridge is idle).
+    try:
+        import shutil
+        import subprocess
+
+        pactl = shutil.which("pactl")
+        source = out.get("pcMicSource") or os.environ.get("GAMESPHERE_PC_MIC_SOURCE", "gamesphere_mic")
+        if pactl:
+            result = subprocess.run(
+                [pactl, "list", "short", "sources"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            names = {line.split()[1] for line in (result.stdout or "").splitlines() if len(line.split()) >= 2}
+            out["pipewireSourcePresent"] = source in names
+        else:
+            out["pipewireSourcePresent"] = None
+    except Exception as exc:
+        out["pipewireSourcePresent"] = None
+        out["pipewireError"] = str(exc)
+    return out
+
+
 def diagnose(*, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     from host_tuning import wan_setup
     from host_tuning import zerotier

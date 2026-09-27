@@ -8,7 +8,37 @@ const runRefreshConfig = callable("run_refresh_config");
 const runCheckUpdate = callable("run_check_update");
 const runApplyUpdate = callable("run_apply_update");
 const setBridgeEnabled = callable("set_bridge_enabled");
+const setLibrarySyncEnabled = callable("set_library_sync_enabled");
+const runLibrarySyncNow = callable("run_library_sync_now");
+const runSetupMic = callable("run_setup_mic");
 const initHostTuning = callable("init_host_tuning");
+function formatSyncLabel(status) {
+    const sync = status?.library_sync;
+    if (!sync || sync.ever_run === false || (!sync.iso && !sync.message)) {
+        return "Never ran";
+    }
+    const when = sync.iso ? sync.iso.replace("T", " ").slice(0, 19) : "";
+    const bits = [];
+    if (when)
+        bits.push(when);
+    if (typeof sync.added === "number" && sync.added > 0)
+        bits.push(`+${sync.added}`);
+    if (typeof sync.removed === "number" && sync.removed > 0)
+        bits.push(`-${sync.removed}`);
+    if (sync.message)
+        bits.push(sync.message);
+    return bits.join(" · ") || "—";
+}
+function formatMicLabel(status) {
+    const mic = status?.mic;
+    if (!mic)
+        return "…";
+    if (mic.detail)
+        return mic.detail;
+    if (mic.pcMicReady || mic.pipewireSourcePresent)
+        return "GameSphere Mic ready";
+    return "Idle — appears when voice starts";
+}
 function Content() {
     const [dryRun, setDryRun] = SP_REACT.useState(true);
     const [noRestart, setNoRestart] = SP_REACT.useState(false);
@@ -16,6 +46,7 @@ function Content() {
     const [removeConfirm, setRemoveConfirm] = SP_REACT.useState(false);
     const [verbose, setVerbose] = SP_REACT.useState(false);
     const [bridgeOn, setBridgeOn] = SP_REACT.useState(false);
+    const [autoSyncOn, setAutoSyncOn] = SP_REACT.useState(false);
     const [busy, setBusy] = SP_REACT.useState(false);
     const [log, setLog] = SP_REACT.useState("");
     const [status, setStatus] = SP_REACT.useState(null);
@@ -27,6 +58,8 @@ function Content() {
             const s = await getStatus();
             setStatus(s);
             setBridgeOn(s.bridge_service === "active");
+            const timer = s.library_sync_timer || "";
+            setAutoSyncOn(timer === "active" || timer === "waiting");
         }
         catch (err) {
             setLog(`Could not read Companion status: ${describeError(err)}`);
@@ -63,6 +96,28 @@ function Content() {
             setBusy(false);
         }
     };
+    const onAutoSyncToggle = async (enabled) => {
+        setBusy(true);
+        try {
+            const result = await setLibrarySyncEnabled(enabled);
+            const state = result.state || "";
+            setAutoSyncOn(state === "active" || state === "waiting");
+            setLog(result.output ||
+                (result.ok
+                    ? enabled
+                        ? "Auto-sync on — new Steam games land in Sunshine ~every 15 minutes."
+                        : "Auto-sync off."
+                    : "Auto-sync toggle failed."));
+            await refreshStatus();
+        }
+        catch (err) {
+            setLog(`Auto-sync toggle failed: ${describeError(err)}`);
+            await refreshStatus();
+        }
+        finally {
+            setBusy(false);
+        }
+    };
     SP_REACT.useEffect(() => {
         void refreshStatus();
     }, [refreshStatus]);
@@ -71,11 +126,18 @@ function Content() {
     const appsPath = status?.paths?.sunshine_apps_json_path || "—";
     const linkMbps = status?.host_tuning?.link?.current_mbps;
     const sessions = status?.host_tuning?.sessions_count ?? 0;
+    const mic = status?.mic;
     return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Status", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Companion Tool", children: status === null
                                 ? "…"
                                 : installed
                                     ? status.version || "Installed"
-                                    : "Not installed — run install-linux.sh" }) }), installed ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Host profile", children: hostLabel || "linux" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "apps.json", children: appsPath }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.Field, { label: "Bridge (TCP 47998)", children: [status?.bridge_service || "unknown", status?.bridge_unit_installed ? "" : " — unit not installed yet"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.Field, { label: "Host tuning", children: [status?.host_tuning?.enabled ? "Enabled" : "Disabled", linkMbps ? ` · ${linkMbps} Mbps` : "", sessions ? ` · ${sessions} session(s) logged` : ""] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: refreshStatus, disabled: busy, children: "Refresh status" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sync Steam library", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Dry run (preview only)", checked: dryRun, onChange: setDryRun }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Skip Sunshine restart", checked: noRestart, onChange: setNoRestart }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Apply host tuning after import", checked: hostTuning, onChange: setHostTuning }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Verbose log", checked: verbose, onChange: setVerbose }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Import", () => runImport(dryRun, noRestart, hostTuning && !dryRun, verbose)), disabled: busy || !installed, children: busy
+                                    : "Not installed — run install-linux.sh" }) }), installed ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Host profile", children: hostLabel || "linux" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "apps.json", children: appsPath }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.Field, { label: "Bridge (TCP 47998)", children: [status?.bridge_service || "unknown", status?.bridge_unit_installed ? "" : " — unit not installed yet"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.Field, { label: "Host tuning", children: [status?.host_tuning?.enabled ? "Enabled" : "Disabled", linkMbps ? ` · ${linkMbps} Mbps` : "", sessions ? ` · ${sessions} session(s) logged` : ""] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: refreshStatus, disabled: busy, children: "Refresh status" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Mic (GameSphere Mic)", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Status", children: formatMicLabel(status) }) }), installed && mic ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.Field, { label: "PipeWire source", children: [mic.pipewireSourcePresent === true
+                                            ? "Present"
+                                            : mic.pipewireSourcePresent === false
+                                                ? "Missing"
+                                                : "—", mic.voiceRunning ? " · voice running" : "", typeof mic.clients === "number" && mic.clients > 0
+                                            ? ` · ${mic.clients} client(s)`
+                                            : ""] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Mic setup", () => runSetupMic()), disabled: busy || !installed, children: "Set up GameSphere Mic" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sync Steam library", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Auto-sync new Steam games (~15 min)", checked: autoSyncOn, onChange: onAutoSyncToggle, disabled: busy || !installed }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Last auto-sync", children: formatSyncLabel(status) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Auto-sync", () => runLibrarySyncNow()), disabled: busy || !installed, children: "Sync now (no Sunshine restart)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Dry run (preview only)", checked: dryRun, onChange: setDryRun }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Skip Sunshine restart", checked: noRestart, onChange: setNoRestart }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Apply host tuning after import", checked: hostTuning, onChange: setHostTuning }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Verbose log", checked: verbose, onChange: setVerbose }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Import", () => runImport(dryRun, noRestart, hostTuning && !dryRun, verbose)), disabled: busy || !installed, children: busy
                                 ? "Running…"
                                 : dryRun
                                     ? "Preview import"
