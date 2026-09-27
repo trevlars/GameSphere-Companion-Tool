@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.31] — 2026-09-27
+
+### Fixed
+- **GameSphere Mic still choppy** — AEC off by default; native **16 kHz** PipeWire path; pacat feeder uses a monotonic ring buffer (no per-frame flush / no held-frame robot stutter).
+
 ## [1.5.30] — 2026-09-27
 
 ### Fixed

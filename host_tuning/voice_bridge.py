@@ -17,6 +17,7 @@ or voice uplink works while downlink never leaves the Ethernet NIC.
 
 from __future__ import annotations
 
+import collections
 import logging
 import os
 import shutil
@@ -25,15 +26,16 @@ import struct
 import subprocess
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Optional, Tuple
 
 MAGIC = b"GSVC"
 VERSION = 1
 HEADER_SIZE = 12  # magic(4) + ver(1) + slot(1) + seq(2) + samples(2) + rate(2)
 DEFAULT_PORT = int(os.environ.get("GAMESPHERE_VOICE_PORT", "48020"))
 SAMPLE_RATE = 16000
-# PipeWire GameSphere Mic graph (must match gamesphere-pc-mic-setup.sh).
-PC_SINK_RATE = int(os.environ.get("GAMESPHERE_PC_MIC_RATE", "48000"))
+# Match gamesphere-pc-mic-setup.sh. Default 16 kHz (native phone rate). Use 48000
+# only when HDMI-monitor AEC is on (GAMESPHERE_MIC_AEC=1).
+PC_SINK_RATE = int(os.environ.get("GAMESPHERE_PC_MIC_RATE", "16000"))
 MAX_PACKET = 2048
 CLIENT_TTL = 2.5
 # Couch co-op is 4 seats; the cap only exists to bound an adversarial flood.
@@ -43,8 +45,11 @@ PC_MIC_NAME = os.environ.get("GAMESPHERE_PC_MIC_NAME", "GameSphere Mic")
 PC_MIC_SINK = os.environ.get("GAMESPHERE_PC_MIC_SINK", "gamesphere_mic_sink")
 PC_MIC_SOURCE = os.environ.get("GAMESPHERE_PC_MIC_SOURCE", "gamesphere_mic")
 FRAME_BYTES = 640  # 320 samples * 2 bytes (20 ms @ 16 kHz)
-# 20 ms @ PC_SINK_RATE mono s16le after upsample from the phone frame.
+# 20 ms @ PC_SINK_RATE mono s16le after optional upsample from the phone frame.
 PC_FRAME_BYTES = FRAME_BYTES * max(1, PC_SINK_RATE // SAMPLE_RATE)
+# ~100 ms of queued audio before we start draining (absorbs jitter).
+_PC_PREBUFFER_FRAMES = 5
+_PC_QUEUE_MAX = 12  # drop oldest beyond ~240 ms
 
 _lock = threading.Lock()
 _clients: Dict[Tuple[str, int], Dict] = {}
@@ -54,7 +59,7 @@ _stop = threading.Event()
 _port = DEFAULT_PORT
 
 _pc_lock = threading.Lock()
-_pc_pcm = b"\x00" * PC_FRAME_BYTES
+_pc_queue: Deque[bytes] = collections.deque()
 _pc_at = 0.0
 _pc_feeder: Optional[threading.Thread] = None
 _pc_proc: Optional[subprocess.Popen] = None
@@ -302,34 +307,42 @@ def _upsample_phone_to_sink(pcm16: bytes) -> bytes:
 
 
 def _set_pc_pcm(pcm: bytes) -> None:
-    global _pc_pcm, _pc_at
+    global _pc_at
     if not pcm:
         return
-    # Pad / trim to one phone frame, then upsample for the 48 kHz sink.
+    # Pad / trim to one phone frame, then optionally upsample for the sink rate.
     if len(pcm) < FRAME_BYTES:
         pcm = pcm + (b"\x00" * (FRAME_BYTES - len(pcm)))
     elif len(pcm) > FRAME_BYTES:
         pcm = pcm[:FRAME_BYTES]
+    frame = _upsample_phone_to_sink(pcm)
     with _pc_lock:
-        _pc_pcm = _upsample_phone_to_sink(pcm)
+        _pc_queue.append(frame)
+        while len(_pc_queue) > _PC_QUEUE_MAX:
+            _pc_queue.popleft()
         _pc_at = time.time()
 
 
 def _pc_feeder_loop() -> None:
     global _pc_proc
     logging.info(
-        "pc mic feeder targeting sink %s → source %s (%s) @ %s Hz",
+        "pc mic feeder targeting sink %s → source %s (%s) @ %s Hz (ring buffer)",
         PC_MIC_SINK,
         PC_MIC_SOURCE,
         PC_MIC_NAME,
         PC_SINK_RATE,
     )
     silence = b"\x00" * PC_FRAME_BYTES
+    next_t = time.monotonic()
+    primed = False
+    since_flush = 0
     while not _stop.is_set():
         if not _pc_ready:
             ensure_pc_mic_device()
             if not _pc_ready:
                 time.sleep(1.0)
+                next_t = time.monotonic()
+                primed = False
                 continue
         if _pc_proc is None or _pc_proc.poll() is not None:
             try:
@@ -342,13 +355,16 @@ def _pc_feeder_loop() -> None:
                         f"--rate={PC_SINK_RATE}",
                         "--channels=1",
                         f"--device={PC_MIC_SINK}",
-                        # Larger buffer: 16→48 kHz + AEC was underrunning at 60 ms.
-                        "--latency-msec=120",
+                        # Bigger Pulse buffer; we pace on a monotonic clock below.
+                        "--latency-msec=200",
                     ],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    bufsize=0,
                 )
+                primed = False
+                next_t = time.monotonic()
             except FileNotFoundError:
                 logging.warning("pacat not found — GameSphere Mic feeder disabled")
                 time.sleep(2.0)
@@ -357,23 +373,50 @@ def _pc_feeder_loop() -> None:
                 logging.warning("pacat start failed: %s", exc)
                 time.sleep(1.0)
                 continue
-        now = time.time()
+
         with _pc_lock:
-            chunk = _pc_pcm if (now - _pc_at) <= CLIENT_TTL else silence
-            if len(chunk) != PC_FRAME_BYTES:
-                chunk = (chunk + silence)[:PC_FRAME_BYTES]
+            qlen = len(_pc_queue)
+            fresh = (time.time() - _pc_at) <= CLIENT_TTL
+            if not primed:
+                if qlen >= _PC_PREBUFFER_FRAMES:
+                    primed = True
+                    chunk = _pc_queue.popleft()
+                else:
+                    # Fill pacat while waiting for jitter buffer — avoid underrun spikes.
+                    chunk = silence
+            elif qlen:
+                chunk = _pc_queue.popleft()
+            else:
+                # Gap: do not repeat the last frame (that sounds robotic). Soft silence.
+                chunk = silence
+                if not fresh:
+                    primed = False
+
         try:
             assert _pc_proc.stdin is not None
             _pc_proc.stdin.write(chunk)
-            _pc_proc.stdin.flush()
+            since_flush += 1
+            # Flushing every frame was starving PipeWire; batch a few.
+            if since_flush >= 4:
+                _pc_proc.stdin.flush()
+                since_flush = 0
         except BrokenPipeError:
             _pc_proc = None
             continue
         except OSError:
             _pc_proc = None
             continue
-        # Pace ~20 ms frames
-        time.sleep(0.02)
+
+        next_t += 0.02
+        delay = next_t - time.monotonic()
+        if delay > 0.0005:
+            time.sleep(delay)
+        elif delay < -0.06:
+            # More than ~3 frames behind — resync and shed backlog.
+            next_t = time.monotonic()
+            with _pc_lock:
+                while len(_pc_queue) > _PC_PREBUFFER_FRAMES:
+                    _pc_queue.popleft()
 
 
 def _start_pc_feeder() -> None:

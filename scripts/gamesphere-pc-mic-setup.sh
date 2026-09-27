@@ -18,10 +18,17 @@ DEVICE_NAME="${GAMESPHERE_PC_MIC_NAME:-GameSphere Mic}"
 AEC_REF="${GAMESPHERE_AEC_REF_SINK:-gamesphere_aec_ref}"
 AEC_SINK="${GAMESPHERE_AEC_SINK:-gamesphere_aec_sink}"
 AEC_LOOP_NAME="gamesphere-hdmi-aec-ref"
-# PipeWire capture graph rate (Companion upsamples phone 16 kHz → this).
-MIC_RATE="${GAMESPHERE_PC_MIC_RATE:-48000}"
-# 1 = WebRTC AEC against HDMI monitor (default). 0 = raw remap only.
-USE_AEC="${GAMESPHERE_MIC_AEC:-1}"
+# 1 = WebRTC AEC against HDMI monitor. 0 = raw remap only (default — cleaner voice).
+USE_AEC="${GAMESPHERE_MIC_AEC:-0}"
+# PipeWire capture rate. Native 16 kHz when AEC is off; 48 kHz when AEC is on
+# (must match HDMI reference). Override with GAMESPHERE_PC_MIC_RATE.
+if [[ -n "${GAMESPHERE_PC_MIC_RATE:-}" ]]; then
+  MIC_RATE="$GAMESPHERE_PC_MIC_RATE"
+elif [[ "$USE_AEC" =~ ^(0|false|no|off)$ ]]; then
+  MIC_RATE=16000
+else
+  MIC_RATE=48000
+fi
 VBAN_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/pipewire/pipewire.conf.d/50-gamesphere-vban-recv.conf"
 ACTION="${1:-install}"
 
@@ -29,15 +36,16 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [install|status|uninstall|info|aec-on|aec-off]
 
-  install    Create GameSphere Mic (+ HDMI-monitor AEC when GAMESPHERE_MIC_AEC=1)
+  install    Create GameSphere Mic (raw by default; AEC if GAMESPHERE_MIC_AEC=1)
   status     Show devices / AEC state
   uninstall  Remove GameSphere Mic + AEC modules
   info       Print how Steam should select the mic
-  aec-on     Force AEC stack on (same as GAMESPHERE_MIC_AEC=1 install)
-  aec-off    Install raw mic only (no HDMI cancel)
+  aec-on     Force AEC stack on (48 kHz graph)
+  aec-off    Install raw mic only at 16 kHz (clearest speech; default)
 
 Env:
-  GAMESPHERE_MIC_AEC=0|1          default 1
+  GAMESPHERE_MIC_AEC=0|1          default 0 (raw — less choppy)
+  GAMESPHERE_PC_MIC_RATE=16000|48000
   GAMESPHERE_AEC_HDMI_SINK=...    override HDMI sink name
   GAMESPHERE_PC_MIC_NAME / _SINK / _SOURCE / _RAW
 Docs: docs/MIC-TO-PC.md
@@ -231,18 +239,19 @@ ensure_aec() {
 ensure_raw_passthrough() {
   # Publish SOURCE_NAME as a simple remap when AEC is off / unavailable.
   strip_gamesphere_aec
-  if node_present sources "$SOURCE_NAME"; then
-    # If it's already an echo-cancel source, remove it so remap can own the name.
-    if pactl list short modules 2>/dev/null | grep -q "module-echo-cancel.*source_name=${SOURCE_NAME}"; then
-      while unload_matching "module-echo-cancel.*source_name=${SOURCE_NAME}"; do :; done
-    fi
-  fi
+  # Drop any prior gamesphere_mic (AEC or wrong-rate remap) so we own the name.
+  while unload_matching "module-echo-cancel.*source_name=${SOURCE_NAME}"; do :; done
+  while unload_matching "module-remap-source.*source_name=${SOURCE_NAME}"; do :; done
   if ! node_present sources "$SOURCE_NAME"; then
     pactl load-module module-remap-source \
       "master=${SINK_NAME}.monitor" \
       "source_name=$SOURCE_NAME" \
+      channels=1 \
+      channel_map=mono \
+      "rate=$MIC_RATE" \
+      remix=false \
       "source_properties=device.description=${DEVICE_NAME}" >/dev/null
-    echo "==> Created source $SOURCE_NAME (raw, no AEC)"
+    echo "==> Created source $SOURCE_NAME (raw ${MIC_RATE} Hz mono, no AEC)"
   fi
   pactl set-source-property "$SOURCE_NAME" device.description "$DEVICE_NAME" 2>/dev/null || true
 }
@@ -312,11 +321,13 @@ case "$ACTION" in
     ;;
   aec-on)
     USE_AEC=1
+    MIC_RATE="${GAMESPHERE_PC_MIC_RATE:-48000}"
     do_install
     exit 0
     ;;
   aec-off)
     USE_AEC=0
+    MIC_RATE="${GAMESPHERE_PC_MIC_RATE:-16000}"
     do_install
     exit 0
     ;;
