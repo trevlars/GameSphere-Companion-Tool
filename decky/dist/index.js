@@ -33,10 +33,11 @@ function formatMicLabel(status) {
     const mic = status?.mic;
     if (!mic)
         return "…";
+    const aec = mic.aec ? " · AEC on (HDMI monitor)" : "";
     if (mic.detail)
-        return mic.detail;
+        return `${mic.detail}${aec}`;
     if (mic.pcMicReady || mic.pipewireSourcePresent)
-        return "GameSphere Mic ready";
+        return `GameSphere Mic ready${aec}`;
     return "Idle — appears when voice starts";
 }
 function Content() {
@@ -137,7 +138,9 @@ function Content() {
                                                 ? "Missing"
                                                 : "—", mic.voiceRunning ? " · voice running" : "", typeof mic.clients === "number" && mic.clients > 0
                                             ? ` · ${mic.clients} client(s)`
-                                            : ""] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Mic setup", () => runSetupMic()), disabled: busy || !installed, children: "Set up GameSphere Mic" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sync Steam library", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Auto-sync new Steam games (~15 min)", checked: autoSyncOn, onChange: onAutoSyncToggle, disabled: busy || !installed }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Last auto-sync", children: formatSyncLabel(status) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Auto-sync", () => runLibrarySyncNow()), disabled: busy || !installed, children: "Sync now (no Sunshine restart)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Dry run (preview only)", checked: dryRun, onChange: setDryRun }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Skip Sunshine restart", checked: noRestart, onChange: setNoRestart }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Apply host tuning after import", checked: hostTuning, onChange: setHostTuning }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Verbose log", checked: verbose, onChange: setVerbose }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Import", () => runImport(dryRun, noRestart, hostTuning && !dryRun, verbose)), disabled: busy || !installed, children: busy
+                                            : ""] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Gameplay cancel (AEC)", children: mic.aec
+                                        ? "WebRTC vs HDMI monitor — speakers OK"
+                                        : "Off — game audio may bleed into Discord" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Mic setup", () => runSetupMic()), disabled: busy || !installed, children: "Set up GameSphere Mic + AEC" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sync Steam library", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Auto-sync new Steam games (~15 min)", checked: autoSyncOn, onChange: onAutoSyncToggle, disabled: busy || !installed }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Last auto-sync", children: formatSyncLabel(status) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Auto-sync", () => runLibrarySyncNow()), disabled: busy || !installed, children: "Sync now (no Sunshine restart)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Dry run (preview only)", checked: dryRun, onChange: setDryRun }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Skip Sunshine restart", checked: noRestart, onChange: setNoRestart }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Apply host tuning after import", checked: hostTuning, onChange: setHostTuning }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Verbose log", checked: verbose, onChange: setVerbose }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Import", () => runImport(dryRun, noRestart, hostTuning && !dryRun, verbose)), disabled: busy || !installed, children: busy
                                 ? "Running…"
                                 : dryRun
                                     ? "Preview import"

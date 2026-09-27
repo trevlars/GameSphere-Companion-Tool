@@ -4,6 +4,14 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.26] — 2026-09-27
+
+### Added
+- **GameSphere Mic HDMI-monitor AEC** — WebRTC echo cancel uses a **copy** of the HDMI monitor (`gamesphere_aec_ref`) so room gameplay is subtracted from the phone mic before Steam/Discord. Speakers/AVR OK; never `sink_master=<HDMI>` (that crackled Sunshine). Opt out: `GAMESPHERE_MIC_AEC=0` or `gamesphere-pc-mic-setup.sh aec-off`.
+
+### Changed
+- Decky Mic panel shows AEC state; `--mic-status` / voice bridge report `aec` + `aecMode`.
+
 ## [1.5.25] — 2026-09-27
 
 ### Added

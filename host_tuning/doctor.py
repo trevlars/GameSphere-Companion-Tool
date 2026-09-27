@@ -150,6 +150,8 @@ def mic_status_report() -> Dict[str, Any]:
                 "pcMicError": st.get("pcMicError"),
                 "clients": int(st.get("clients") or 0),
                 "port": st.get("port"),
+                "aec": bool(st.get("aec")),
+                "aecMode": st.get("aecMode") or ("hdmi-monitor-webrtc" if st.get("aec") else "off"),
             }
         )
     except Exception as exc:

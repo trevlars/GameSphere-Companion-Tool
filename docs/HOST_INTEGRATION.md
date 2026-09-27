@@ -270,7 +270,7 @@ gamesphere-import --host-bridge
 | `GAMESTATE` | client → host | Launch / running heuristic |
 | `LOCKSTATE` | client → host | Screen lock detection |
 | `HOSTINFO` / `COOPSTATE` / `SLOTSWAP` | either | Host identity, P1–P4 seats, host-only remap, `wanReady` |
-| `WANSETUP` / `VOICE` | either | Auto WAN map status (never 47990); UDP 48020 voice mixer (no HDMI AEC) |
+| `WANSETUP` / `VOICE` | either | Auto WAN map status (never 47990); UDP 48020 voice mixer + GameSphere Mic (HDMI-monitor AEC) |
 | `WANNAPLAY` / `PLAYREG` / `PLAYPENDING` / `PLAYCLAIM` / `PLAYREPLY` | either | Host-initiated wanna-play + session pre-auth + APNs; guest phrase echo on `COOPSTATE` |
 
 **Client implementers:** connect to `<host-ip>:47998`, one verb per line, JSON payload after a blank line when required. Match StreamTweak wire format where possible so one client implementation serves multiple hosts. Full spec: [CLIENT_BRIDGE.md](CLIENT_BRIDGE.md).

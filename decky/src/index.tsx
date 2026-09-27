@@ -40,6 +40,8 @@ type Status = {
     pcMicReady?: boolean;
     pipewireSourcePresent?: boolean | null;
     clients?: number;
+    aec?: boolean;
+    aecMode?: string;
   };
 };
 
@@ -84,8 +86,9 @@ function formatSyncLabel(status: Status | null): string {
 function formatMicLabel(status: Status | null): string {
   const mic = status?.mic;
   if (!mic) return "…";
-  if (mic.detail) return mic.detail;
-  if (mic.pcMicReady || mic.pipewireSourcePresent) return "GameSphere Mic ready";
+  const aec = mic.aec ? " · AEC on (HDMI monitor)" : "";
+  if (mic.detail) return `${mic.detail}${aec}`;
+  if (mic.pcMicReady || mic.pipewireSourcePresent) return `GameSphere Mic ready${aec}`;
   return "Idle — appears when voice starts";
 }
 
@@ -248,12 +251,19 @@ function Content() {
               </Field>
             </PanelSectionRow>
             <PanelSectionRow>
+              <Field label="Gameplay cancel (AEC)">
+                {mic.aec
+                  ? "WebRTC vs HDMI monitor — speakers OK"
+                  : "Off — game audio may bleed into Discord"}
+              </Field>
+            </PanelSectionRow>
+            <PanelSectionRow>
               <ButtonItem
                 layout="below"
                 onClick={() => runAction("Mic setup", () => runSetupMic())}
                 disabled={busy || !installed}
               >
-                Set up GameSphere Mic
+                Set up GameSphere Mic + AEC
               </ButtonItem>
             </PanelSectionRow>
           </>

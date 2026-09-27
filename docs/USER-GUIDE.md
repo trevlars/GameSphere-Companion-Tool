@@ -22,7 +22,7 @@ Any Sunshine (or Apollo) PC. You do not SSH into a specific host, and you do not
 7. **Host firewall** (installer tries this): TCP 47984, 47989, 48010, 47998; UDP 47998–48000, 48002, 48010, 48020. Never 47990. See [WAN.md](WAN.md).
 8. **Pair GameSphere** on the LAN, then try Invite. Off-LAN: guest uses cellular; LAN `serverinfo` first, then `wan=`.
 9. **Couch P2–P4:** join-order seats lock. Linux installer ships and enables udev + `gamesphere-hide-steam-clones.sh` so Steam Input `28de:11ff` clones do not steal pads. Host Swap (`SLOTSWAP`) is the only remap.
-10. **Voice:** UDP 48020 mixes GameSphere mics only — no HDMI tap, no WebRTC AEC on Sunshine. Optional **Mic to PC** (VBAN 6980) is a separate Discord/OBS path — [MIC-TO-PC.md](MIC-TO-PC.md).
+10. **Voice:** UDP 48020 mixes GameSphere mics; **Mic to PC** publishes PipeWire **GameSphere Mic** with optional WebRTC AEC against an HDMI *monitor* copy (speakers OK; never attaches AEC to the HDMI sink). See [MIC-TO-PC.md](MIC-TO-PC.md).
 11. **Optional APNs:** drop `apns.p8` in the Companion config dir — [APNS.md](APNS.md). Wanna play poll still works without it.
 12. **Sunshine web login** in `host_tuning.json` (`sunshine_username` / `sunshine_password`) so JOINPIN can post to localhost:47990. Status / WAN / logs never print that password.
 

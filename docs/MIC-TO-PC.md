@@ -8,8 +8,20 @@ GameSphere sends your **phone mic to the streaming PC** so Steam, Discord, OBS, 
 | Transport | Companion co-op voice (GSVC UDP **48020**) |
 | Slot published | **0** (local / host seat) — guests stay party-only |
 | Sample rate | 16 kHz mono PCM → PipeWire |
+| AEC (default) | WebRTC vs **HDMI monitor** copy (speakers OK) |
 
-**How it works:** while Companion `VOICE` is running, `voice_bridge` mixes phone↔phone party audio **and** writes slot 0 into a PipeWire null-sink / remap-source named **GameSphere Mic**. Stock Sunshine still has no official client→host mic channel — apps on the host pick the virtual device.
+**How it works:** while Companion `VOICE` is running, `voice_bridge` mixes phone↔phone party audio **and** writes slot 0 into a PipeWire null-sink. With AEC on (default), that raw feed is cleaned against a **copy** of the HDMI monitor so room gameplay is subtracted before Steam/Discord hear you — no headphones required.
+
+### Why not AEC on the HDMI sink?
+
+Older Bazzite scripts used `module-echo-cancel` with `sink_master=<HDMI>`. That inserts into the HDMI playback graph and **crackles Sunshine**. Companion never does that. Instead:
+
+1. `gamesphere_mic_sink` ← phone PCM  
+2. `gamesphere_mic_raw` ← remap of that sink  
+3. `gamesphere_aec_ref` ← null sink fed by **loopback from `HDMI.monitor` only**  
+4. WebRTC AEC(`raw`, `ref`) → **`gamesphere_mic`** (Steam selects this)
+
+Sunshine keeps capturing the real HDMI / `bazzite-stream-stereo` path. Opt out: `GAMESPHERE_MIC_AEC=0` or `gamesphere-pc-mic-setup.sh aec-off`.
 
 ---
 
@@ -19,17 +31,19 @@ GameSphere sends your **phone mic to the streaming PC** so Steam, Discord, OBS, 
 gamesphere-import --setup-mic
 # or:
 gamesphere-pc-mic-setup.sh install
+gamesphere-pc-mic-setup.sh status   # shows AEC active/inactive
 ```
 
-Creates the virtual source (idempotent), removes any legacy `50-gamesphere-vban-recv.conf`, and prints the device name.
+Creates the virtual source (idempotent), enables HDMI-monitor AEC when an HDMI sink is present, removes any legacy `50-gamesphere-vban-recv.conf`, and prints the device name.
 
 The always-on **host-bridge** also creates/feeds the device when a client sends `VOICE start` (solo or party stream).
 
 ### Steam / Discord
 
 1. Start a GameSphere stream (Pro) — co-op voice starts automatically — **or** open **Send mic to PC** and Start.
-2. On the PC: set microphone input to **GameSphere Mic**.
+2. On the PC: set microphone input to **GameSphere Mic** (the AEC output).
 3. Mic level / mute in GameSphere control the same uplink Steam hears.
+4. Play on TV/AVR speakers — AEC should cancel most game bleed from the phone mic.
 
 ---
 
@@ -41,7 +55,7 @@ Windows still offers VB-CABLE + a VBAN feeder for older builds. Current iOS send
 
 ## Sunshine / Apollo note
 
-Stock **Sunshine does not ingest** this mic. Apps on the host must select **GameSphere Mic**. Do **not** attach WebRTC AEC to HDMI and do **not** change Sunshine hevc/av1 codecs for mic work.
+Stock **Sunshine does not ingest** this mic. Apps on the host must select **GameSphere Mic**. Do **not** attach WebRTC AEC to the HDMI sink itself and do **not** change Sunshine hevc/av1 codecs for mic work.
 
 In-stream couch voice (phone ↔ phone) and PC mic share the same uplink for seat 0.
 
@@ -54,4 +68,8 @@ In-stream couch voice (phone ↔ phone) and PC mic share the same uplink for sea
 | Device missing | `gamesphere-pc-mic-setup.sh install` or start a stream (`VOICE start`) |
 | Steam hears silence | Mic unmuted in GameSphere; seat is slot 0; `pactl list short sources \| grep gamesphere` |
 | Party works, Steam silent | Confirm input is **GameSphere Mic**, not HDMI / DualSense / Built-in |
+| Game audio still in Discord | Confirm `gamesphere-pc-mic-setup.sh status` says `AEC: active`; HDMI must be the room speakers; speak while a game is loud — WebRTC needs a moment to adapt (`delay_agnostic`) |
+| Sunshine audio crackles | You must not have `sink_master=<hdmi>` AEC. Re-run `gamesphere-pc-mic-setup.sh install` (monitor-tap only). Check `pactl get-default-sink` is still HDMI |
+| Want raw mic (no cancel) | `GAMESPHERE_MIC_AEC=0 gamesphere-pc-mic-setup.sh install` or `… aec-off` |
 | Legacy VBAN still listed | Re-run `--setup-mic` (removes `50-gamesphere-vban-recv.conf`) |
+| Profile-audio strips AEC | HTPC `bazzite-profile-audio.sh` must not unload `module-echo-cancel` modules whose names contain `gamesphere` |

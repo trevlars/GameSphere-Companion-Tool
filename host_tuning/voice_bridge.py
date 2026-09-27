@@ -1,12 +1,14 @@
 """In-stream voice mixer for GameSphere clients + host virtual mic.
 
 Clients send 16 kHz s16le mono PCM over UDP. Companion mixes those packets only
-and sends each client the mix minus itself. Game / HDMI audio is never captured
-here — do not attach WebRTC AEC to HDMI (crackles Sunshine).
+and sends each client the mix minus itself.
 
-PC mic path (Linux/PipeWire): slot 0 uplink is also written into a virtual
-capture device named "GameSphere Mic" so Steam / Discord / games can select it.
-Guests (slots 1–3) stay party-only. No VBAN.
+PC mic path (Linux/PipeWire): slot 0 uplink is written into a virtual capture
+device named "GameSphere Mic" so Steam / Discord / games can select it.
+When AEC is enabled (default), WebRTC cancels room gameplay using an HDMI
+*monitor* tap into a null-sink reference — never ``sink_master=<HDMI>``, which
+inserts into the HDMI graph and crackles Sunshine. Guests (slots 1–3) stay
+party-only. No VBAN.
 
 Routing note: replies use the kernel route to each client. Do not install a
 ZeroTier/VPN more-specific route for the LAN prefix (e.g. 10.0.5.0/24 via zt)
@@ -149,8 +151,37 @@ def _sink_exists(name: str) -> bool:
     return False
 
 
+def _mic_setup_script() -> Optional[str]:
+    candidates = [
+        os.path.expanduser("~/.local/bin/gamesphere-pc-mic-setup.sh"),
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "scripts",
+            "gamesphere-pc-mic-setup.sh",
+        ),
+    ]
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _aec_active() -> bool:
+    try:
+        proc = _pactl("list", "short", "modules")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    needle = f"module-echo-cancel"
+    for line in (proc.stdout or "").splitlines():
+        if needle in line and PC_MIC_SOURCE in line:
+            return True
+    return False
+
+
 def ensure_pc_mic_device() -> Dict:
-    """Create PipeWire/Pulse null-sink + remap-source named GameSphere Mic (idempotent)."""
+    """Create GameSphere Mic (+ HDMI-monitor WebRTC AEC by default). Idempotent."""
     global _pc_ready, _pc_error
     if os.name == "nt" or not shutil.which("pactl"):
         _pc_ready = False
@@ -158,36 +189,46 @@ def ensure_pc_mic_device() -> Dict:
         return {"ok": False, "error": _pc_error, "device": PC_MIC_NAME}
 
     try:
-        if not _sink_exists(PC_MIC_SINK):
-            desc = "GameSphere Mic Sink"
-            proc = _pactl(
-                "load-module",
-                "module-null-sink",
-                f"sink_name={PC_MIC_SINK}",
-                "rate=16000",
-                "channels=1",
-                f"sink_properties=device.description={desc}",
-            )
-            if proc.returncode != 0:
-                _pc_error = (proc.stderr or proc.stdout or "null-sink failed").strip()
-                _pc_ready = False
-                return {"ok": False, "error": _pc_error, "device": PC_MIC_NAME}
-
-        if not _source_exists(PC_MIC_SOURCE):
-            # device.description may contain spaces — quote for pactl.
-            proc = _pactl(
-                "load-module",
-                "module-remap-source",
-                f"master={PC_MIC_SINK}.monitor",
-                f"source_name={PC_MIC_SOURCE}",
-                f'source_properties=device.description="{PC_MIC_NAME}"',
+        script = _mic_setup_script()
+        if script:
+            proc = subprocess.run(
+                ["bash", script, "install"],
+                capture_output=True,
+                text=True,
+                timeout=45,
             )
             if proc.returncode != 0 and not _source_exists(PC_MIC_SOURCE):
-                _pc_error = (proc.stderr or proc.stdout or "remap-source failed").strip()
+                _pc_error = (proc.stderr or proc.stdout or "mic setup failed").strip()
                 _pc_ready = False
                 return {"ok": False, "error": _pc_error, "device": PC_MIC_NAME}
+        else:
+            # Minimal fallback without the setup script (no AEC).
+            if not _sink_exists(PC_MIC_SINK):
+                proc = _pactl(
+                    "load-module",
+                    "module-null-sink",
+                    f"sink_name={PC_MIC_SINK}",
+                    "rate=16000",
+                    "channels=1",
+                    "sink_properties=device.description=GameSphereMicSink",
+                )
+                if proc.returncode != 0:
+                    _pc_error = (proc.stderr or proc.stdout or "null-sink failed").strip()
+                    _pc_ready = False
+                    return {"ok": False, "error": _pc_error, "device": PC_MIC_NAME}
+            if not _source_exists(PC_MIC_SOURCE):
+                proc = _pactl(
+                    "load-module",
+                    "module-remap-source",
+                    f"master={PC_MIC_SINK}.monitor",
+                    f"source_name={PC_MIC_SOURCE}",
+                    f'source_properties=device.description="{PC_MIC_NAME}"',
+                )
+                if proc.returncode != 0 and not _source_exists(PC_MIC_SOURCE):
+                    _pc_error = (proc.stderr or proc.stdout or "remap-source failed").strip()
+                    _pc_ready = False
+                    return {"ok": False, "error": _pc_error, "device": PC_MIC_NAME}
 
-        # Friendly card name in pavucontrol / Steam
         _pactl("set-source-property", PC_MIC_SOURCE, "device.description", PC_MIC_NAME)
         steam_voice: Dict = {}
         try:
@@ -196,17 +237,21 @@ def ensure_pc_mic_device() -> Dict:
             steam_voice = configure_steam_voice_mic(PC_MIC_SOURCE)
         except Exception as exc:
             logging.debug("steam voice mic configure: %s", exc)
-        _pc_ready = True
-        _pc_error = None
+        _pc_ready = _source_exists(PC_MIC_SOURCE)
+        _pc_error = None if _pc_ready else "GameSphere Mic source missing after setup"
         out = {
-            "ok": True,
+            "ok": bool(_pc_ready),
             "device": PC_MIC_NAME,
             "source": PC_MIC_SOURCE,
             "sink": PC_MIC_SINK,
             "slot": PC_MIC_SLOT,
+            "aec": _aec_active(),
+            "aecMode": "hdmi-monitor-webrtc" if _aec_active() else "off",
         }
         if steam_voice:
             out["steamVoice"] = steam_voice
+        if not _pc_ready:
+            out["error"] = _pc_error
         return out
     except Exception as exc:
         _pc_ready = False
@@ -319,7 +364,12 @@ def _stop_pc_feeder() -> None:
 
 
 def _loop(sock: socket.socket) -> None:
-    logging.info("voice_bridge listening UDP %s (PCM mix + PC mic slot %s, no HDMI AEC)", _port, PC_MIC_SLOT)
+    logging.info(
+        "voice_bridge listening UDP %s (PCM mix + PC mic slot %s, aec=%s)",
+        _port,
+        PC_MIC_SLOT,
+        "hdmi-monitor" if _aec_active() else "off",
+    )
     while not _stop.is_set():
         try:
             sock.settimeout(0.5)
@@ -416,15 +466,23 @@ def _pc_mic_status(mic: Optional[Dict] = None) -> Dict:
         "source": PC_MIC_SOURCE,
         "error": _pc_error,
     }
+    aec = bool(mic.get("aec")) if "aec" in (mic or {}) else _aec_active()
     return {
         "pcMic": PC_MIC_NAME,
         "pcMicSource": PC_MIC_SOURCE,
         "pcMicSlot": PC_MIC_SLOT,
         "pcMicReady": bool(mic.get("ok")),
         "pcMicError": mic.get("error"),
+        "aec": aec,
+        "aecMode": "hdmi-monitor-webrtc" if aec else "off",
         "note": (
-            f"Mixes GameSphere mics only. Slot {PC_MIC_SLOT} → PipeWire “{PC_MIC_NAME}”. "
-            "Does not tap HDMI / Sunshine audio. No VBAN."
+            f"Slot {PC_MIC_SLOT} → PipeWire “{PC_MIC_NAME}”. "
+            + (
+                "WebRTC AEC uses HDMI monitor as reference (speakers OK, Sunshine-safe)."
+                if aec
+                else "AEC off — raw phone uplink (set GAMESPHERE_MIC_AEC=1)."
+            )
+            + " No VBAN."
         ),
     }
 
