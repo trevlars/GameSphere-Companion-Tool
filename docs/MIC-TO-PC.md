@@ -7,8 +7,8 @@ GameSphere sends your **phone mic to the streaming PC** so Steam, Discord, OBS, 
 | Device name | `GameSphere Mic` |
 | Transport | Companion co-op voice (GSVC UDP **48020**) |
 | Slot published | **0** (local / host seat) — guests stay party-only |
-| Sample rate | 16 kHz mono PCM → PipeWire |
-| AEC (default) | WebRTC vs **HDMI monitor** copy (speakers OK) |
+| Sample rate | Phone 16 kHz mono → Companion upsamples → PipeWire **48 kHz** |
+| AEC (default) | WebRTC vs **HDMI monitor** copy @ 48 kHz (speakers OK) |
 
 **How it works:** while Companion `VOICE` is running, `voice_bridge` mixes phone↔phone party audio **and** writes slot 0 into a PipeWire null-sink. With AEC on (default), that raw feed is cleaned against a **copy** of the HDMI monitor so room gameplay is subtracted before Steam/Discord hear you — no headphones required.
 
@@ -16,10 +16,12 @@ GameSphere sends your **phone mic to the streaming PC** so Steam, Discord, OBS, 
 
 Older Bazzite scripts used `module-echo-cancel` with `sink_master=<HDMI>`. That inserts into the HDMI playback graph and **crackles Sunshine**. Companion never does that. Instead:
 
-1. `gamesphere_mic_sink` ← phone PCM  
+1. `gamesphere_mic_sink` @ 48 kHz ← phone PCM (upsampled from 16 kHz)  
 2. `gamesphere_mic_raw` ← remap of that sink  
 3. `gamesphere_aec_ref` ← null sink fed by **loopback from `HDMI.monitor` only**  
-4. WebRTC AEC(`raw`, `ref`) → **`gamesphere_mic`** (Steam selects this)
+4. WebRTC AEC(`raw`, `ref`) @ 48 kHz → **`gamesphere_mic`** (Steam selects this)  
+
+Running AEC at 16 kHz against 48 kHz HDMI made speech choppy/robotic; the graph stays at 48 kHz now.
 
 Sunshine captures a separate HDMI tap (`bazzite-stream-surround51` by default, or stereo) so games stay on the real HDMI AVR path. Opt out of AEC: `GAMESPHERE_MIC_AEC=0` or `gamesphere-pc-mic-setup.sh aec-off`.
 

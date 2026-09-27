@@ -32,6 +32,8 @@ VERSION = 1
 HEADER_SIZE = 12  # magic(4) + ver(1) + slot(1) + seq(2) + samples(2) + rate(2)
 DEFAULT_PORT = int(os.environ.get("GAMESPHERE_VOICE_PORT", "48020"))
 SAMPLE_RATE = 16000
+# PipeWire GameSphere Mic graph (must match gamesphere-pc-mic-setup.sh).
+PC_SINK_RATE = int(os.environ.get("GAMESPHERE_PC_MIC_RATE", "48000"))
 MAX_PACKET = 2048
 CLIENT_TTL = 2.5
 # Couch co-op is 4 seats; the cap only exists to bound an adversarial flood.
@@ -41,6 +43,8 @@ PC_MIC_NAME = os.environ.get("GAMESPHERE_PC_MIC_NAME", "GameSphere Mic")
 PC_MIC_SINK = os.environ.get("GAMESPHERE_PC_MIC_SINK", "gamesphere_mic_sink")
 PC_MIC_SOURCE = os.environ.get("GAMESPHERE_PC_MIC_SOURCE", "gamesphere_mic")
 FRAME_BYTES = 640  # 320 samples * 2 bytes (20 ms @ 16 kHz)
+# 20 ms @ PC_SINK_RATE mono s16le after upsample from the phone frame.
+PC_FRAME_BYTES = FRAME_BYTES * max(1, PC_SINK_RATE // SAMPLE_RATE)
 
 _lock = threading.Lock()
 _clients: Dict[Tuple[str, int], Dict] = {}
@@ -50,7 +54,7 @@ _stop = threading.Event()
 _port = DEFAULT_PORT
 
 _pc_lock = threading.Lock()
-_pc_pcm = b"\x00" * FRAME_BYTES
+_pc_pcm = b"\x00" * PC_FRAME_BYTES
 _pc_at = 0.0
 _pc_feeder: Optional[threading.Thread] = None
 _pc_proc: Optional[subprocess.Popen] = None
@@ -208,7 +212,7 @@ def ensure_pc_mic_device() -> Dict:
                     "load-module",
                     "module-null-sink",
                     f"sink_name={PC_MIC_SINK}",
-                    "rate=16000",
+                    f"rate={PC_SINK_RATE}",
                     "channels=1",
                     "sink_properties=device.description=GameSphereMicSink",
                 )
@@ -271,24 +275,56 @@ def _retire_vban_conf() -> None:
         logging.debug("vban conf remove: %s", exc)
 
 
+def _upsample_phone_to_sink(pcm16: bytes) -> bytes:
+    """Linear-upsample one 16 kHz mono frame to PC_SINK_RATE for PipeWire/AEC."""
+    if PC_SINK_RATE == SAMPLE_RATE:
+        return pcm16
+    ratio = PC_SINK_RATE // SAMPLE_RATE
+    if ratio < 2 or PC_SINK_RATE % SAMPLE_RATE:
+        # Fallback: naive repeat (still better than feeding 16 kHz into a 48 kHz graph).
+        ratio = max(1, round(PC_SINK_RATE / SAMPLE_RATE))
+    n = len(pcm16) // 2
+    if n <= 0:
+        return b"\x00" * PC_FRAME_BYTES
+    samples = struct.unpack("<" + ("h" * n), pcm16[: n * 2])
+    out: List[int] = []
+    for i, s in enumerate(samples):
+        nxt = samples[i + 1] if i + 1 < n else s
+        for k in range(ratio):
+            t = k / float(ratio)
+            out.append(int(s + (nxt - s) * t))
+    raw = struct.pack("<" + ("h" * len(out)), *out)
+    if len(raw) < PC_FRAME_BYTES:
+        raw = raw + (b"\x00" * (PC_FRAME_BYTES - len(raw)))
+    elif len(raw) > PC_FRAME_BYTES:
+        raw = raw[:PC_FRAME_BYTES]
+    return raw
+
+
 def _set_pc_pcm(pcm: bytes) -> None:
     global _pc_pcm, _pc_at
     if not pcm:
         return
-    # Pad / trim to one frame for steady pacat clock.
+    # Pad / trim to one phone frame, then upsample for the 48 kHz sink.
     if len(pcm) < FRAME_BYTES:
         pcm = pcm + (b"\x00" * (FRAME_BYTES - len(pcm)))
     elif len(pcm) > FRAME_BYTES:
         pcm = pcm[:FRAME_BYTES]
     with _pc_lock:
-        _pc_pcm = pcm
+        _pc_pcm = _upsample_phone_to_sink(pcm)
         _pc_at = time.time()
 
 
 def _pc_feeder_loop() -> None:
     global _pc_proc
-    logging.info("pc mic feeder targeting sink %s → source %s (%s)", PC_MIC_SINK, PC_MIC_SOURCE, PC_MIC_NAME)
-    silence = b"\x00" * FRAME_BYTES
+    logging.info(
+        "pc mic feeder targeting sink %s → source %s (%s) @ %s Hz",
+        PC_MIC_SINK,
+        PC_MIC_SOURCE,
+        PC_MIC_NAME,
+        PC_SINK_RATE,
+    )
+    silence = b"\x00" * PC_FRAME_BYTES
     while not _stop.is_set():
         if not _pc_ready:
             ensure_pc_mic_device()
@@ -303,10 +339,11 @@ def _pc_feeder_loop() -> None:
                         "--playback",
                         "--raw",
                         "--format=s16le",
-                        f"--rate={SAMPLE_RATE}",
+                        f"--rate={PC_SINK_RATE}",
                         "--channels=1",
                         f"--device={PC_MIC_SINK}",
-                        "--latency-msec=60",
+                        # Larger buffer: 16→48 kHz + AEC was underrunning at 60 ms.
+                        "--latency-msec=120",
                     ],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
@@ -323,6 +360,8 @@ def _pc_feeder_loop() -> None:
         now = time.time()
         with _pc_lock:
             chunk = _pc_pcm if (now - _pc_at) <= CLIENT_TTL else silence
+            if len(chunk) != PC_FRAME_BYTES:
+                chunk = (chunk + silence)[:PC_FRAME_BYTES]
         try:
             assert _pc_proc.stdin is not None
             _pc_proc.stdin.write(chunk)

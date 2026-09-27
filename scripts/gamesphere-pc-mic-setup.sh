@@ -2,12 +2,11 @@
 # GameSphere phone mic → PipeWire "GameSphere Mic" with optional HDMI-monitor AEC.
 #
 # Architecture (speaker-friendly, Sunshine-safe):
-#   phone PCM → gamesphere_mic_sink → gamesphere_mic_raw
-#   HDMI.monitor ──loopback──► gamesphere_aec_ref  (reference copy only)
-#   WebRTC AEC(raw, ref) → gamesphere_mic          (what Steam/Discord select)
+#   phone PCM (16 kHz) → Companion upsamples → gamesphere_mic_sink @ 48 kHz
+#   → gamesphere_mic_raw → WebRTC AEC vs HDMI.monitor copy → gamesphere_mic
 #
-# Never use sink_master=<HDMI>. That inserts into the HDMI graph and crackles
-# Sunshine. Reference is a null-sink fed from the HDMI *monitor* tap only.
+# The whole PipeWire graph runs at 48 kHz so AEC isn't resampling a 16 kHz mic
+# against 48 kHz HDMI (that sounded choppy/robotic). Never sink_master=<HDMI>.
 #
 # No VBAN. Fed by Companion voice_bridge (GSVC UDP 48020, slot 0).
 set -euo pipefail
@@ -19,6 +18,8 @@ DEVICE_NAME="${GAMESPHERE_PC_MIC_NAME:-GameSphere Mic}"
 AEC_REF="${GAMESPHERE_AEC_REF_SINK:-gamesphere_aec_ref}"
 AEC_SINK="${GAMESPHERE_AEC_SINK:-gamesphere_aec_sink}"
 AEC_LOOP_NAME="gamesphere-hdmi-aec-ref"
+# PipeWire capture graph rate (Companion upsamples phone 16 kHz → this).
+MIC_RATE="${GAMESPHERE_PC_MIC_RATE:-48000}"
 # 1 = WebRTC AEC against HDMI monitor (default). 0 = raw remap only.
 USE_AEC="${GAMESPHERE_MIC_AEC:-1}"
 VBAN_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/pipewire/pipewire.conf.d/50-gamesphere-vban-recv.conf"
@@ -102,19 +103,35 @@ strip_gamesphere_all() {
   while unload_matching 'module-remap-source.*gamesphere_mic'; do :; done
 }
 
+sink_rate_is() {
+  local want="$1"
+  pactl list sinks 2>/dev/null | awk -v n="$SINK_NAME" -v r="$want" '
+    $1=="Name:" && $2==n { hit=1; next }
+    hit && /Sample Specification:/ {
+      if ($0 ~ r) exit 0
+      exit 1
+    }
+  '
+}
+
 ensure_raw_mic() {
   if ! command -v pactl >/dev/null 2>&1; then
     echo "pactl not found — PipeWire/Pulse required" >&2
     exit 1
   fi
   retire_vban
+  # Rebuild legacy 16 kHz sink — AEC vs 48 kHz HDMI made the mic robotic.
+  if node_present sinks "$SINK_NAME" && ! sink_rate_is "$MIC_RATE"; then
+    echo "==> Recreating $SINK_NAME at ${MIC_RATE} Hz (was not ${MIC_RATE})"
+    strip_gamesphere_all
+  fi
   if ! node_present sinks "$SINK_NAME"; then
     pactl load-module module-null-sink \
       "sink_name=$SINK_NAME" \
-      rate=16000 \
+      "rate=$MIC_RATE" \
       channels=1 \
       "sink_properties=device.description=GameSphereMicSink" >/dev/null
-    echo "==> Created sink $SINK_NAME"
+    echo "==> Created sink $SINK_NAME (${MIC_RATE} Hz mono)"
   fi
   # Drop legacy remap that published gamesphere_mic directly from the sink.
   while read -r id rest; do
@@ -128,8 +145,11 @@ ensure_raw_mic() {
     pactl load-module module-remap-source \
       "master=${SINK_NAME}.monitor" \
       "source_name=$RAW_SOURCE" \
+      channels=1 \
+      "rate=$MIC_RATE" \
+      remix=false \
       "source_properties=device.description=${DEVICE_NAME} Raw" >/dev/null
-    echo "==> Created source $RAW_SOURCE"
+    echo "==> Created source $RAW_SOURCE (${MIC_RATE} Hz mono)"
   fi
 }
 
@@ -186,6 +206,8 @@ ensure_aec() {
       pactl unload-module "$id" 2>/dev/null || true
     done < <(pactl list short modules 2>/dev/null)
 
+    # Match HDMI ref rate (48 kHz). Keep NS/HPF off — they made speech robotic
+    # on this host when combined with phone uplink + room speakers.
     pactl load-module module-echo-cancel \
       "source_master=${RAW_SOURCE}" \
       "source_name=${SOURCE_NAME}" \
@@ -193,11 +215,11 @@ ensure_aec() {
       "sink_master=${AEC_REF}" \
       "sink_name=${AEC_SINK}" \
       channels=1 \
-      rate=16000 \
+      "rate=$MIC_RATE" \
       use_volume_sharing=0 \
       aec_method=webrtc \
-      aec_args="extended_filter=1 delay_agnostic=1 noise_suppression=1 high_pass_filter=1 voice_detection=0 analog_gain_control=0 digital_gain_control=0" >/dev/null
-    echo "==> WebRTC AEC → $SOURCE_NAME (ref=$AEC_REF from $hdmi monitor)"
+      aec_args="extended_filter=1 delay_agnostic=1 noise_suppression=0 high_pass_filter=0 voice_detection=0 analog_gain_control=0 digital_gain_control=0" >/dev/null
+    echo "==> WebRTC AEC → $SOURCE_NAME @ ${MIC_RATE} Hz (ref=$AEC_REF from $hdmi monitor)"
   fi
 
   # Never route game audio through the AEC playback sink.

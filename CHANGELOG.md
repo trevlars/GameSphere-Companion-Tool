@@ -4,8 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.30] — 2026-09-27
+
 ### Fixed
-- **HTPC Mic Test feedback howl** — Game Mode `mic-test` no longer live-echoes the mic into room speakers by default (that looped through GameSphere Mic / Moonlight). Meter-only; optional echo via Y/A when safe.
+- **GameSphere Mic choppy/robotic** — PipeWire mic + WebRTC AEC run at **48 kHz** (phone 16 kHz upsampled in the feeder). Old 16 kHz AEC vs 48 kHz HDMI sounded robotic; NS/HPF disabled.
+- **HTPC Mic Test** — record→playback hear-yourself without live speaker feedback.
 
 ## [1.5.29] — 2026-09-27
 
