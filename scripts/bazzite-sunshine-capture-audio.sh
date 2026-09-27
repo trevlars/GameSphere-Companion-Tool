@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # HDMI → Sunshine capture tap (games stay on real HDMI 5.1 AVR/TV).
 #
-# Default: 5.1 surround tap so Moonlight/GameSphere can request LPCM 5.1.
-# Rollback to stereo (phones that crackled on 6ch): BAZZITE_STREAM_AUDIO=stereo
+# Default: stereo. Sunshine's pa_simple capture must match the client channel
+# layout — a 6ch audio_sink with a stereo/7.1 client request returns
+# "Found default monitor by name: " + silent stream.
+#
+# Optional 5.1: BAZZITE_STREAM_AUDIO=surround51 AND GameSphere Surround = LPCM 5.1
+# (exactly 6ch — not 7.1). Mode persists in $XDG_RUNTIME_DIR so stream-prep
+# `ensure` does not flip you back.
 set -euo pipefail
 
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/1000}"
@@ -12,13 +17,31 @@ HDMI_SINK='alsa_output.pci-0000_01_00.1.hdmi-surround'
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/sunshine/sunshine.conf"
 ACTION="${1:-status}"
 
-# stereo | surround51  (default surround51)
-MODE="${BAZZITE_STREAM_AUDIO:-surround51}"
-case "$MODE" in
-  stereo|2|Stereo) MODE=stereo ;;
-  surround51|5.1|51|surround|Surround51) MODE=surround51 ;;
-  *) MODE=surround51 ;;
-esac
+normalize_mode() {
+  case "${1:-}" in
+    stereo|2|Stereo) echo stereo ;;
+    surround51|5.1|51|surround|Surround51) echo surround51 ;;
+    *) echo "" ;;
+  esac
+}
+
+# Resolve mode: explicit env → CLI verb → persisted flag → stereo default.
+MODE=""
+if [[ -n "${BAZZITE_STREAM_AUDIO:-}" ]]; then
+  MODE="$(normalize_mode "$BAZZITE_STREAM_AUDIO")"
+fi
+if [[ -z "$MODE" ]]; then
+  case "$ACTION" in
+    stereo) MODE=stereo ;;
+    surround51|5.1) MODE=surround51 ;;
+  esac
+fi
+if [[ -z "$MODE" && -f "$MODE_FLAG" ]]; then
+  MODE="$(normalize_mode "$(tr -d '[:space:]' <"$MODE_FLAG")")"
+fi
+if [[ -z "$MODE" ]]; then
+  MODE=stereo
+fi
 
 if [[ "$MODE" == "stereo" ]]; then
   CAPTURE_SINK='bazzite-stream-stereo'
@@ -31,9 +54,6 @@ else
   CAPTURE_CH=6
   CAPTURE_DESC='BazziteStreamSurround51'
 fi
-
-# PipeWire/Pulse uses this for an unconnected stream.
-PA_INVALID=4294967295
 
 unload_matching() {
   local pat="$1"
@@ -51,21 +71,20 @@ loop_module_id() {
   pactl list short modules 2>/dev/null | awk -v n="$LOOP_NAME" 'index($0,n)>0 {print $1; exit}'
 }
 
-# True when a loopback module exists AND its source-output is still attached
-# to a real monitor (not PA_INVALID). A "present but detached" loopback is what
-# made Moonlight streams silent while HDMI still had game audio.
 loop_healthy() {
   pactl list short modules 2>/dev/null | grep -F "module-loopback" | grep -Fq "sink=${CAPTURE_SINK}" \
     || return 1
   pactl list short modules 2>/dev/null | grep -F "module-loopback" | grep -Fq "source=${HDMI_SINK}.monitor" \
     || return 1
+  # Prefer the named loopback's source-output; fall back to any healthy loopback.
   local src
-  src="$(pactl list source-outputs 2>/dev/null | awk '
+  src="$(pactl list source-outputs 2>/dev/null | awk -v want="$LOOP_NAME" '
     function flush() {
       if (loop && src != "" && src != "4294967295") { print src; exit 0 }
     }
     /^Source Output #/ { flush(); src=""; loop=0; next }
     /Source: / { src=$2; next }
+    /media\.name/ && index($0, want) > 0 { loop=1; next }
     /node\.name/ && /input\.loopback/ { loop=1; next }
     /media\.name/ && /loopback-.* input/ { loop=1; next }
     END { flush() }
@@ -85,7 +104,6 @@ ensure_conf_sink() {
   else
     printf 'virtual_sink =\n' >>"$CONF"
   fi
-  # Comment the audio block so the mode is obvious in sunshine.conf.
   if grep -qE '^# Audio:' "$CONF"; then
     sed -i -E "s|^# Audio:.*|# Audio: ${CAPTURE_CH}ch tap (${CAPTURE_SINK}); games stay on HDMI 5.1 AVR/TV.|" "$CONF"
   fi
@@ -106,7 +124,6 @@ reroute_stray_mic_playback() {
 }
 
 load_loopback() {
-  # remix=true: HDMI 5.1 → capture layout (and stereo downmix if CAPTURE_CH=2).
   pactl load-module module-loopback \
     source="${HDMI_SINK}.monitor" sink="$CAPTURE_SINK" \
     latency_msec=120 rate=48000 channels="$CAPTURE_CH" remix=true \
@@ -116,8 +133,6 @@ load_loopback() {
 }
 
 drop_other_mode_taps() {
-  # Only one capture mode active — unload the unused tap so Sunshine cannot
-  # keep pointing at a stale stereo sink after we switch to 5.1.
   if [[ "$MODE" == "surround51" ]]; then
     unload_matching 'bazzite-hdmi-to-stream-stereo'
     unload_matching 'sink_name=bazzite-stream-stereo'
@@ -206,7 +221,16 @@ tune_fec_for_client() {
 }
 
 case "$ACTION" in
-  install|start|ensure)
+  install|start|ensure|repair)
+    if [[ "$ACTION" == "repair" ]]; then
+      unload_matching 'bazzite-hdmi-to-stream-stereo'
+      unload_matching 'bazzite-hdmi-to-stream-surround51'
+      while read -r id rest; do
+        echo "$rest" | grep -q 'module-loopback' || continue
+        echo "$rest" | grep -qE 'bazzite-stream-(stereo|surround51)' || continue
+        pactl unload-module "$id" 2>/dev/null || true
+      done < <(pactl list short modules 2>/dev/null)
+    fi
     install_capture
     tune_fec_for_client
     ;;
@@ -215,17 +239,6 @@ case "$ACTION" in
     ;;
   stereo)
     exec env BAZZITE_STREAM_AUDIO=stereo "$0" install
-    ;;
-  repair)
-    unload_matching 'bazzite-hdmi-to-stream-stereo'
-    unload_matching 'bazzite-hdmi-to-stream-surround51'
-    while read -r id rest; do
-      echo "$rest" | grep -q 'module-loopback' || continue
-      echo "$rest" | grep -qE 'bazzite-stream-(stereo|surround51)' || continue
-      pactl unload-module "$id" 2>/dev/null || true
-    done < <(pactl list short modules 2>/dev/null)
-    install_capture
-    tune_fec_for_client
     ;;
   stop)
     teardown_capture
@@ -237,7 +250,8 @@ case "$ACTION" in
     if sink_present; then echo "capture_sink=present name=${CAPTURE_SINK} ch=${CAPTURE_CH}"; else echo "capture_sink=missing name=${CAPTURE_SINK}"; fi
     if loop_healthy; then echo "loopback=healthy"; elif loop_module_id >/dev/null; then echo "loopback=broken"; else echo "loopback=missing"; fi
     grep -E '^[[:space:]]*audio_sink[[:space:]]*=' "$CONF" 2>/dev/null || true
-    pactl list short sinks 2>/dev/null | awk '/bazzite-stream/ {print "sink",$1,$2,$NF}'
+    pactl list short sinks 2>/dev/null | awk '/bazzite-stream/ {print "sink",$1,$2}'
+    pactl list short sources 2>/dev/null | awk "/${CAPTURE_SINK}\\.monitor/ {print \"monitor\",\$2}"
     ;;
   *)
     echo "usage: $0 install|ensure|repair|stop|status|stereo|surround51" >&2

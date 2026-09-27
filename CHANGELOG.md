@@ -4,10 +4,15 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.29] — 2026-09-27
+
+### Fixed
+- **Silent GameSphere streams after 5.1 tap** — Sunshine `pa_simple_new` fails when `audio_sink` channel count ≠ client request (5.1/7.1 vs stereo). Capture tap defaults to **stereo** again; mode persists so stream-prep `ensure` cannot flip it. Optional 5.1 only when host + client both use 6ch.
+
 ## [1.5.28] — 2026-09-27
 
 ### Changed
-- **Sunshine stream audio tap defaults to 5.1** — `bazzite-sunshine-capture-audio.sh` builds `bazzite-stream-surround51` (HDMI monitor → 6ch) so GameSphere/Moonlight can take LPCM 5.1 while games stay on the real HDMI AVR sink. Rollback: `BAZZITE_STREAM_AUDIO=stereo` or `… capture-audio.sh stereo`. Client must also pick **Surround sound → LPCM 5.1** in GameSphere.
+- **Sunshine stream audio tap 5.1 option** — `bazzite-sunshine-capture-audio.sh surround51` (requires matching LPCM 5.1 on the client). Default remains stereo after 1.5.29.
 
 ## [1.5.27] — 2026-09-27
 
