@@ -149,7 +149,12 @@ def close_app_id(app_id: str) -> bool:
 
 
 def _other_stream_clients_connected() -> bool:
-    """True when co-op guests are still attached — do not close the host game."""
+    """True when co-op guests are still attached — do not close the host game.
+
+    Only pad count is reliable. Sunshine ``SERVER_BUSY`` alone is *not* “other
+    clients” — the host phone is still attached (or mid-teardown) when it sends
+    ``SESSIONEND host_quit``, so treating BUSY as a skip left the PC game running.
+    """
     try:
         from host_tuning import couch_coop
 
@@ -158,32 +163,79 @@ def _other_stream_clients_connected() -> bool:
             return True
     except Exception:
         _log.debug("sunshine_quit couch_coop status failed", exc_info=True)
-    info = _serverinfo()
-    state = (info.get("state") or "").upper()
-    if "BUSY" in state and info.get("currentgame", "0") not in ("", "0"):
-        # Sunshine still serving a session — host phone may have dropped first.
-        return True
+    return False
+
+
+def _close_by_game_name(payload: Dict[str, Any]) -> bool:
+    """When Sunshine already cleared currentgame, use phone {game, store} hints."""
+    game_name = str(payload.get("game") or "").strip()
+    if not game_name:
+        return False
+    store_hint = str(payload.get("store") or "").strip().lower()
+    try:
+        from host_tuning import sunshine_apps
+
+        for app in sunshine_apps.load_apps():
+            if (app.get("name") or "").strip() != game_name:
+                continue
+            meta = sunshine_apps.close_metadata_from_app(app)
+            if meta.get("steam_id"):
+                return close_steam_app_id(meta["steam_id"])
+            if meta.get("store_key"):
+                return close_store_app(
+                    store_key=meta["store_key"],
+                    exe_path=meta.get("exe_path") or "",
+                )
+            # Name matched but no close metadata — keep looking.
+        if store_hint and store_hint != "steam":
+            # Last resort: any app with this display name already checked above.
+            _log.info(
+                "sunshine_quit: no close helper for game=%r store=%r",
+                game_name,
+                store_hint,
+            )
+    except Exception:
+        _log.debug("sunshine_quit name close failed", exc_info=True)
     return False
 
 
 def close_current_game(payload: Optional[Dict[str, Any]] = None) -> bool:
+    import time
+
+    payload = payload or {}
     if _other_stream_clients_connected():
         _log.info("sunshine_quit: skipped — other stream clients still connected")
         return False
-    info = _serverinfo()
-    state = info.get("state", "")
-    app_id = info.get("currentgame", "0")
-    if app_id in ("", "0"):
-        if "BUSY" in state:
-            _log.info("sunshine_quit: Sunshine busy but currentgame=0 — skip")
-        return False
+
+    # Retry briefly: /cancel and SESSIONEND race; currentgame can flicker.
+    for attempt in range(3):
+        info = _serverinfo()
+        state = info.get("state", "")
+        app_id = info.get("currentgame", "0")
+        if app_id not in ("", "0"):
+            _log.info(
+                "sunshine_quit: closing app %s (state=%s attempt=%s payload=%s)",
+                app_id,
+                state,
+                attempt + 1,
+                json.dumps(payload, sort_keys=True),
+            )
+            return close_sunshine_app(app_id, payload)
+        if _close_by_game_name(payload):
+            _log.info(
+                "sunshine_quit: closed via game name hint (attempt=%s payload=%s)",
+                attempt + 1,
+                json.dumps(payload, sort_keys=True),
+            )
+            return True
+        if attempt < 2:
+            time.sleep(0.6)
+
     _log.info(
-        "sunshine_quit: closing app %s (state=%s payload=%s)",
-        app_id,
-        state,
-        json.dumps(payload or {}, sort_keys=True),
+        "sunshine_quit: nothing to close (currentgame=0, no game hint matched) payload=%s",
+        json.dumps(payload, sort_keys=True),
     )
-    return close_sunshine_app(app_id, payload)
+    return False
 
 
 def close_current_game_async(payload: Optional[Dict[str, Any]] = None) -> None:

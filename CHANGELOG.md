@@ -4,6 +4,21 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.33] — 2026-09-28
+
+### Added
+- **Adaptive mic bitrate (Opus)** — GSVC v2 Opus uplink; Companion decodes via system `libopus`. Phone **Auto** uses PCM on a good LAN and Opus ABR from RTT/loss; **High** = PCM; **Data saver** = ~16 kbps Opus. Mixer always ACKs (silence when solo) so Auto can measure RTT. Needs GameSphere **1(323)+**.
+- **Decky UI 1.4.0** — menu name **GameSphere Companion Tool**; Overview quick actions; **Test mic (3s peak)** + **Open Mic Test (fullscreen)**; AEC toggle; doctor; WAN glance; import options collapsed by default.
+
+### Fixed
+- **iOS Quit left the PC game running** — `SESSIONEND host_quit` was skipped because Sunshine still looked `SERVER_BUSY` (the quitting phone). Only skip when 2+ co-op pads are attached; retry + `{game,store}` hints when `currentgame` is already 0.
+- **Mic Test silent after AEC** — PipeWire `module-echo-cancel` with a remap `source_master` published ~0 peaking `gamesphere_mic` while the sink still had uplink. AEC stays **off by default**; `aec-on` now takes near-end from `gamesphere_mic_sink.monitor` and feeds HDMI into the echo-cancel *sink* (not the discard master).
+- **Stream audio locked to stereo after 1.5.29** — `environment.d/90-bazzite-stream-audio.conf` + a one-time iOS migrate forced 2ch even though HDMI is 6ch. Default tap is **5.1** again; persist + systemd env stay in sync so Sunshine `ensure` cannot downmix.
+- **iOS “Stereo Spatial” despite 5.1 tap** — Sunshine `channels = 2` still forced Opus stereo while capturing the 6ch monitor. Capture script now writes `channels` to match the tap (6 for surround51).
+- **Stream audio 5.1 hardened** — capture `ensure`/`check` report `audio_ok`; dedupe stale `channels=` keys; stream-prep sink-watch repairs on `audio_ok=0`; `sunshine-assert-config` re-pins `channels` on every Sunshine start.
+- **Companion overwrites Sunshine `channels`** — `host_tuning.sunshine_audio` pins Opus channel count + capture sink on install, host-bridge start, and stream session start (Bazzite tap hosts only; never restarts Sunshine mid-game).
+- **Decky plugin SyntaxError** — `dist/index.js` was unbundled ESM (`import` outside a module). Rebuild with `@decky/rollup` + `@decky/api`.
+
 ## [1.5.32] — 2026-09-27
 
 ### Changed

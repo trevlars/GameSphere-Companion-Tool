@@ -38,13 +38,15 @@ def _voice_settings_re(uid: str) -> re.Pattern[str]:
 
 
 def _default_voice_settings(mic_id: str) -> Dict:
+    # GameSphere Mic is already cleaned on the phone (Speex/HPF/gate). Steam's
+    # NS/EC/AGC on top makes the uplink thin/pump-y — keep Steam DSP off.
     return {
         "inputGain": 1,
         "outputGain": 1,
-        "noiseGateLevel": 2,
-        "noiseCancellation": True,
-        "echoCancellation": True,
-        "autoGainControl": True,
+        "noiseGateLevel": 0,
+        "noiseCancellation": False,
+        "echoCancellation": False,
+        "autoGainControl": False,
         "selectedMic": mic_id,
         "selectedOutput": "default",
         "pttSoundsEnabled": True,
@@ -144,9 +146,22 @@ def configure_steam_voice_mic(
             raw = m.group(2).replace('\\"', '"')
             settings = json.loads(raw)
             old = settings.get("selectedMic")
-            if old == mic_id and not force:
+            # Always keep GameSphere Mic free of Steam's second DSP pass.
+            want_clean = (
+                settings.get("noiseCancellation") is True
+                or settings.get("echoCancellation") is True
+                or settings.get("autoGainControl") is True
+                or float(settings.get("inputGain") or 1) > 1.01
+            )
+            if old == mic_id and not force and not want_clean:
                 continue
             settings["selectedMic"] = mic_id
+            settings["noiseCancellation"] = False
+            settings["echoCancellation"] = False
+            settings["autoGainControl"] = False
+            settings["noiseGateLevel"] = 0
+            if float(settings.get("inputGain") or 1) > 1.01:
+                settings["inputGain"] = 1
             escaped = _escape_vdf_json(settings)
             new_data = data[: m.start(2)] + escaped + data[m.end(2) :]
             bak = f"{path}.bak.gs-mic-{int(time.time())}"

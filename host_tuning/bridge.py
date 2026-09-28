@@ -437,6 +437,13 @@ class GameSphereBridge:
                 wan_setup.on_session_start()
             except Exception:
                 logging.debug("wan map on stream start", exc_info=True)
+            # Re-pin channels before the *next* session if UI/tools drifted to stereo.
+            try:
+                from host_tuning import sunshine_audio
+
+                sunshine_audio.apply_stream_audio(run_capture_ensure=False)
+            except Exception:
+                logging.debug("sunshine stream audio pin on session start", exc_info=True)
 
         self.monitor = session_telemetry.SessionLogMonitor(
             log_path or session_telemetry.detect_sunshine_log_path(cfg.sunshine_log_path),

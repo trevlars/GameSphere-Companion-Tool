@@ -344,6 +344,267 @@ def _parse_host_tuning_status(raw: str) -> dict:
     return _parse_json(raw)
 
 
+def _mic_setup_script() -> str | None:
+    for path in (
+        os.path.join(INSTALL_DIR, "scripts/gamesphere-pc-mic-setup.sh"),
+        os.path.join(_USER_HOME, ".local/bin/gamesphere-pc-mic-setup.sh"),
+    ):
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _mic_test_launch_script() -> str | None:
+    for path in (
+        os.path.join(INSTALL_DIR, "scripts/gamesphere-mic-test-launch.sh"),
+        os.path.join(_USER_HOME, ".local/bin/mic-test"),
+        os.path.join(_USER_HOME, ".local/bin/gamesphere-mic-test-launch.sh"),
+    ):
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _session_gui_env() -> dict[str, str]:
+    """Environment for launching a Game Mode GUI from the plugin process."""
+    env = _subprocess_env()
+    uid = None
+    try:
+        uid = pwd.getpwnam(_user_name()).pw_uid
+    except KeyError:
+        pass
+    if uid is not None:
+        runtime = f"/run/user/{uid}"
+        env.setdefault("XDG_RUNTIME_DIR", runtime)
+        dbus = os.path.join(runtime, "bus")
+        if os.path.exists(dbus):
+            env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={dbus}")
+    # Prefer gamescope/Steam session display when PluginLoader has none.
+    if not env.get("DISPLAY") and not env.get("WAYLAND_DISPLAY"):
+        try:
+            import glob as _glob
+
+            for proc_env in _glob.glob("/proc/[0-9]*/environ"):
+                try:
+                    with open(proc_env, "rb") as fh:
+                        raw = fh.read()
+                except OSError:
+                    continue
+                pairs = dict(
+                    p.split("=", 1) for p in raw.decode("utf-8", "ignore").split("\0") if "=" in p
+                )
+                wayland = pairs.get("WAYLAND_DISPLAY") or ""
+                display = pairs.get("DISPLAY") or ""
+                if wayland.startswith("gamescope") or "gamescope" in (pairs.get("_") or ""):
+                    if display:
+                        env["DISPLAY"] = display
+                    if wayland:
+                        env["WAYLAND_DISPLAY"] = wayland
+                    break
+                if display and not env.get("DISPLAY"):
+                    env["DISPLAY"] = display
+        except Exception:
+            pass
+    if not env.get("DISPLAY") and not env.get("WAYLAND_DISPLAY"):
+        if os.path.exists("/tmp/.X11-unix/X1"):
+            env["DISPLAY"] = ":1"
+        elif os.path.exists("/tmp/.X11-unix/X0"):
+            env["DISPLAY"] = ":0"
+    return env
+
+
+def _mic_peak_test(seconds: float = 3.0) -> dict:
+    """Record a short clip from the default (or GameSphere) mic and report peak level."""
+    import struct
+    import tempfile
+    import wave
+
+    env = _subprocess_env()
+    pactl = shutil.which("pactl")
+    parecord = shutil.which("parecord")
+    if not pactl or not parecord:
+        return {"ok": False, "detail": "pactl/parecord not found (PipeWire/Pulse required)"}
+
+    try:
+        listed = subprocess.run(
+            [pactl, "list", "short", "sources"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
+        )
+        names = {
+            line.split()[1]
+            for line in (listed.stdout or "").splitlines()
+            if len(line.split()) >= 2 and not line.split()[1].endswith(".monitor")
+        }
+        got = subprocess.run(
+            [pactl, "get-default-source"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
+        )
+        default_src = (got.stdout or "").strip()
+    except Exception as exc:
+        return {"ok": False, "detail": f"Could not resolve mic source: {exc}"}
+
+    preferred = os.environ.get("GAMESPHERE_PC_MIC_SOURCE", "gamesphere_mic")
+    # Try GameSphere Mic first (phone uplink), then the system default (DualSense / Jarvis).
+    candidates: list[str] = []
+    for src in (preferred, default_src):
+        if src and src in names and src not in candidates:
+            candidates.append(src)
+    if not candidates and default_src:
+        candidates.append(default_src)
+    if not candidates:
+        return {"ok": False, "detail": "No microphone source found"}
+
+    timeout_bin = shutil.which("timeout")
+
+    def _record_peak(source: str) -> tuple[float, str | None]:
+        out = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        out_path = out.name
+        out.close()
+        try:
+            subprocess.run(
+                [pactl, "set-source-mute", source, "0"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=env,
+            )
+            rec_cmd = [
+                parecord,
+                f"--device={source}",
+                "--file-format=wav",
+                "--rate=48000",
+                "--channels=1",
+                "--latency-msec=50",
+                out_path,
+            ]
+            if timeout_bin:
+                subprocess.run(
+                    [timeout_bin, f"{max(1, int(seconds) + 1)}"] + rec_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=seconds + 5,
+                    env=env,
+                )
+            else:
+                proc = subprocess.Popen(
+                    rec_cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=env,
+                )
+                try:
+                    proc.wait(timeout=seconds)
+                except subprocess.TimeoutExpired:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+            with wave.open(out_path, "rb") as wf:
+                frames = wf.readframes(wf.getnframes())
+                n = len(frames) // 2
+                if n <= 0:
+                    return 0.0, "empty"
+                samples = struct.unpack("<" + "h" * n, frames)
+            return max(abs(s) for s in samples) / 32768.0, None
+        except Exception as exc:
+            return 0.0, str(exc)
+        finally:
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+
+    best_source = candidates[0]
+    best_peak = 0.0
+    last_err: str | None = None
+    for source in candidates:
+        peak, err = _record_peak(source)
+        if err and err != "empty":
+            last_err = err
+            continue
+        if peak >= best_peak:
+            best_peak = peak
+            best_source = source
+        # Loud enough — stop early.
+        if peak >= 0.05:
+            break
+
+    if last_err and best_peak <= 0.0:
+        return {"ok": False, "detail": f"Record failed: {last_err}", "source": best_source}
+
+    peak_pct = round(best_peak * 100.0, 1)
+    if peak_pct < 1.0:
+        detail = (
+            f"Peak {peak_pct}% — silent on {best_source}. "
+            "Speak into the pad/mic, or start a GameSphere voice session for gamesphere_mic."
+        )
+        ok = False
+    elif peak_pct < 5.0:
+        detail = f"Peak {peak_pct}% — very quiet ({best_source})"
+        ok = True
+    else:
+        detail = f"Peak {peak_pct}% — levels look good ({best_source})"
+        ok = True
+    return {
+        "ok": ok,
+        "detail": detail,
+        "source": best_source,
+        "peak_pct": peak_pct,
+        "seconds": seconds,
+    }
+
+
+def _launch_mic_test_ui() -> dict:
+    script = _mic_test_launch_script()
+    if not script:
+        return {
+            "ok": False,
+            "detail": "Mic Test UI not installed (expected scripts/gamesphere-mic-test-launch.sh or ~/.local/bin/mic-test)",
+        }
+    env = _session_gui_env()
+    try:
+        # Detach so Decky doesn't wait on the fullscreen UI.
+        kwargs: dict = {
+            "cwd": _USER_HOME,
+            "env": env,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "start_new_session": True,
+        }
+        if script.endswith(".sh") or os.access(script, os.X_OK):
+            cmd = ["/bin/bash", script] if script.endswith(".sh") else [script]
+        else:
+            cmd = ["/bin/bash", script]
+        if os.geteuid() == 0:
+            user = _user_name()
+            try:
+                pw = pwd.getpwnam(user)
+            except KeyError:
+                pw = None
+            if pw is not None:
+                def _preexec() -> None:
+                    os.setgid(pw.pw_gid)
+                    os.setuid(pw.pw_uid)
+
+                kwargs["preexec_fn"] = _preexec
+        subprocess.Popen(cmd, **kwargs)
+        return {
+            "ok": True,
+            "detail": "Mic Test opening fullscreen — speak, then you'll hear playback. B/Esc to quit.",
+        }
+    except Exception as exc:
+        return {"ok": False, "detail": f"Could not launch Mic Test: {exc}"}
+
+
 class Plugin:
     async def get_status(self):
         installed = _resolve_command() is not None
@@ -498,6 +759,44 @@ class Plugin:
     async def run_setup_mic(self):
         ok, output, banner = await asyncio.get_event_loop().run_in_executor(
             None, lambda: _run_sync(["--setup-mic"], timeout=120)
+        )
+        return {"ok": ok, "output": output, "banner": banner}
+
+    async def run_mic_peak_test(self, seconds: float = 3.0):
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _mic_peak_test(float(seconds) if seconds else 3.0)
+        )
+        return result
+
+    async def launch_mic_test_ui(self):
+        result = await asyncio.get_event_loop().run_in_executor(None, _launch_mic_test_ui)
+        return result
+
+    async def set_mic_aec(self, enabled: bool):
+        script = _mic_setup_script()
+        if not script:
+            return {
+                "ok": False,
+                "output": "gamesphere-pc-mic-setup.sh not found — run install-linux.sh",
+            }
+        action = "aec-on" if enabled else "aec-off"
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: _run_as_user(
+                    ["/bin/bash", script, action],
+                    cwd=INSTALL_DIR if os.path.isdir(INSTALL_DIR) else None,
+                    timeout=120,
+                ),
+            )
+            output = ((result.stdout or "") + (result.stderr or "")).strip()
+            return {"ok": result.returncode == 0, "output": output or action}
+        except Exception as exc:
+            return {"ok": False, "output": str(exc)}
+
+    async def run_doctor(self):
+        ok, output, banner = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _run_sync(["--doctor"], timeout=90)
         )
         return {"ok": ok, "output": output, "banner": banner}
 

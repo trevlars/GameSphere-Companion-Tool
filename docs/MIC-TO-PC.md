@@ -8,19 +8,20 @@ GameSphere sends your **phone mic to the streaming PC** so Steam, Discord, OBS, 
 | Transport | Companion co-op voice (GSVC UDP **48020**) |
 | Slot published | **0** (local / host seat) — guests stay party-only |
 | Sample rate | Phone **48 kHz** mono (10 ms GSVC frames) → PipeWire **48 kHz** |
-| AEC | Off by default. Optional WebRTC vs HDMI monitor (`aec-on`) |
+| Codec | **Auto** (default): PCM on good LAN, Opus when RTT/loss rises · **High**: PCM · **Data saver**: Opus ~16 kbps |
+| AEC | Off by default (raw uplink). Optional WebRTC vs HDMI (`aec-on`) — verify Mic Test levels after enabling |
 
-**How it works:** while Companion `VOICE` is running, `voice_bridge` mixes phone↔phone party audio **and** writes slot 0 into a PipeWire null-sink. With AEC on (default), that raw feed is cleaned against a **copy** of the HDMI monitor so room gameplay is subtracted before Steam/Discord hear you — no headphones required.
+**How it works:** while Companion `VOICE` is running, `voice_bridge` mixes phone↔phone party audio **and** writes slot 0 into a PipeWire null-sink published as **GameSphere Mic**. Optional AEC (`aec-on`) subtracts room gameplay via WebRTC against an HDMI monitor copy (Sunshine-safe).
 
 ### Why not AEC on the HDMI sink?
 
 Older Bazzite scripts used `module-echo-cancel` with `sink_master=<HDMI>`. That inserts into the HDMI playback graph and **crackles Sunshine**. Companion never does that. Instead:
 
-**Default (clearest speech):** phone 48 kHz PCM → `gamesphere_mic_sink` → remap → **`gamesphere_mic`**.
+**Default (raw):** phone 48 kHz PCM → `gamesphere_mic_sink` → remap → **`gamesphere_mic`**.
 
-**Optional AEC** (`gamesphere-pc-mic-setup.sh aec-on`): WebRTC vs an HDMI *monitor* copy. Use if game audio bleeds into Discord.
+**Optional AEC** (`gamesphere-pc-mic-setup.sh aec-on`): WebRTC; HDMI monitor → echo-cancel sink (reference), mic sink monitor → cleaned **`gamesphere_mic`**.
 
-Sunshine captures a separate HDMI tap (`bazzite-stream-surround51` by default, or stereo) so games stay on the real HDMI AVR path. Opt out of AEC: `GAMESPHERE_MIC_AEC=0` or `gamesphere-pc-mic-setup.sh aec-off`.
+Sunshine captures a separate HDMI tap (`bazzite-stream-surround51` by default, or stereo) so games stay on the real HDMI AVR path. Companion overwrites `sunshine.conf` `channels` (+ `audio_sink`) to match the tap whenever the host bridge starts or a stream begins — a leftover `channels = 2` is what made AirPods show “Stereo Spatial”. Opt out of AEC: `GAMESPHERE_MIC_AEC=0` or `gamesphere-pc-mic-setup.sh aec-off`.
 
 ---
 

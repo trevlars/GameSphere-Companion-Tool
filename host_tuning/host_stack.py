@@ -148,6 +148,17 @@ def apply_sunshine_recommended() -> Dict[str, Any]:
         return {"ok": False, "error": str(exc), "needsRestart": False}
 
 
+def apply_sunshine_stream_audio() -> Dict[str, Any]:
+    """Overwrite sunshine.conf channels (+ Bazzite tap sink) so Opus matches HDMI."""
+    try:
+        from host_tuning import sunshine_audio
+
+        return sunshine_audio.apply_stream_audio()
+    except Exception as exc:
+        _log.debug("sunshine stream audio: %s", exc)
+        return {"ok": False, "error": str(exc), "needsRestart": False}
+
+
 def install_linux_stack() -> Dict[str, Any]:
     """Enable couch-coop helpers on any Linux Sunshine host. Does not restart Sunshine."""
     out: Dict[str, Any] = {
@@ -155,6 +166,7 @@ def install_linux_stack() -> Dict[str, Any]:
         "udev": retire_udev_rules(),
         "firewall": open_linux_firewall(),
         "sunshine": apply_sunshine_recommended(),
+        "sunshineAudio": apply_sunshine_stream_audio(),
         "sunshine_touched": False,
     }
     try:

@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # HDMI → Sunshine capture tap (games stay on real HDMI 5.1 AVR/TV).
 #
-# Default: stereo. Sunshine's pa_simple capture must match the client channel
-# layout — a 6ch audio_sink with a stereo/7.1 client request returns
-# "Found default monitor by name: " + silent stream.
+# Default: 5.1. HDMI is already 6ch; the stereo tap downmixes that and Spatial
+# has nothing real to work with. Client must request LPCM 5.1 (6ch) — not 7.1.
+# A 6ch sink + 2ch/8ch client request is what silenced Sunshine (pa_simple_new).
 #
-# Optional 5.1: BAZZITE_STREAM_AUDIO=surround51 AND GameSphere Surround = LPCM 5.1
-# (exactly 6ch — not 7.1). Mode persists in $XDG_RUNTIME_DIR so stream-prep
-# `ensure` does not flip you back.
+# Persist mode in ~/.config so stream-prep `ensure` / reboot cannot fall back
+# to stereo. Override: BAZZITE_STREAM_AUDIO=stereo or `$0 stereo`.
 set -euo pipefail
 
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/1000}"
 FLAG="$RUNTIME/bazzite-sunshine-capture.active"
 MODE_FLAG="$RUNTIME/bazzite-sunshine-capture.mode"
+PERSIST_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/gamesphere"
+PERSIST_MODE="$PERSIST_DIR/bazzite-stream-audio.mode"
 HDMI_SINK='alsa_output.pci-0000_01_00.1.hdmi-surround'
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/sunshine/sunshine.conf"
 ACTION="${1:-status}"
@@ -25,7 +26,8 @@ normalize_mode() {
   esac
 }
 
-# Resolve mode: explicit env → CLI verb → persisted flag → stereo default.
+# Resolve: env / CLI (explicit) → persist (survives reboot) → runtime → 5.1.
+# Persist beats a leftover /run stereo flag from the 2026-09-27 silent-stream revert.
 MODE=""
 if [[ -n "${BAZZITE_STREAM_AUDIO:-}" ]]; then
   MODE="$(normalize_mode "$BAZZITE_STREAM_AUDIO")"
@@ -36,11 +38,14 @@ if [[ -z "$MODE" ]]; then
     surround51|5.1) MODE=surround51 ;;
   esac
 fi
+if [[ -z "$MODE" && -f "$PERSIST_MODE" ]]; then
+  MODE="$(normalize_mode "$(tr -d '[:space:]' <"$PERSIST_MODE")")"
+fi
 if [[ -z "$MODE" && -f "$MODE_FLAG" ]]; then
   MODE="$(normalize_mode "$(tr -d '[:space:]' <"$MODE_FLAG")")"
 fi
 if [[ -z "$MODE" ]]; then
-  MODE=stereo
+  MODE=surround51
 fi
 
 if [[ "$MODE" == "stereo" ]]; then
@@ -92,6 +97,47 @@ loop_healthy() {
   [[ -n "$src" ]]
 }
 
+conf_get() {
+  local key="$1"
+  [[ -f "$CONF" ]] || return 0
+  # Last assignment wins (Sunshine can accumulate duplicates across edits).
+  awk -v k="$key" '
+    $0 ~ "^[[:space:]]*"k"[[:space:]]*=" {
+      sub(/^[[:space:]]*[^=]+=[[:space:]]*/, "");
+      gsub(/[[:space:]]+$/, "");
+      v=$0
+    }
+    END { print v }
+  ' "$CONF"
+}
+
+# Drop duplicate keys so a stale channels=2 cannot shadow channels=6.
+dedupe_conf_keys() {
+  local keys_csv="$1"
+  [[ -f "$CONF" ]] || return 0
+  python3 - "$CONF" "$keys_csv" <<'PY'
+from pathlib import Path
+import re, sys
+p = Path(sys.argv[1])
+keys = set(sys.argv[2].split(","))
+lines = p.read_text().splitlines(True)
+# Keep the last assignment for each tracked key.
+last = {}
+for i, line in enumerate(lines):
+    m = re.match(r"^([A-Za-z0-9_]+)\s*=", line)
+    if m and m.group(1) in keys:
+        last[m.group(1)] = i
+keep = set(last.values())
+out = []
+for i, line in enumerate(lines):
+    m = re.match(r"^([A-Za-z0-9_]+)\s*=", line)
+    if m and m.group(1) in keys and i not in keep:
+        continue
+    out.append(line)
+p.write_text("".join(out))
+PY
+}
+
 ensure_conf_sink() {
   touch "$CONF"
   if grep -qE '^[[:space:]]*audio_sink[[:space:]]*=' "$CONF"; then
@@ -99,14 +145,36 @@ ensure_conf_sink() {
   else
     printf 'audio_sink = %s\n' "$CAPTURE_SINK" >>"$CONF"
   fi
+  # Sunshine encodes Opus at this channel count regardless of the Pulse
+  # monitor. Leaving channels=2 with a 6ch tap is what made iOS Control Center
+  # show "Stereo Spatial" while HDMI stayed 5.1.
+  if grep -qE '^[[:space:]]*channels[[:space:]]*=' "$CONF"; then
+    sed -i -E "s|^[[:space:]]*channels[[:space:]]*=.*|channels = ${CAPTURE_CH}|" "$CONF"
+  else
+    printf 'channels = %s\n' "$CAPTURE_CH" >>"$CONF"
+  fi
   if grep -qE '^[[:space:]]*virtual_sink[[:space:]]*=' "$CONF"; then
     sed -i -E "s|^[[:space:]]*virtual_sink[[:space:]]*=.*|virtual_sink =|" "$CONF"
   else
     printf 'virtual_sink =\n' >>"$CONF"
   fi
+  dedupe_conf_keys "audio_sink,channels,virtual_sink"
   if grep -qE '^# Audio:' "$CONF"; then
     sed -i -E "s|^# Audio:.*|# Audio: ${CAPTURE_CH}ch tap (${CAPTURE_SINK}); games stay on HDMI 5.1 AVR/TV.|" "$CONF"
   fi
+}
+
+# True when Pulse tap + sunshine.conf (+ persist) all agree — used by stream-prep.
+audio_config_ok() {
+  [[ "$(conf_get audio_sink)" == "$CAPTURE_SINK" ]] || return 1
+  [[ "$(conf_get channels)" == "$CAPTURE_CH" ]] || return 1
+  sink_present || return 1
+  loop_healthy || return 1
+  if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/90-bazzite-stream-audio.conf" ]]; then
+    grep -qE "^BAZZITE_STREAM_AUDIO=${MODE}$" \
+      "${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/90-bazzite-stream-audio.conf" || return 1
+  fi
+  return 0
 }
 
 reroute_stray_mic_playback() {
@@ -175,6 +243,12 @@ install_capture() {
   ensure_conf_sink
   : >"$FLAG"
   printf '%s\n' "$MODE" >"$MODE_FLAG"
+  mkdir -p "$PERSIST_DIR"
+  printf '%s\n' "$MODE" >"$PERSIST_MODE"
+  # systemd user services inherit this; stereo here silently undoes 5.1 on every Sunshine start.
+  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/environment.d"
+  printf 'BAZZITE_STREAM_AUDIO=%s\n' "$MODE" >"${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/90-bazzite-stream-audio.conf"
+  systemctl --user set-environment "BAZZITE_STREAM_AUDIO=${MODE}" 2>/dev/null || true
 }
 
 teardown_capture() {
@@ -249,12 +323,25 @@ case "$ACTION" in
     [[ -f "$MODE_FLAG" ]] && echo "active_mode=$(tr -d '[:space:]' <"$MODE_FLAG")"
     if sink_present; then echo "capture_sink=present name=${CAPTURE_SINK} ch=${CAPTURE_CH}"; else echo "capture_sink=missing name=${CAPTURE_SINK}"; fi
     if loop_healthy; then echo "loopback=healthy"; elif loop_module_id >/dev/null; then echo "loopback=broken"; else echo "loopback=missing"; fi
-    grep -E '^[[:space:]]*audio_sink[[:space:]]*=' "$CONF" 2>/dev/null || true
+    echo "conf_audio_sink=$(conf_get audio_sink)"
+    echo "conf_channels=$(conf_get channels)"
+    if audio_config_ok; then echo "audio_ok=1"; else echo "audio_ok=0"; fi
     pactl list short sinks 2>/dev/null | awk '/bazzite-stream/ {print "sink",$1,$2}'
     pactl list short sources 2>/dev/null | awk "/${CAPTURE_SINK}\\.monitor/ {print \"monitor\",\$2}"
     ;;
+  check)
+    # Non-zero when tap/conf drifted (for timers / stream-prep).
+    install_capture
+    tune_fec_for_client
+    if audio_config_ok; then
+      echo "audio_ok=1 mode=${MODE} channels=${CAPTURE_CH}"
+      exit 0
+    fi
+    echo "audio_ok=0 mode=${MODE} want_ch=${CAPTURE_CH} conf_ch=$(conf_get channels) sink=$(conf_get audio_sink)" >&2
+    exit 1
+    ;;
   *)
-    echo "usage: $0 install|ensure|repair|stop|status|stereo|surround51" >&2
+    echo "usage: $0 install|ensure|repair|stop|status|check|stereo|surround51" >&2
     exit 2
     ;;
 esac

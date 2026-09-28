@@ -128,7 +128,14 @@ Friend: `PLAYPENDING` (or open the URL) → `JOINREQ` with `uuid` + `sessionId` 
 
 ### Voice (UDP 48020)
 
-Only after `HOSTINFO`/`COOPSTATE` shows `voiceRunning`. Header 12 bytes, network order: `GSVC` + ver(1) + slot(1) + seq(2) + samples(2) + rate(2). Payload: 16 kHz s16le mono PCM. Mix is client-to-client only — do not mix into Sunshine HDMI.
+Only after `HOSTINFO`/`COOPSTATE` shows `voiceRunning`. Header 12 bytes, network order: `GSVC` + ver(1) + slot(1) + seq(2) + samples(2) + rate(2).
+
+| ver | Payload |
+|-----|---------|
+| **1** | s16le mono PCM (`rate` typically 48000; legacy 16000 / 20 ms still accepted) |
+| **2** | Opus packet; `samples` = PCM samples after decode (e.g. 480 for 10 ms @ 48 kHz); `rate` = decode rate |
+
+Downlink replies are always **ver 1 PCM** (mix-minus, or silence when solo) so clients can measure RTT for Auto ABR. Mix is client-to-client only — do not mix into Sunshine HDMI. Host needs `libopus` for ver 2.
 
 ---
 

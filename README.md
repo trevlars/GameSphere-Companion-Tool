@@ -192,7 +192,7 @@ More: [User guide → Troubleshooting](docs/USER-GUIDE.md#troubleshooting)
 
 ## What's new
 
-Latest: **v1.5.16** — display rename to GameSphere Companion Tool; stability fixes. Full history: [CHANGELOG.md](CHANGELOG.md).
+Latest: **v1.5.33** — host quit closes PC game; Decky Companion UI + mic test; 5.1 stream audio + Opus mic. Full history: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

@@ -1,4 +1,4 @@
-# GameSphere Companion — Decky plugin
+# GameSphere Companion Tool — Decky plugin
 
 Sync your Steam library into Sunshine **from Steam Deck Game Mode** — no keyboard required.
 
@@ -52,15 +52,15 @@ cd decky && npm install && npm run build
 
 ## Using the plugin
 
-Open **Quick Access → GameSphere Companion**.
+Open **Quick Access → GameSphere Companion Tool**.
 
 | Section | What it does |
 |---------|----------------|
-| **Status** | Version, config path, bridge on/off |
-| **Mic** | GameSphere Mic / PipeWire status + one-tap setup |
-| **Sync Steam library** | Auto-sync toggle (~15 min), Sync now, manual import |
-| **Host tuning** | Optional streaming tweaks + bridge toggle |
-| **Maintenance** | Refresh config, check updates, remove all games |
+| **Overview** | Version, bridge/mic glance, sync now, mic test |
+| **Microphone** | Peak test, fullscreen Mic Test, AEC toggle, setup |
+| **Library** | Auto-sync (~15 min); full import under “Show import options” |
+| **Host** | Bridge, tuning, WAN glance, doctor |
+| **Updates & maintenance** | Updates, refresh `.env`, remove all games |
 
 ### Sync toggles
 
@@ -81,6 +81,7 @@ Open **Quick Access → GameSphere Companion**.
 
 | Issue | Fix |
 |-------|-----|
+| `Cannot use import statement outside a module` | Update Companion / reload Decky — `dist/index.js` must be the Rollup bundle (starts with `const manifest`), not raw ESM |
 | Plugin says CLI not installed | Run `install-flatpak.sh` or `install-linux.sh` (SSH or desktop terminal) |
 | Status error / blank panel after update | Reload Decky plugins. v1.3.0+ no longer runs as root (old builds looked for the CLI under `/root`) |
 | Auto-update timer missing | Reload this plugin, or re-run `install-linux.sh`. Check `systemctl --user status gamesphere-import-update.timer` |

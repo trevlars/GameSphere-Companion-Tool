@@ -1,10 +1,11 @@
 {
-  "name": "gamesphere-companion",
+  "name": "GameSphere Companion Tool",
   "author": "trevlars",
   "flags": [],
+  "api_version": 1,
   "publish": {
     "tags": ["streaming", "sunshine", "gamesphere", "companion"],
-    "description": "GameSphere Companion Tool — sync Steam into Sunshine, host tuning, and bridge from Game Mode.",
+    "description": "GameSphere Companion Tool — sync Steam into Sunshine, mic test, host tuning, and bridge from Game Mode.",
     "image": "https://raw.githubusercontent.com/trevlars/GameSphere-Companion-Tool/main/assets/readme-screenshot.png"
   }
 }

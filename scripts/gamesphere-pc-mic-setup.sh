@@ -2,11 +2,9 @@
 # GameSphere phone mic → PipeWire "GameSphere Mic" with optional HDMI-monitor AEC.
 #
 # Architecture (speaker-friendly, Sunshine-safe):
-#   phone PCM (16 kHz) → Companion upsamples → gamesphere_mic_sink @ 48 kHz
-#   → gamesphere_mic_raw → WebRTC AEC vs HDMI.monitor copy → gamesphere_mic
-#
-# The whole PipeWire graph runs at 48 kHz so AEC isn't resampling a 16 kHz mic
-# against 48 kHz HDMI (that sounded choppy/robotic). Never sink_master=<HDMI>.
+#   phone PCM → Companion → gamesphere_mic_sink @ 48 kHz → remap → gamesphere_mic
+# Optional AEC (aec-on): sink.monitor → WebRTC vs HDMI.monitor copy → gamesphere_mic
+# Never sink_master=<HDMI> (crackles Sunshine).
 #
 # No VBAN. Fed by Companion voice_bridge (GSVC UDP 48020, slot 0).
 set -euo pipefail
@@ -18,7 +16,8 @@ DEVICE_NAME="${GAMESPHERE_PC_MIC_NAME:-GameSphere Mic}"
 AEC_REF="${GAMESPHERE_AEC_REF_SINK:-gamesphere_aec_ref}"
 AEC_SINK="${GAMESPHERE_AEC_SINK:-gamesphere_aec_sink}"
 AEC_LOOP_NAME="gamesphere-hdmi-aec-ref"
-# 1 = WebRTC AEC against HDMI monitor. 0 = raw remap only (default — cleaner voice).
+# Default OFF: PipeWire webrtc + remap master was silencing gamesphere_mic (Mic Test
+# peak≈0 while sink.monitor still had uplink). Use aec-on only after verifying levels.
 USE_AEC="${GAMESPHERE_MIC_AEC:-0}"
 # PipeWire capture rate — 48 kHz matches phone GSVC + Steam. Override with env.
 MIC_RATE="${GAMESPHERE_PC_MIC_RATE:-48000}"
@@ -33,11 +32,11 @@ Usage: $(basename "$0") [install|status|uninstall|info|aec-on|aec-off]
   status     Show devices / AEC state
   uninstall  Remove GameSphere Mic + AEC modules
   info       Print how Steam should select the mic
-  aec-on     Force AEC stack on (48 kHz graph)
-  aec-off    Install raw mic only at 16 kHz (clearest speech; default)
+  aec-on     Force AEC stack on (48 kHz graph; verify Mic Test levels after)
+  aec-off    Install raw mic only (default — reliable uplink)
 
 Env:
-  GAMESPHERE_MIC_AEC=0|1          default 0 (raw — less choppy)
+  GAMESPHERE_MIC_AEC=0|1          default 0 (raw remap)
   GAMESPHERE_PC_MIC_RATE=16000|48000
   GAMESPHERE_AEC_HDMI_SINK=...    override HDMI sink name
   GAMESPHERE_PC_MIC_NAME / _SINK / _SOURCE / _RAW
@@ -53,7 +52,17 @@ lan_ips() {
 
 node_present() {
   local kind="$1" name="$2"
-  pactl list short "$kind" 2>/dev/null | awk '{print $2}' | grep -qx "$name"
+  if pactl list short "$kind" 2>/dev/null | awk '{print $2}' | grep -qx "$name"; then
+    return 0
+  fi
+  # PipeWire often hides remap masters used by module-echo-cancel from
+  # `pactl list short sources` — treat a loaded remap/echo module as present.
+  if [[ "$kind" == sources ]]; then
+    pactl list short modules 2>/dev/null | grep -qE \
+      "module-remap-source.*source_name=${name}([^[:alnum:]_]|$)|module-echo-cancel.*source_name=${name}([^[:alnum:]_]|$)|module-echo-cancel.*source_master=${name}([^[:alnum:]_]|$)" \
+      && return 0
+  fi
+  return 1
 }
 
 find_hdmi_sink() {
@@ -155,7 +164,10 @@ ensure_raw_mic() {
 }
 
 ensure_aec() {
-  local hdmi ref_src
+  # PipeWire webrtc AEC: feed HDMI into the *echo-cancel sink* (reference path),
+  # take near-end from the mic null-sink monitor. Do NOT use an intermediate
+  # remap as source_master — PipeWire often leaves that remap silent.
+  local hdmi ref_src want_master bound
   hdmi=$(find_hdmi_sink || true)
   if [[ -z "$hdmi" ]]; then
     echo "==> No HDMI sink found — installing raw GameSphere Mic without AEC" >&2
@@ -163,6 +175,7 @@ ensure_aec() {
     return 1
   fi
   ref_src="${hdmi}.monitor"
+  want_master="${SINK_NAME}.monitor"
 
   if ! node_present sinks "$AEC_REF"; then
     pactl load-module module-null-sink \
@@ -170,47 +183,30 @@ ensure_aec() {
       rate=48000 \
       channels=2 \
       "sink_properties=device.description=GameSphereAECRef" >/dev/null
-    echo "==> Created AEC reference sink $AEC_REF"
+    echo "==> Created AEC discard sink $AEC_REF"
   fi
 
-  if ! pactl list short modules 2>/dev/null | grep -qE "module-loopback.*sink=${AEC_REF}|${AEC_LOOP_NAME}"; then
-    pactl load-module module-loopback \
-      "source=${ref_src}" \
-      "sink=${AEC_REF}" \
-      latency_msec=20 \
-      rate=48000 \
-      channels=2 \
-      source_dont_move=true \
-      sink_dont_move=true \
-      remix=true \
-      "sink_properties=media.name=${AEC_LOOP_NAME}" \
-      "source_properties=media.name=${AEC_LOOP_NAME}" >/dev/null
-    echo "==> Loopback ${ref_src} → ${AEC_REF} (monitor tap only)"
-  fi
-
-  # Replace AEC output if missing or bound to the wrong raw source.
-  local bound=""
   bound=$(pactl list short modules 2>/dev/null | awk '
     /module-echo-cancel/ && /gamesphere/ {
       for (i = 2; i <= NF; i++)
         if ($i ~ /^source_master=/) { sub(/^source_master=/, "", $i); print $i; exit }
     }
   ')
-  if node_present sources "$SOURCE_NAME" && [[ "$bound" == "$RAW_SOURCE" ]]; then
-    echo "==> AEC source $SOURCE_NAME already bound to $RAW_SOURCE"
+  if node_present sources "$SOURCE_NAME" && [[ "$bound" == "$want_master" ]] \
+    && pactl list short modules 2>/dev/null | grep -qE "module-loopback.*sink=${AEC_SINK}|${AEC_LOOP_NAME}"; then
+    echo "==> AEC source $SOURCE_NAME already bound to $want_master"
   else
     while unload_matching 'module-echo-cancel.*gamesphere'; do :; done
-    # Also drop a stray remap still named gamesphere_mic
+    while unload_matching "module-loopback.*${AEC_LOOP_NAME}|module-loopback.*sink=${AEC_SINK}|module-loopback.*sink=${AEC_REF}"; do :; done
     while read -r id rest; do
       echo "$rest" | grep -q 'module-remap-source' || continue
-      echo "$rest" | grep -q "source_name=${SOURCE_NAME}" || continue
+      echo "$rest" | grep -qE "source_name=${SOURCE_NAME}|source_name=${RAW_SOURCE}" || continue
       pactl unload-module "$id" 2>/dev/null || true
     done < <(pactl list short modules 2>/dev/null)
 
-    # Match HDMI ref rate (48 kHz). Keep NS/HPF off — they made speech robotic
-    # on this host when combined with phone uplink + room speakers.
+    # Near-end = mic sink monitor. Far-end = audio played into AEC_SINK.
     pactl load-module module-echo-cancel \
-      "source_master=${RAW_SOURCE}" \
+      "source_master=${want_master}" \
       "source_name=${SOURCE_NAME}" \
       "source_properties=device.description=${DEVICE_NAME}" \
       "sink_master=${AEC_REF}" \
@@ -220,12 +216,26 @@ ensure_aec() {
       use_volume_sharing=0 \
       aec_method=webrtc \
       aec_args="extended_filter=1 delay_agnostic=1 noise_suppression=0 high_pass_filter=0 voice_detection=0 analog_gain_control=0 digital_gain_control=0" >/dev/null
-    echo "==> WebRTC AEC → $SOURCE_NAME @ ${MIC_RATE} Hz (ref=$AEC_REF from $hdmi monitor)"
+    echo "==> WebRTC AEC → $SOURCE_NAME @ ${MIC_RATE} Hz (near=$want_master)"
+
+    # Reference must enter via AEC_SINK (not AEC_REF), or webrtc sees empty far-end.
+    pactl load-module module-loopback \
+      "source=${ref_src}" \
+      "sink=${AEC_SINK}" \
+      latency_msec=20 \
+      rate=48000 \
+      channels=2 \
+      source_dont_move=true \
+      sink_dont_move=true \
+      remix=true \
+      "sink_properties=media.name=${AEC_LOOP_NAME}" \
+      "source_properties=media.name=${AEC_LOOP_NAME}" >/dev/null
+    echo "==> Loopback ${ref_src} → ${AEC_SINK} (AEC reference; discard via $AEC_REF)"
   fi
 
-  # Never route game audio through the AEC playback sink.
-  pactl set-sink-mute "$AEC_SINK" 1 2>/dev/null || true
-  pactl set-sink-volume "$AEC_SINK" 0 2>/dev/null || true
+  # Discard path only — never speakers.
+  pactl set-sink-mute "$AEC_REF" 1 2>/dev/null || true
+  pactl set-sink-volume "$AEC_REF" 0 2>/dev/null || true
   return 0
 }
 

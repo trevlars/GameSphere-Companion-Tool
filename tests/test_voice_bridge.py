@@ -59,18 +59,24 @@ class VoiceBridgeTests(unittest.TestCase):
         a.settimeout(1.0)
         b.settimeout(1.0)
         dest = ("127.0.0.1", self.port)
-        pcm_a = struct.pack("<h", 1000) * 8
-        pcm_b = struct.pack("<h", 2000) * 8
+        n = voice_bridge.FRAME_SAMPLES
+        pcm_a = struct.pack("<h", 1000) * n
+        pcm_b = struct.pack("<h", 2000) * n
         try:
             a.sendto(_pkt(0, 1, pcm_a), dest)
+            # Solo ACK (silence) — drain so it does not confuse the next recv.
+            try:
+                a.recvfrom(4096)
+            except socket.timeout:
+                pass
             time.sleep(0.05)
             b.sendto(_pkt(1, 1, pcm_b), dest)
-            data, _ = b.recvfrom(2048)
+            data, _ = b.recvfrom(4096)
             parsed = voice_bridge._parse(data)
             self.assertIsNotNone(parsed)
             self.assertEqual(parsed["pcm"], pcm_a)
             a.sendto(_pkt(0, 2, pcm_a), dest)
-            data, _ = a.recvfrom(2048)
+            data, _ = a.recvfrom(4096)
             parsed = voice_bridge._parse(data)
             self.assertIsNotNone(parsed)
             self.assertEqual(parsed["pcm"], pcm_b)

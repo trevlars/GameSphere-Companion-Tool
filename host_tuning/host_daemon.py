@@ -864,6 +864,17 @@ def run_bridge_forever(port: int = 0) -> int:
         logging.debug("apply_detected_paths skipped", exc_info=True)
 
     write_prep_scripts()
+    try:
+        from host_tuning import sunshine_audio
+
+        audio = sunshine_audio.apply_stream_audio()
+        if audio.get("changed"):
+            logging.info(
+                "Sunshine stream audio pinned (%s) — next session picks up Opus channels",
+                ",".join(audio.get("changed") or []),
+            )
+    except Exception:
+        logging.debug("sunshine stream audio pin skipped", exc_info=True)
     cfg = load_config()
     listen = port or cfg.bridge_port or 47998
     apps_json = (

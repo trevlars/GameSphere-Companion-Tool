@@ -131,6 +131,14 @@ if [[ -f "$INSTALL_DIR/scripts/bazzite-sunshine-capture-audio.sh" ]]; then
   install -m 755 "$INSTALL_DIR/scripts/bazzite-sunshine-capture-audio.sh" "$CAPTURE_LINK"
   echo "==> Installed $CAPTURE_LINK (Sunshine HDMI capture tap; default 5.1)"
 fi
+# Bazzite Sunshine ExecStartPre pin (channels + audio_sink stay matched to the tap).
+if [[ -f "$INSTALL_DIR/scripts/bazzite/sunshine-assert-config.sh" ]] \
+  && [[ -x "${GAMESPHERE_SUNSHINE_ASSERT_BIN:-$HOME/.local/bin/sunshine-assert-config.sh}" \
+       || -f "$HOME/.config/systemd/user/sunshine.service" ]]; then
+  ASSERT_LINK="${GAMESPHERE_SUNSHINE_ASSERT_BIN:-$HOME/.local/bin/sunshine-assert-config.sh}"
+  install -m 755 "$INSTALL_DIR/scripts/bazzite/sunshine-assert-config.sh" "$ASSERT_LINK"
+  echo "==> Installed $ASSERT_LINK (Sunshine conf pin; channels match capture tap)"
+fi
 
 echo "==> Initializing host tuning config..."
 uv run python3 host_tuning_cli.py init || true

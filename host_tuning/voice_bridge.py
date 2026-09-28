@@ -1,7 +1,11 @@
 """In-stream voice mixer for GameSphere clients + host virtual mic.
 
-Clients send 16 kHz s16le mono PCM over UDP. Companion mixes those packets only
-and sends each client the mix minus itself.
+Clients send mono voice over UDP (GSVC). Companion mixes those packets only
+and sends each client the mix minus itself (PCM downlink for compatibility).
+
+Uplink codecs:
+  - GSVC v1 — s16le PCM (legacy / High quality on LAN)
+  - GSVC v2 — Opus (Auto / Data saver ABR on the phone)
 
 PC mic path (Linux/PipeWire): slot 0 uplink is written into a virtual capture
 device named "GameSphere Mic" so Steam / Discord / games can select it.
@@ -28,8 +32,21 @@ import threading
 import time
 from typing import Deque, Dict, List, Optional, Tuple
 
+try:
+    from . import opus_codec
+except ImportError:  # loaded via importlib in unit tests
+    import importlib.util
+
+    _opus_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opus_codec.py")
+    _opus_spec = importlib.util.spec_from_file_location("gs_opus_codec", _opus_path)
+    opus_codec = importlib.util.module_from_spec(_opus_spec)  # type: ignore[assignment]
+    assert _opus_spec and _opus_spec.loader
+    _opus_spec.loader.exec_module(opus_codec)
+
 MAGIC = b"GSVC"
-VERSION = 1
+VERSION_PCM = 1
+VERSION_OPUS = 2
+VERSION = VERSION_PCM  # downlink + legacy clients
 HEADER_SIZE = 12  # magic(4) + ver(1) + slot(1) + seq(2) + samples(2) + rate(2)
 DEFAULT_PORT = int(os.environ.get("GAMESPHERE_VOICE_PORT", "48020"))
 # Graph / mix / Steam mic rate. Phone GSVC sends 48 kHz × 10 ms (under Wi‑Fi MTU).
@@ -39,7 +56,7 @@ FRAME_MS = 10
 FRAME_SAMPLES = SAMPLE_RATE * FRAME_MS // 1000  # 480 @ 48 kHz
 FRAME_BYTES = FRAME_SAMPLES * 2  # 960
 LEGACY_FRAME_BYTES = 640  # old clients: 20 ms @ 16 kHz
-# Match gamesphere-pc-mic-setup.sh (48 kHz raw by default).
+# Match gamesphere-pc-mic-setup.sh (48 kHz raw by default; optional aec-on).
 PC_SINK_RATE = int(os.environ.get("GAMESPHERE_PC_MIC_RATE", str(SAMPLE_RATE)))
 MAX_PACKET = 4096
 CLIENT_TTL = 2.5
@@ -75,15 +92,45 @@ def _parse(packet: bytes):
     if len(packet) < HEADER_SIZE or packet[:4] != MAGIC:
         return None
     ver, slot = packet[4], packet[5]
-    if ver != VERSION:
+    if ver not in (VERSION_PCM, VERSION_OPUS):
         return None
     seq, samples, rate = struct.unpack_from("!HHH", packet, 6)
-    pcm = packet[HEADER_SIZE:]
-    return {"slot": slot, "seq": seq, "samples": samples, "rate": rate, "pcm": pcm}
+    payload = packet[HEADER_SIZE:]
+    return {
+        "ver": ver,
+        "slot": slot,
+        "seq": seq,
+        "samples": samples,
+        "rate": rate,
+        "payload": payload,
+        "pcm": payload if ver == VERSION_PCM else b"",
+    }
 
 
-def _header(slot: int, seq: int, samples: int, rate: int) -> bytes:
-    return MAGIC + bytes([VERSION, slot & 0xFF]) + struct.pack("!HHH", seq & 0xFFFF, samples, rate)
+def _header(slot: int, seq: int, samples: int, rate: int, ver: int = VERSION_PCM) -> bytes:
+    return MAGIC + bytes([ver & 0xFF, slot & 0xFF]) + struct.pack("!HHH", seq & 0xFFFF, samples, rate)
+
+
+def _payload_to_pcm(addr_key: str, parsed: Dict) -> Optional[bytes]:
+    """Normalize an uplink packet to graph-rate PCM (may be 1× or 2× FRAME_BYTES)."""
+    ver = int(parsed.get("ver") or VERSION_PCM)
+    rate = int(parsed.get("rate") or SAMPLE_RATE)
+    if ver == VERSION_OPUS:
+        frame_samples = int(parsed.get("samples") or FRAME_SAMPLES)
+        if frame_samples <= 0:
+            frame_samples = FRAME_SAMPLES
+        # Cap PLC/decode window (20 ms max for legacy-sized Opus).
+        frame_samples = min(frame_samples, SAMPLE_RATE * 20 // 1000)
+        pcm = opus_codec.decode_packet(
+            addr_key,
+            parsed.get("payload") or b"",
+            rate if rate in (8000, 12000, 16000, 24000, 48000) else SAMPLE_RATE,
+            frame_samples,
+        )
+        if not pcm:
+            return None
+        return _normalize_to_graph(pcm, rate if rate else SAMPLE_RATE)
+    return _normalize_to_graph(parsed.get("pcm") or b"", rate)
 
 
 def _evict_stale_clients_locked(now: float) -> None:
@@ -91,6 +138,7 @@ def _evict_stale_clients_locked(now: float) -> None:
     for addr, row in list(_clients.items()):
         if now - row["at"] > CLIENT_TTL:
             _clients.pop(addr, None)
+            opus_codec.drop_decoder(f"{addr[0]}:{addr[1]}")
     # Hard cap: a flood from spoofed source addresses must not grow the dict
     # between eviction passes.
     if len(_clients) > _MAX_CLIENTS:
@@ -98,6 +146,7 @@ def _evict_stale_clients_locked(now: float) -> None:
             : len(_clients) - _MAX_CLIENTS
         ]:
             _clients.pop(addr, None)
+            opus_codec.drop_decoder(f"{addr[0]}:{addr[1]}")
 
 
 def _mix_minus(target_addr, now: float) -> bytes:
@@ -330,7 +379,11 @@ def _set_pc_pcm(pcm: bytes, rate: int = 0) -> None:
     global _pc_at
     if not pcm:
         return
-    norm = _normalize_to_graph(pcm, rate)
+    # Already-normalized graph frames (1× or 2×) from Opus/legacy upsample.
+    if rate in (0, SAMPLE_RATE) and len(pcm) in (FRAME_BYTES, FRAME_BYTES * 2):
+        norm = pcm
+    else:
+        norm = _normalize_to_graph(pcm, rate)
     frames: List[bytes]
     if len(norm) == FRAME_BYTES * 2:
         frames = [norm[:FRAME_BYTES], norm[FRAME_BYTES:]]
@@ -480,10 +533,11 @@ def _stop_pc_feeder() -> None:
 
 def _loop(sock: socket.socket) -> None:
     logging.info(
-        "voice_bridge listening UDP %s (PCM mix + PC mic slot %s, aec=%s)",
+        "voice_bridge listening UDP %s (PCM/Opus mix + PC mic slot %s, aec=%s, opus=%s)",
         _port,
         PC_MIC_SLOT,
         "hdmi-monitor" if _aec_active() else "off",
+        "yes" if opus_codec.available() else "no",
     )
     while not _stop.is_set():
         try:
@@ -498,25 +552,36 @@ def _loop(sock: socket.socket) -> None:
         parsed = _parse(data)
         if not parsed:
             continue
+        addr_key = f"{addr[0]}:{addr[1]}"
+        if parsed["ver"] == VERSION_OPUS and not opus_codec.available():
+            logging.warning("voice_bridge: Opus uplink from %s but libopus unavailable", addr_key)
+            continue
+        pcm_norm = _payload_to_pcm(addr_key, parsed)
+        if not pcm_norm:
+            continue
+        # Store one graph frame for mix; legacy 20 ms → first 10 ms (second via _set_pc_pcm).
+        store = pcm_norm[:FRAME_BYTES] if len(pcm_norm) >= FRAME_BYTES else pcm_norm
         now = time.time()
         with _lock:
             row = _clients.get(addr) or {"seq": 0}
             row.update(
                 {
-                    "pcm": parsed["pcm"],
+                    "pcm": store,
                     "at": now,
                     "slot": parsed["slot"],
                     "seq": parsed["seq"],
-                    "rate": parsed["rate"],
+                    "rate": SAMPLE_RATE,
+                    "codec": "opus" if parsed["ver"] == VERSION_OPUS else "pcm",
                 }
             )
             _clients[addr] = row
             _evict_stale_clients_locked(now)
         if parsed["slot"] == PC_MIC_SLOT:
-            _set_pc_pcm(parsed["pcm"], parsed["rate"])
+            _set_pc_pcm(pcm_norm, SAMPLE_RATE)
         mix = _mix_minus(addr, now)
+        # Always reply (silence if solo) so the phone can measure RTT for Auto ABR.
         if not mix:
-            continue
+            mix = b"\x00" * FRAME_BYTES
         reply = _header(parsed["slot"], parsed["seq"], len(mix) // 2, SAMPLE_RATE) + mix
         try:
             sock.sendto(reply, addr)
@@ -553,6 +618,8 @@ def start(port: int = DEFAULT_PORT) -> Dict:
         "port": _port,
         "sampleRate": SAMPLE_RATE,
         "isolation": "client-udp-only",
+        "opus": opus_codec.available(),
+        "codecs": ["pcm", "opus"] if opus_codec.available() else ["pcm"],
     }
     out.update(_pc_mic_status(mic))
     return out
@@ -568,6 +635,9 @@ def stop() -> None:
             pass
     if _thread:
         _thread.join(timeout=1)
+    opus_codec.reset_all()
+    with _lock:
+        _clients.clear()
     try:
         from host_tuning import wan_setup
 
@@ -603,7 +673,7 @@ def _pc_mic_status(mic: Optional[Dict] = None) -> Dict:
             + (
                 "WebRTC AEC uses HDMI monitor as reference (speakers OK, Sunshine-safe)."
                 if aec
-                else "AEC off — raw phone uplink (set GAMESPHERE_MIC_AEC=1)."
+                else "AEC off — raw phone uplink (run gamesphere-pc-mic-setup.sh aec-on)."
             )
             + " No VBAN."
         ),
@@ -617,6 +687,13 @@ def status() -> Dict:
         slots: List[int] = sorted(
             {int(row.get("slot", -1)) for row in _clients.values() if now - row["at"] <= CLIENT_TTL}
         )
+    codecs: List[str] = []
+    with _lock:
+        for row in _clients.values():
+            if now - row["at"] <= CLIENT_TTL:
+                c = row.get("codec") or "pcm"
+                if c not in codecs:
+                    codecs.append(c)
     out = {
         "ok": True,
         "port": _port,
@@ -624,6 +701,8 @@ def status() -> Dict:
         "clients": n,
         "slots": slots,
         "sampleRate": SAMPLE_RATE,
+        "opus": opus_codec.available(),
+        "activeCodecs": codecs,
     }
     out.update(_pc_mic_status())
     return out
