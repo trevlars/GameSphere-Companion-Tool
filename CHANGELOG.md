@@ -4,6 +4,8 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.35] — 2026-09-28
+
 ### Fixed
 - **Stream audio occasional crackle** — HDMI→Sunshine 5.1 loopback uses 200 ms latency and `remix=false` (native 6ch); stale 120 ms taps are reloaded on ensure.
 
