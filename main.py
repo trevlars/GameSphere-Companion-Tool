@@ -2640,6 +2640,8 @@ def main() -> None:
     if args.mic_status:
         from host_tuning.doctor import mic_status_report
 
+        # Keep stdout pure JSON for Decky / scripts (opus_codec logs to root logger).
+        logging.disable(logging.CRITICAL)
         print(json.dumps(mic_status_report(), indent=2))
         sys.exit(0)
 

@@ -330,10 +330,22 @@ def _library_sync_timer_state() -> str:
 
 
 def _parse_json(raw: str) -> dict:
+    """Parse JSON, tolerating log lines before/after the object (e.g. opus_codec INFO)."""
+    text = (raw or "").strip()
+    if not text:
+        return {}
     try:
-        return json.loads(raw)
+        return json.loads(text)
     except json.JSONDecodeError:
-        return {"raw": raw}
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            pass
+    return {"raw": text}
 
 
 def _parse_print_config(raw: str) -> dict:
@@ -607,45 +619,97 @@ def _launch_mic_test_ui() -> dict:
 
 class Plugin:
     async def get_status(self):
+        """Fast parallel status — never block the QAM on a slow host-tuning probe."""
+        loop = asyncio.get_event_loop()
         installed = _resolve_command() is not None
         version = ""
         paths: dict = {}
         host_tuning: dict = {}
         library_sync: dict = {}
         mic: dict = {}
-        bridge_state = _bridge_service_state() if installed else "unknown"
-        sync_timer = _library_sync_timer_state() if installed else "unknown"
 
-        if installed:
-            ok, output, _ = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _run_sync(["--version"], timeout=15)
-            )
-            if ok:
-                version = output.strip()
+        async def _bridge() -> str:
+            if not installed:
+                return "unknown"
+            return await loop.run_in_executor(None, _bridge_service_state)
 
-            ok, output, _ = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _run_sync(["--print-config"], timeout=30)
-            )
-            if ok:
-                paths = _parse_print_config(output)
+        async def _sync_timer() -> str:
+            if not installed:
+                return "unknown"
+            return await loop.run_in_executor(None, _library_sync_timer_state)
 
-            ok, ht_out = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _run_host_tuning_sync(["status"], timeout=30)
+        async def _version() -> str:
+            if not installed:
+                return ""
+            ok, output, _ = await loop.run_in_executor(
+                None, lambda: _run_sync(["--version"], timeout=8)
             )
-            if ok:
-                host_tuning = _parse_host_tuning_status(ht_out)
+            return output.strip() if ok else ""
 
-            ok, sync_out, _ = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _run_sync(["--library-sync-status"], timeout=20)
+        async def _paths() -> dict:
+            if not installed:
+                return {}
+            ok, output, _ = await loop.run_in_executor(
+                None, lambda: _run_sync(["--print-config"], timeout=12)
             )
-            if ok:
-                library_sync = _parse_json(sync_out)
+            return _parse_print_config(output) if ok else {}
 
-            ok, mic_out, _ = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _run_sync(["--mic-status"], timeout=20)
+        async def _ht() -> dict:
+            if not installed:
+                return {}
+            # ethtool/link probe is slow; never stall the QAM on it.
+            try:
+                ok, ht_out = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, lambda: _run_host_tuning_sync(["status"], timeout=2)
+                    ),
+                    timeout=2.5,
+                )
+                return _parse_host_tuning_status(ht_out) if ok else {}
+            except Exception:
+                return {}
+
+        async def _sync() -> dict:
+            if not installed:
+                return {}
+            ok, sync_out, _ = await loop.run_in_executor(
+                None, lambda: _run_sync(["--library-sync-status"], timeout=10)
             )
-            if ok:
-                mic = _parse_json(mic_out)
+            return _parse_json(sync_out) if ok else {}
+
+        async def _mic() -> dict:
+            if not installed:
+                return {}
+            ok, mic_out, _ = await loop.run_in_executor(
+                None, lambda: _run_sync(["--mic-status"], timeout=10)
+            )
+            return _parse_json(mic_out) if ok else {}
+
+        try:
+            (
+                bridge_state,
+                sync_timer,
+                version,
+                paths,
+                host_tuning,
+                library_sync,
+                mic,
+            ) = await asyncio.wait_for(
+                asyncio.gather(
+                    _bridge(),
+                    _sync_timer(),
+                    _version(),
+                    _paths(),
+                    _ht(),
+                    _sync(),
+                    _mic(),
+                ),
+                timeout=12,
+            )
+        except Exception as exc:
+            decky.logger.warning("get_status partial failure: %s", exc)
+            bridge_state = "unknown"
+            sync_timer = "unknown"
 
         return {
             "installed": installed,

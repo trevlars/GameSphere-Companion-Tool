@@ -115,10 +115,13 @@ function formatSyncLabel(status) {
         bits.push(sync.message);
     return bits.join(" · ") || "—";
 }
-function formatMicLabel(status) {
+function formatMicLabel(status, loading) {
     const mic = status?.mic;
-    if (!mic)
-        return "…";
+    if (!status && loading)
+        return "Loading…";
+    if (!mic || (!mic.detail && mic.ok === undefined && mic.pipewireSourcePresent === undefined)) {
+        return status ? "Idle — appears when voice starts" : "—";
+    }
     if (mic.detail)
         return mic.detail;
     if (mic.pcMicReady || mic.pipewireSourcePresent)
@@ -142,11 +145,13 @@ function Content() {
     const [bridgeOn, setBridgeOn] = SP_REACT.useState(false);
     const [autoSyncOn, setAutoSyncOn] = SP_REACT.useState(false);
     const [busy, setBusy] = SP_REACT.useState(false);
+    const [loading, setLoading] = SP_REACT.useState(true);
     const [log, setLog] = SP_REACT.useState("");
     const [status, setStatus] = SP_REACT.useState(null);
     const [micPeak, setMicPeak] = SP_REACT.useState(null);
     const describeError = (err) => err instanceof Error ? err.message : String(err);
     const refreshStatus = SP_REACT.useCallback(async () => {
+        setLoading(true);
         try {
             const s = await getStatus();
             setStatus(s);
@@ -156,6 +161,9 @@ function Content() {
         }
         catch (err) {
             setLog(`Could not read Companion status: ${describeError(err)}`);
+        }
+        finally {
+            setLoading(false);
         }
     }, []);
     const runAction = async (label, fn) => {
@@ -263,7 +271,8 @@ function Content() {
     SP_REACT.useEffect(() => {
         void refreshStatus();
     }, [refreshStatus]);
-    const installed = status?.installed ?? false;
+    // Assume installed while loading so quick actions stay visible (status null ≠ missing CLI).
+    const installed = status === null ? true : Boolean(status.installed);
     const hostLabel = status?.paths?.GAMESPHERE_HOST_LABEL || status?.paths?.host_label || "";
     const linkMbps = status?.host_tuning?.link?.current_mbps;
     const sessions = status?.host_tuning?.sessions_count ?? 0;
@@ -271,28 +280,34 @@ function Content() {
     const wan = status?.host_tuning?.wan;
     const bridgeOk = status?.bridge_service === "active";
     const micOk = mic?.pipewireSourcePresent === true || mic?.pcMicReady === true || mic?.ok === true;
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Overview", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Companion", children: status === null
-                                ? "…"
-                                : installed
-                                    ? status.version || "Installed"
-                                    : "Not installed — run install-linux.sh" }) }), installed ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "At a glance", children: [
-                                        `Bridge ${pill(bridgeOk, "on", status?.bridge_service || "off")}`,
-                                        `Mic ${pill(micOk, "ready", "idle")}`,
-                                        linkMbps ? `${linkMbps} Mbps` : null,
-                                        hostLabel || null,
-                                    ]
-                                        .filter(Boolean)
-                                        .join(" · ") }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Sync", () => runLibrarySyncNow()), disabled: busy || !installed, children: "Sync Steam library now" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onMicPeakTest, disabled: busy || !installed, children: busy && !micPeak ? "Testing mic…" : "Test mic (3s peak)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onMicTestUi, disabled: busy || !installed, children: "Open Mic Test (fullscreen)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: refreshStatus, disabled: busy, children: "Refresh status" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Microphone", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Status", children: formatMicLabel(status) }) }), micPeak ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Last peak test", children: typeof micPeak.peak_pct === "number"
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Overview", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Companion", children: loading && status === null
+                                ? "Loading…"
+                                : status === null
+                                    ? "Status unavailable — tap Refresh"
+                                    : installed
+                                        ? status.version || "Installed"
+                                        : "Not installed — run install-linux.sh" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "At a glance", children: loading && status === null
+                                ? "Loading…"
+                                : [
+                                    `Bridge ${pill(bridgeOk, "on", status?.bridge_service || "off")}`,
+                                    `Mic ${pill(micOk, "ready", "idle")}`,
+                                    linkMbps ? `${linkMbps} Mbps` : null,
+                                    hostLabel || null,
+                                ]
+                                    .filter(Boolean)
+                                    .join(" · ") || "—" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Sync", () => runLibrarySyncNow()), disabled: busy || !installed, children: "Sync Steam library now" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onMicPeakTest, disabled: busy || !installed, children: busy && !micPeak ? "Testing mic…" : "Test mic (3s peak)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onMicTestUi, disabled: busy || !installed, children: "Open Mic Test (fullscreen)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: refreshStatus, disabled: busy || loading, children: loading ? "Refreshing…" : "Refresh status" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Microphone", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Status", children: formatMicLabel(status, loading) }) }), micPeak ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Last peak test", children: typeof micPeak.peak_pct === "number"
                                 ? `${micPeak.peak_pct}% · ${micPeak.source || "mic"}`
-                                : micPeak.detail || "—" }) })) : null, installed ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.Field, { label: "PipeWire source", children: [mic?.pipewireSourcePresent === true
-                                            ? mic.pcMicSource || "gamesphere_mic"
-                                            : mic?.pipewireSourcePresent === false
-                                                ? "Missing"
-                                                : "—", mic?.voiceRunning ? " · voice running" : "", typeof mic?.clients === "number" && mic.clients > 0
-                                            ? ` · ${mic.clients} client(s)`
-                                            : ""] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Gameplay cancel (AEC)", description: mic?.aec
-                                        ? "WebRTC vs HDMI monitor — re-check peak after enabling"
-                                        : "Off (recommended) — raw phone uplink", checked: Boolean(mic?.aec), onChange: onAecToggle, disabled: busy || !installed }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Mic setup", () => runSetupMic()), disabled: busy || !installed, children: "Set up GameSphere Mic" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Library", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Auto-sync new Steam games (~15 min)", checked: autoSyncOn, onChange: onAutoSyncToggle, disabled: busy || !installed }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Last auto-sync", children: formatSyncLabel(status) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Show import options", checked: showAdvanced, onChange: setShowAdvanced }) }), showAdvanced ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Dry run (preview only)", checked: dryRun, onChange: setDryRun }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Skip Sunshine restart", checked: noRestart, onChange: setNoRestart }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Apply host tuning after import", checked: hostTuning, onChange: setHostTuning }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Verbose log", checked: verbose, onChange: setVerbose }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Import", () => runImport(dryRun, noRestart, hostTuning && !dryRun, verbose)), disabled: busy || !installed, children: busy
+                                : micPeak.detail || "—" }) })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.Field, { label: "PipeWire source", children: [mic?.pipewireSourcePresent === true
+                                    ? mic.pcMicSource || "gamesphere_mic"
+                                    : mic?.pipewireSourcePresent === false
+                                        ? "Missing"
+                                        : loading
+                                            ? "Loading…"
+                                            : "—", mic?.voiceRunning ? " · voice running" : "", typeof mic?.clients === "number" && mic.clients > 0
+                                    ? ` · ${mic.clients} client(s)`
+                                    : ""] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Gameplay cancel (AEC)", description: mic?.aec
+                                ? "WebRTC vs HDMI monitor — re-check peak after enabling"
+                                : "Off (recommended) — raw phone uplink", checked: Boolean(mic?.aec), onChange: onAecToggle, disabled: busy || !installed }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Mic setup", () => runSetupMic()), disabled: busy || !installed, children: "Set up GameSphere Mic" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Library", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Auto-sync new Steam games (~15 min)", checked: autoSyncOn, onChange: onAutoSyncToggle, disabled: busy || !installed }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.Field, { label: "Last auto-sync", children: formatSyncLabel(status) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Show import options", checked: showAdvanced, onChange: setShowAdvanced }) }), showAdvanced ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Dry run (preview only)", checked: dryRun, onChange: setDryRun }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Skip Sunshine restart", checked: noRestart, onChange: setNoRestart }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Apply host tuning after import", checked: hostTuning, onChange: setHostTuning }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Verbose log", checked: verbose, onChange: setVerbose }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => runAction("Import", () => runImport(dryRun, noRestart, hostTuning && !dryRun, verbose)), disabled: busy || !installed, children: busy
                                         ? "Running…"
                                         : dryRun
                                             ? "Preview full import"

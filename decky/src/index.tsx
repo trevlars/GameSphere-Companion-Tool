@@ -100,9 +100,12 @@ function formatSyncLabel(status: Status | null): string {
   return bits.join(" · ") || "—";
 }
 
-function formatMicLabel(status: Status | null): string {
+function formatMicLabel(status: Status | null, loading: boolean): string {
   const mic = status?.mic;
-  if (!mic) return "…";
+  if (!status && loading) return "Loading…";
+  if (!mic || (!mic.detail && mic.ok === undefined && mic.pipewireSourcePresent === undefined)) {
+    return status ? "Idle — appears when voice starts" : "—";
+  }
   if (mic.detail) return mic.detail;
   if (mic.pcMicReady || mic.pipewireSourcePresent) return "GameSphere Mic ready";
   return "Idle — appears when voice starts";
@@ -124,6 +127,7 @@ function Content() {
   const [bridgeOn, setBridgeOn] = useState(false);
   const [autoSyncOn, setAutoSyncOn] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [log, setLog] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
   const [micPeak, setMicPeak] = useState<MicTestResult | null>(null);
@@ -132,6 +136,7 @@ function Content() {
     err instanceof Error ? err.message : String(err);
 
   const refreshStatus = useCallback(async () => {
+    setLoading(true);
     try {
       const s = await getStatus();
       setStatus(s);
@@ -140,6 +145,8 @@ function Content() {
       setAutoSyncOn(timer === "active" || timer === "waiting");
     } catch (err) {
       setLog(`Could not read Companion status: ${describeError(err)}`);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -250,7 +257,8 @@ function Content() {
     void refreshStatus();
   }, [refreshStatus]);
 
-  const installed = status?.installed ?? false;
+  // Assume installed while loading so quick actions stay visible (status null ≠ missing CLI).
+  const installed = status === null ? true : Boolean(status.installed);
   const hostLabel = status?.paths?.GAMESPHERE_HOST_LABEL || status?.paths?.host_label || "";
   const linkMbps = status?.host_tuning?.link?.current_mbps;
   const sessions = status?.host_tuning?.sessions_count ?? 0;
@@ -265,58 +273,58 @@ function Content() {
       <PanelSection title="Overview">
         <PanelSectionRow>
           <Field label="Companion">
-            {status === null
-              ? "…"
+            {loading && status === null
+              ? "Loading…"
+              : status === null
+              ? "Status unavailable — tap Refresh"
               : installed
               ? status.version || "Installed"
               : "Not installed — run install-linux.sh"}
           </Field>
         </PanelSectionRow>
-        {installed ? (
-          <>
-            <PanelSectionRow>
-              <Field label="At a glance">
-                {[
+        <PanelSectionRow>
+          <Field label="At a glance">
+            {loading && status === null
+              ? "Loading…"
+              : [
                   `Bridge ${pill(bridgeOk, "on", status?.bridge_service || "off")}`,
                   `Mic ${pill(micOk, "ready", "idle")}`,
                   linkMbps ? `${linkMbps} Mbps` : null,
                   hostLabel || null,
                 ]
                   .filter(Boolean)
-                  .join(" · ")}
-              </Field>
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem
-                layout="below"
-                onClick={() => runAction("Sync", () => runLibrarySyncNow())}
-                disabled={busy || !installed}
-              >
-                Sync Steam library now
-              </ButtonItem>
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem layout="below" onClick={onMicPeakTest} disabled={busy || !installed}>
-                {busy && !micPeak ? "Testing mic…" : "Test mic (3s peak)"}
-              </ButtonItem>
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem layout="below" onClick={onMicTestUi} disabled={busy || !installed}>
-                Open Mic Test (fullscreen)
-              </ButtonItem>
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem layout="below" onClick={refreshStatus} disabled={busy}>
-                Refresh status
-              </ButtonItem>
-            </PanelSectionRow>
-          </>
-        ) : null}
+                  .join(" · ") || "—"}
+          </Field>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            onClick={() => runAction("Sync", () => runLibrarySyncNow())}
+            disabled={busy || !installed}
+          >
+            Sync Steam library now
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={onMicPeakTest} disabled={busy || !installed}>
+            {busy && !micPeak ? "Testing mic…" : "Test mic (3s peak)"}
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={onMicTestUi} disabled={busy || !installed}>
+            Open Mic Test (fullscreen)
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={refreshStatus} disabled={busy || loading}>
+            {loading ? "Refreshing…" : "Refresh status"}
+          </ButtonItem>
+        </PanelSectionRow>
       </PanelSection>
 
       <PanelSection title="Microphone">
         <PanelSectionRow>
-          <Field label="Status">{formatMicLabel(status)}</Field>
+          <Field label="Status">{formatMicLabel(status, loading)}</Field>
         </PanelSectionRow>
         {micPeak ? (
           <PanelSectionRow>
@@ -327,45 +335,43 @@ function Content() {
             </Field>
           </PanelSectionRow>
         ) : null}
-        {installed ? (
-          <>
-            <PanelSectionRow>
-              <Field label="PipeWire source">
-                {mic?.pipewireSourcePresent === true
-                  ? mic.pcMicSource || "gamesphere_mic"
-                  : mic?.pipewireSourcePresent === false
-                  ? "Missing"
-                  : "—"}
-                {mic?.voiceRunning ? " · voice running" : ""}
-                {typeof mic?.clients === "number" && mic.clients > 0
-                  ? ` · ${mic.clients} client(s)`
-                  : ""}
-              </Field>
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ToggleField
-                label="Gameplay cancel (AEC)"
-                description={
-                  mic?.aec
-                    ? "WebRTC vs HDMI monitor — re-check peak after enabling"
-                    : "Off (recommended) — raw phone uplink"
-                }
-                checked={Boolean(mic?.aec)}
-                onChange={onAecToggle}
-                disabled={busy || !installed}
-              />
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem
-                layout="below"
-                onClick={() => runAction("Mic setup", () => runSetupMic())}
-                disabled={busy || !installed}
-              >
-                Set up GameSphere Mic
-              </ButtonItem>
-            </PanelSectionRow>
-          </>
-        ) : null}
+        <PanelSectionRow>
+          <Field label="PipeWire source">
+            {mic?.pipewireSourcePresent === true
+              ? mic.pcMicSource || "gamesphere_mic"
+              : mic?.pipewireSourcePresent === false
+              ? "Missing"
+              : loading
+              ? "Loading…"
+              : "—"}
+            {mic?.voiceRunning ? " · voice running" : ""}
+            {typeof mic?.clients === "number" && mic.clients > 0
+              ? ` · ${mic.clients} client(s)`
+              : ""}
+          </Field>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Gameplay cancel (AEC)"
+            description={
+              mic?.aec
+                ? "WebRTC vs HDMI monitor — re-check peak after enabling"
+                : "Off (recommended) — raw phone uplink"
+            }
+            checked={Boolean(mic?.aec)}
+            onChange={onAecToggle}
+            disabled={busy || !installed}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            onClick={() => runAction("Mic setup", () => runSetupMic())}
+            disabled={busy || !installed}
+          >
+            Set up GameSphere Mic
+          </ButtonItem>
+        </PanelSectionRow>
       </PanelSection>
 
       <PanelSection title="Library">

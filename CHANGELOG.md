@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.34] — 2026-09-28
+
+### Fixed
+- **Decky panel stuck on “…”** — `get_status` ran host-tuning/ethtool probes serially (~5s+) so the QAM never filled; now parallel with a short timeout, tolerant JSON parse for `--mic-status`, and quick actions visible while loading.
+
 ## [1.5.33] — 2026-09-28
 
 ### Added
