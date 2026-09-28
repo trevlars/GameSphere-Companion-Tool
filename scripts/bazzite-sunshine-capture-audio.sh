@@ -77,10 +77,15 @@ loop_module_id() {
 }
 
 loop_healthy() {
-  pactl list short modules 2>/dev/null | grep -F "module-loopback" | grep -Fq "sink=${CAPTURE_SINK}" \
-    || return 1
-  pactl list short modules 2>/dev/null | grep -F "module-loopback" | grep -Fq "source=${HDMI_SINK}.monitor" \
-    || return 1
+  local latency_ms="${BAZZITE_STREAM_LOOPBACK_MS:-200}"
+  local want_remix=true
+  [[ "$CAPTURE_CH" -eq 6 ]] && want_remix=false
+  local mod
+  mod="$(pactl list short modules 2>/dev/null | grep -F "module-loopback" | grep -F "sink=${CAPTURE_SINK}" | grep -F "source=${HDMI_SINK}.monitor" | head -1)"
+  [[ -n "$mod" ]] || return 1
+  # Stale 120 ms / remix=true taps click under load — force reload.
+  echo "$mod" | grep -Fq "latency_msec=${latency_ms}" || return 1
+  echo "$mod" | grep -Fq "remix=${want_remix}" || return 1
   # Prefer the named loopback's source-output; fall back to any healthy loopback.
   local src
   src="$(pactl list source-outputs 2>/dev/null | awk -v want="$LOOP_NAME" '
@@ -192,9 +197,16 @@ reroute_stray_mic_playback() {
 }
 
 load_loopback() {
+  # 200 ms + no remix on native 6ch HDMI: under Game Mode load the old 120 ms
+  # remix path occasionally underran and clicked in the Sunshine Opus stream.
+  local remix=true
+  local latency_ms="${BAZZITE_STREAM_LOOPBACK_MS:-200}"
+  if [[ "$CAPTURE_CH" -eq 6 ]]; then
+    remix=false
+  fi
   pactl load-module module-loopback \
     source="${HDMI_SINK}.monitor" sink="$CAPTURE_SINK" \
-    latency_msec=120 rate=48000 channels="$CAPTURE_CH" remix=true \
+    latency_msec="$latency_ms" rate=48000 channels="$CAPTURE_CH" remix="$remix" \
     source_dont_move=true sink_dont_move=true \
     sink_properties="media.name=${LOOP_NAME}" \
     >/dev/null
