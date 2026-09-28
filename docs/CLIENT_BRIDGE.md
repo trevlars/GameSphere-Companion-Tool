@@ -69,6 +69,7 @@ NETINFO AUTH:your-secret:
 | `INPUTRELAY` | `INPUTRELAY {"merge":true,"buddySlot":2}` or `{"query":true}` | Buddy mode merges guest input into host P1 when `merge=true`. Persisted in runtime JSON — no Sunshine restart. |
 | `COOPKICK` | `COOPKICK {"uuid":"…","reason":"host_kick"}` or `{"slot":2}` | Kick guest; clears pending join requests; event on next `COOPSTATE`. |
 | `SESSIONEND` | `SESSIONEND {"reason":"host_quit"}` | Broadcast session end; clears stream-active + wanna-play pre-auth. |
+| `ENSUREAPP` | `ENSUREAPP {"steamAppId":"570","name"?,"install"?}` | JSON ensure Steam title in `apps.json` without Sunshine restart (`ok`, `state`, `name`, `steamAppId`). `state`: `already_present` / `added` / `added_installing` / `error`. GameSphere “Push to Sphere”. |
 | `BUDDYSET` | `BUDDYSET {"slot":2,"buddy":true}` or `{"uuid":"…","role":"buddy"}` | Toggle seat role (`buddy` vs `guest`); starts UDP **48021** buddy relay on demand. |
 | `PROFILE` | `PROFILE {"action":"…"}` | Device profile CRUD (avatar/name for COOPSTATE). |
 

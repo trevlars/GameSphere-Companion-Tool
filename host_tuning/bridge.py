@@ -6,7 +6,7 @@ LASTSESSION, SESSIONDATA, APPSTORES, PLAYTIMES, GAMESTATE, LAUNCHRESULT, LOCKSTA
 INVITE, JOINPIN, INVITEEND, JOINREQ, JOINPENDING, JOINACK, JOINSTATUS, TRUSTED,
 HOSTINFO, COOPSTATE, SLOTSWAP, WANSETUP, VOICE, WANNAPLAY, PLAYREG, PLAYPENDING,
 PLAYCLAIM, PLAYREPLY, PROFILE, INPUTRELAY, COOPKICK, SESSIONEND, SUNSHINEHEALTH,
-SUNSHINERECOVER.
+SUNSHINERECOVER, ENSUREAPP.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
             "INVITE JOINPIN INVITEEND JOINREQ JOINPENDING JOINACK JOINSTATUS TRUSTED "
             "HOSTINFO GETCONTROLLER SETCONTROLLER COOPSTATE SLOTSWAP WANSETUP VOICE "
             "WANNAPLAY PLAYREG PLAYPENDING PLAYCLAIM PLAYREPLY PROFILE "
-            "INPUTRELAY COOPKICK SESSIONEND BUDDYSET SUNSHINEHEALTH SUNSHINERECOVER"
+            "INPUTRELAY COOPKICK SESSIONEND BUDDYSET SUNSHINEHEALTH SUNSHINERECOVER ENSUREAPP"
                 )
             elif verb == "NETINFO":
                 self._reply(link_speed.netinfo_json(adapter or "", active))
@@ -105,6 +105,14 @@ class _BridgeHandler(socketserver.StreamRequestHandler):
                 except Exception as exc:
                     logging.exception("SUNSHINERECOVER failed")
                     self._reply(json.dumps({"ok": False, "recovered": False, "error": str(exc)}))
+            elif verb == "ENSUREAPP":
+                try:
+                    from host_tuning import ensure_app
+
+                    self._reply(ensure_app.ensure_steam_app_json(arg))
+                except Exception as exc:
+                    logging.exception("ENSUREAPP failed")
+                    self._reply(json.dumps({"ok": False, "error": str(exc), "state": "error"}))
             elif verb == "STATUS":
                 info = link_speed.get_link_info(adapter) if adapter else {}
                 self._reply(str(info.get("current_mbps") or "UNKNOWN"))

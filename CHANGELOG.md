@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.36] — 2026-09-28
+
+### Added
+- **ENSUREAPP bridge verb** — GameSphere “Push to Sphere” can ask Companion to merge one Steam `steamAppId` into Sunshine `apps.json` without restarting the host. CAPS advertises `ENSUREAPP`. Optional background `steam://install/<id>` when the title is not installed yet.
+
 ## [1.5.35] — 2026-09-28
 
 ### Fixed

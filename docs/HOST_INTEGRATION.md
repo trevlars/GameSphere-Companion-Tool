@@ -326,6 +326,7 @@ Lock-screen Wanna play: APNs Auth Key `.p8` + Key ID — [APNS.md](APNS.md). Nev
   - **`APPSTORES`** — store labels for IGDB platform hints (Steam, Epic, GOG, …)
   - **`PLAYTIMES`** — local Steam / Non-Steam hours + last played (no Web API key)
   - **`SESSIONDATA`** — telemetry every 15 s during a stream → host session grades
+  - **`ENSUREAPP`** — GameSphere “Push to Sphere”: ensure one Steam `steamAppId` exists in `apps.json` without restarting Sunshine (`--no-restart`). Optionally kicks `steam://install/<id>` when the title is not installed yet.
   - **`RESTORE`** — link-speed restore on stream exit (when bridge is active)
 - Wire protocol: [CLIENT_BRIDGE.md](CLIENT_BRIDGE.md)
 - Pairing / PIN unlock: host exposes `LOCKSTATE`; client sends unlock PIN over the stream (StreamTweak pattern — future GameSphere UI).
