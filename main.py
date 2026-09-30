@@ -1106,6 +1106,8 @@ def _create_shortcut_win(shortcut_path: str, target: str, work_dir: Optional[str
     if os.name != 'nt':
         return False
     try:
+        from host_tuning.win_subprocess import run_hidden
+
         shortcut_path = os.path.normpath(shortcut_path)
         if not shortcut_path.lower().endswith('.lnk'):
             shortcut_path += '.lnk'
@@ -1123,9 +1125,12 @@ def _create_shortcut_win(shortcut_path: str, target: str, work_dir: Optional[str
             'if ($env:WORK_DIR) { $l.WorkingDirectory = $env:WORK_DIR }; '
             '$l.Save(); [System.Runtime.Interopservices.Marshal]::ReleaseComObject($s) | Out-Null'
         )
-        subprocess.run(
-            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
-            env=env, capture_output=True, timeout=10, check=True
+        run_hidden(
+            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
+            env=env,
+            timeout=10,
+            capture_output=True,
+            check=True,
         )
         logging.debug(f"Created shortcut: {shortcut_path}")
         return True
@@ -1139,12 +1144,17 @@ def _read_shortcut_target_win(shortcut_path: str) -> Optional[str]:
     if os.name != 'nt' or not os.path.isfile(shortcut_path):
         return None
     try:
+        from host_tuning.win_subprocess import run_hidden
+
         env = os.environ.copy()
         env['LNK_PATH'] = shortcut_path
-        out = subprocess.run(
-            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+        out = run_hidden(
+            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command',
              '$s = New-Object -ComObject WScript.Shell; $s.CreateShortcut($env:LNK_PATH).TargetPath'],
-            env=env, capture_output=True, text=True, timeout=5
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if out.returncode == 0 and out.stdout:
             return out.stdout.strip()

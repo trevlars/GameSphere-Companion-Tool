@@ -115,8 +115,10 @@ def _find_wired_adapter_windows(preferred: str) -> Optional[str]:
         "| Select-Object -ExpandProperty Name"
     )
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
+        from host_tuning.win_subprocess import run_hidden
+
+        result = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
             capture_output=True,
             text=True,
             timeout=15,
@@ -140,8 +142,10 @@ def _link_info_windows(adapter: str) -> Dict[str, Any]:
         "@{ current_mbps = $speed; setting = $setting; autoneg = ($setting -match 'Auto') } | ConvertTo-Json -Compress"
     )
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
+        from host_tuning.win_subprocess import run_hidden
+
+        result = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
             capture_output=True,
             text=True,
             timeout=15,
@@ -172,8 +176,10 @@ def _set_speed_windows(adapter: str, mbps: int) -> Tuple[bool, str]:
         f"-DisplayValue '{display}' -ErrorAction Stop"
     )
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
+        from host_tuning.win_subprocess import run_hidden
+
+        result = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
             capture_output=True,
             text=True,
             timeout=30,
@@ -192,8 +198,10 @@ def _restore_windows(adapter: str, ls: Dict[str, Any]) -> Tuple[bool, str]:
         f"-DisplayValue '{setting}' -ErrorAction Stop"
     )
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
+        from host_tuning.win_subprocess import run_hidden
+
+        result = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
             capture_output=True,
             text=True,
             timeout=30,

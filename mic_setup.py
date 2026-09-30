@@ -100,10 +100,14 @@ def detect_lan_ips() -> List[str]:
 
     if sys.platform == "win32":
         try:
-            out = subprocess.check_output(
+            from host_tuning.win_subprocess import run_hidden
+
+            out = run_hidden(
                 [
                     "powershell",
                     "-NoProfile",
+                    "-WindowStyle",
+                    "Hidden",
                     "-Command",
                     (
                         "Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | "
@@ -113,11 +117,11 @@ def detect_lan_ips() -> List[str]:
                         "Select-Object -ExpandProperty IPAddress -Unique"
                     ),
                 ],
+                capture_output=True,
                 text=True,
                 timeout=20,
-                stderr=subprocess.DEVNULL,
             )
-            for line in out.splitlines():
+            for line in (out.stdout or "").splitlines():
                 ip = line.strip()
                 if ip and ip not in ips:
                     ips.append(ip)
@@ -153,6 +157,8 @@ def _run_ps1(script: str, *args: str, log: Optional[LogFn] = None) -> subprocess
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
+        "-WindowStyle",
+        "Hidden",
         "-File",
         script,
         *args,

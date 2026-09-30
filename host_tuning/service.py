@@ -190,6 +190,14 @@ def prep_stop(cfg: Optional[HostTuningConfig] = None) -> Dict[str, Any]:
     return log
 
 
+def _windows_hidden_ps_file(script: str, action: str) -> str:
+    """Sunshine prep-cmd line that must not flash a System32/powershell console."""
+    return (
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+        f'-File "{script}" {action}'
+    )
+
+
 def global_prep_cmds(cfg: Optional[HostTuningConfig] = None) -> List[Dict[str, str]]:
     """Return Sunshine prep-cmd entries to merge into every imported app."""
     cfg = cfg or load_config()
@@ -201,14 +209,82 @@ def global_prep_cmds(cfg: Optional[HostTuningConfig] = None) -> List[Dict[str, s
         if not os.path.isfile(script):
             return []
         return [{
-            "do": f'powershell -NoProfile -ExecutionPolicy Bypass -File "{script}" start',
-            "undo": f'powershell -NoProfile -ExecutionPolicy Bypass -File "{script}" stop',
+            "do": _windows_hidden_ps_file(script, "start"),
+            "undo": _windows_hidden_ps_file(script, "stop"),
             "elevated": False,
         }]
     script = os.path.expanduser("~/.local/bin/gamesphere-host-prep.sh")
     if not os.path.isfile(script):
         return []
     return [{"do": f"{script} start", "undo": f"{script} stop", "elevated": False}]
+
+
+def _needs_hidden_host_prep(cmd: str) -> bool:
+    text = (cmd or "").strip()
+    if "gamesphere-host-prep.ps1" not in text.lower():
+        return False
+    return "-windowstyle" not in text.lower()
+
+
+def repair_windows_host_prep_cmds(apps_path: str = "") -> Dict[str, Any]:
+    """Rewrite existing apps.json host-prep lines to use -WindowStyle Hidden.
+
+    Older imports launched visible ``powershell``/System32 consoles on every
+    stream start/stop. Safe no-op when host tuning is off or path is missing.
+    """
+    if os.name != "nt":
+        return {"ok": True, "skipped": "not windows", "changed": 0}
+    write_prep_scripts()
+    desired = global_prep_cmds()
+    if not desired:
+        return {"ok": True, "skipped": "host tuning off or missing script", "changed": 0}
+    want_do = desired[0]["do"]
+    want_undo = desired[0]["undo"]
+
+    path = (apps_path or "").strip()
+    if not path:
+        try:
+            import main as import_main
+
+            path = (import_main.validate_config(auto_detect=True).get("SUNSHINE_APPS_JSON_PATH") or "").strip()
+        except Exception as exc:
+            return {"ok": False, "error": f"config:{exc}", "changed": 0}
+    if not path or not os.path.isfile(path):
+        return {"ok": False, "error": "missing_apps_json", "changed": 0, "path": path}
+
+    try:
+        import main as import_main
+
+        sunshine_config = import_main.get_sunshine_config(path)
+        apps = list(sunshine_config.get("apps") or [])
+        changed = 0
+        for app in apps:
+            if not isinstance(app, dict):
+                continue
+            prep = app.get("prep-cmd")
+            if not isinstance(prep, list):
+                continue
+            dirty = False
+            for entry in prep:
+                if not isinstance(entry, dict):
+                    continue
+                do = str(entry.get("do") or "")
+                undo = str(entry.get("undo") or "")
+                if _needs_hidden_host_prep(do):
+                    entry["do"] = want_do
+                    dirty = True
+                if _needs_hidden_host_prep(undo):
+                    entry["undo"] = want_undo
+                    dirty = True
+            if dirty:
+                changed += 1
+        if changed:
+            sunshine_config["apps"] = apps
+            import_main.save_sunshine_config(path, sunshine_config)
+        return {"ok": True, "changed": changed, "path": path}
+    except Exception as exc:
+        logging.exception("repair_windows_host_prep_cmds failed")
+        return {"ok": False, "error": str(exc), "changed": 0, "path": path}
 
 
 def write_prep_scripts(repo_root: str = "") -> None:

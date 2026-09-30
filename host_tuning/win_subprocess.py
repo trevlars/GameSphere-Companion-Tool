@@ -62,11 +62,14 @@ def run_hidden(
     capture_output: bool = False,
     text: bool = False,
     check: bool = False,
+    env: Optional[Dict[str, str]] = None,
 ) -> subprocess.CompletedProcess:
     kwargs: Dict[str, Any] = {
         "timeout": timeout,
         "check": check,
     }
+    if env is not None:
+        kwargs["env"] = env
     if capture_output:
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.PIPE

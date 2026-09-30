@@ -49,8 +49,10 @@ def _list_hdr_windows() -> List[Dict[str, Any]]:
         "$monitors | ConvertTo-Json -Compress"
     )
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
+        from host_tuning.win_subprocess import run_hidden
+
+        result = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
             capture_output=True,
             text=True,
             timeout=20,
@@ -75,8 +77,10 @@ def _set_hdr_windows(monitor: str, enabled: bool) -> Tuple[bool, str]:
         f"-Name 'DirectXUserGlobalSettings' -Value '{value}' -Type String -Force"
     )
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
+        from host_tuning.win_subprocess import run_hidden
+
+        result = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
             capture_output=True,
             text=True,
             timeout=15,
@@ -140,8 +144,10 @@ def _enable_spatial_windows(device_name: str, fmt: str) -> Tuple[bool, str]:
         "'OK'"
     )
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
+        from host_tuning.win_subprocess import run_hidden
+
+        result = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
             capture_output=True,
             text=True,
             timeout=15,

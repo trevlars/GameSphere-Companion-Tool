@@ -4,6 +4,11 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.37] — 2026-09-30
+
+### Fixed
+- **System32 / powershell console popups on Windows** — Sunshine host-prep `do`/`undo` now use `-WindowStyle Hidden`; existing `apps.json` entries are repaired when the host daemon starts. Import shortcut helpers, firewall `netsh`, link-speed/HDR PowerShell, and mic IP discovery also use `CREATE_NO_WINDOW` so the Import Tool no longer flashes System32 consoles.
+
 ## [1.5.36] — 2026-09-28
 
 ### Added

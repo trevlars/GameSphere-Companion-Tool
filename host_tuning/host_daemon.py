@@ -580,12 +580,13 @@ def install_windows() -> Dict[str, Any]:
 
 
 def uninstall_windows() -> Dict[str, Any]:
+    from host_tuning.win_subprocess import run_hidden
+
     _windows_unregister_run()
-    subprocess.run(
+    run_hidden(
         ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
         capture_output=True,
         timeout=15,
-        check=False,
     )
     stop_daemon_process()
     return {"ok": True}
@@ -864,6 +865,17 @@ def run_bridge_forever(port: int = 0) -> int:
         logging.debug("apply_detected_paths skipped", exc_info=True)
 
     write_prep_scripts()
+    try:
+        from host_tuning.service import repair_windows_host_prep_cmds
+
+        prep_fix = repair_windows_host_prep_cmds()
+        if prep_fix.get("changed"):
+            logging.info(
+                "Hid System32/powershell host-prep on %s Sunshine app(s)",
+                prep_fix.get("changed"),
+            )
+    except Exception:
+        logging.debug("windows host-prep WindowStyle repair skipped", exc_info=True)
     try:
         from host_tuning import sunshine_audio
 

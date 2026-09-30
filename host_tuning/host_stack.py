@@ -46,7 +46,14 @@ def _copy_script(name: str, dest_name: str = "") -> str:
 
 def _run(cmd: List[str], *, timeout: int = 20) -> bool:
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        if sys.platform == "win32":
+            from host_tuning.win_subprocess import run_hidden
+
+            result = run_hidden(cmd, capture_output=True, text=True, timeout=timeout)
+        else:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout, check=False
+            )
         return result.returncode == 0
     except (subprocess.SubprocessError, OSError, FileNotFoundError):
         return False
