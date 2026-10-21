@@ -184,6 +184,26 @@ class LaunchWatcherTests(unittest.TestCase):
         self.assertIn("message", payload)
 
 
+class WolMacTests(unittest.TestCase):
+    def test_wired_mac_linux_reads_sysfs(self):
+        link_speed = _load("link_speed")
+        with mock.patch.object(link_speed, "find_wired_adapter", return_value="enp3s0"):
+            with mock.patch("builtins.open", mock.mock_open(read_data="9c:6b:00:95:1e:1f\n")):
+                self.assertEqual(link_speed.wired_mac_address(), "9c:6b:00:95:1e:1f")
+
+    def test_wol_status_marks_ready_when_magic_packet_enabled(self):
+        link_speed = _load("link_speed")
+        with mock.patch.object(link_speed, "find_wired_adapter", return_value="enp3s0"):
+            with mock.patch.object(link_speed, "wired_mac_address", return_value="9c:6b:00:95:1e:1f"):
+                with mock.patch(
+                    "subprocess.run",
+                    return_value=mock.Mock(returncode=0, stdout="Wake-on: g\n"),
+                ):
+                    status = link_speed.wol_status()
+        self.assertTrue(status["ready"])
+        self.assertEqual(status["wakeOn"], "g")
+
+
 class ZerotierGuardTests(unittest.TestCase):
     def test_lan_route_conflict_detect(self):
         zerotier = _load("zerotier")

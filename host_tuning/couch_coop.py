@@ -837,11 +837,17 @@ def next_empty_slot() -> int:
         return _next_empty_slot_locked()
 
 
-def reserve_slot(client_id: str = "", name: str = "", role: str = "guest", uuid: str = "") -> int:
+def reserve_slot(
+    client_id: str = "",
+    name: str = "",
+    role: str = "guest",
+    uuid: str = "",
+    preferred: int = -1,
+) -> int:
     """Atomically claim a guest seat. Returns the slot, or -1 when full.
 
     Reserving under one lock is what prevents two simultaneous JOINACKs from
-    being handed the same player number.
+    being handed the same player number. `preferred` (1–3) is honored when free.
     """
     with _lock:
         # A guest who re-joins keeps the seat they already had.
@@ -855,6 +861,17 @@ def reserve_slot(client_id: str = "", name: str = "", role: str = "guest", uuid:
                         i, client_id=client_id, name=name, role=role or "guest", uuid=uuid
                     )
                     return i
+        try:
+            pref = int(preferred)
+        except (TypeError, ValueError):
+            pref = -1
+        if 1 <= pref < MAX_PLAYERS:
+            meta = _slot_meta[pref]
+            if not meta.get("clientId") and not meta.get("uuid"):
+                _note_client_locked(
+                    pref, client_id=client_id, name=name, role=role or "guest", uuid=uuid
+                )
+                return pref
         slot = _next_empty_slot_locked()
         if slot < 0:
             logging.warning("couch_coop reserve_slot: all guest seats taken")

@@ -236,6 +236,12 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
             )
         else:
             req_id = secrets.token_urlsafe(10).replace("-", "")[:14]
+            try:
+                prefer_slot = int(payload.get("playerSlot") or 0)
+            except (TypeError, ValueError):
+                prefer_slot = 0
+            if prefer_slot < 1 or prefer_slot > 3:
+                prefer_slot = 0
             req = {
                 "reqId": req_id,
                 "created": now,
@@ -252,6 +258,7 @@ def create(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "httpsPort": client_input.safe_port(payload.get("httpsPort")),
                 "role": role,
                 "status": "pending",
+                "playerSlot": prefer_slot,
             }
             requests.append(req)
             data["requests"] = requests[-30:]
@@ -482,8 +489,16 @@ def ack(payload: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 from host_tuning import couch_coop
 
+                try:
+                    preferred = int(found.get("playerSlot") or 0)
+                except (TypeError, ValueError):
+                    preferred = 0
                 coop_slot = couch_coop.reserve_slot(
-                    client_id=req_id, name=coop_name, role=coop_role, uuid=coop_uuid
+                    client_id=req_id,
+                    name=coop_name,
+                    role=coop_role,
+                    uuid=coop_uuid,
+                    preferred=preferred,
                 )
             except Exception:
                 logging.exception("couch_coop reserve_slot at JOINACK")

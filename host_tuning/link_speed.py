@@ -39,6 +39,47 @@ def find_wired_adapter(preferred: str = "") -> Optional[str]:
     return _find_wired_adapter_linux(preferred)
 
 
+def wired_mac_address(preferred: str = "") -> str:
+    """Best-effort wired NIC MAC for Wake-on-LAN (Sunshine often reports zeros)."""
+    adapter = find_wired_adapter(preferred)
+    if not adapter:
+        return ""
+    if os.name == "nt":
+        return _wired_mac_windows(adapter)
+    return _wired_mac_linux(adapter)
+
+
+def wol_status(preferred: str = "") -> Dict[str, Any]:
+    """NIC wake capability snapshot for HOSTINFO / doctor."""
+    adapter = find_wired_adapter(preferred)
+    mac = wired_mac_address(preferred)
+    wake_on = ""
+    if adapter and os.name != "nt":
+        try:
+            result = subprocess.run(
+                ["ethtool", adapter],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    if "Wake-on:" in line:
+                        wake_on = line.split(":", 1)[-1].strip()
+                        break
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+    ready = bool(mac) and mac != "00:00:00:00:00:00"
+    if wake_on:
+        ready = ready and wake_on.lower() not in ("d", "disabled", "off")
+    return {
+        "adapter": adapter or "",
+        "mac": mac,
+        "wakeOn": wake_on,
+        "ready": ready,
+    }
+
+
 def get_link_info(adapter: str) -> Dict[str, Any]:
     if os.name == "nt":
         return _link_info_windows(adapter)
@@ -212,6 +253,40 @@ def _restore_windows(adapter: str, ls: Dict[str, Any]) -> Tuple[bool, str]:
         return result.returncode == 0, (result.stderr or "restored").strip()
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)
+
+
+def _wired_mac_linux(adapter: str) -> str:
+    path = os.path.join("/sys/class/net", adapter, "address")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            mac = fh.read().strip().lower()
+        if len(mac) == 17 and mac != "00:00:00:00:00:00":
+            return mac
+    except OSError:
+        pass
+    return ""
+
+
+def _wired_mac_windows(adapter: str) -> str:
+    ps = (
+        f"(Get-NetAdapter -Name '{adapter}' -ErrorAction SilentlyContinue | "
+        "Select-Object -ExpandProperty MacAddress)"
+    )
+    try:
+        from host_tuning.win_subprocess import run_hidden
+
+        result = run_hidden(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        raw = (result.stdout or "").strip().replace("-", ":").lower()
+        if len(raw) == 17 and raw != "00:00:00:00:00:00":
+            return raw
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return ""
 
 
 def _find_wired_adapter_linux(preferred: str) -> Optional[str]:

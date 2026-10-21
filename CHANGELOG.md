@@ -4,6 +4,15 @@ All notable changes to GameSphere Companion Tool (formerly Import Tool) are docu
 
 ## [Unreleased]
 
+## [1.5.38] — 2026-10-21
+
+### Added
+- **HOSTINFO Wake-on-LAN fields** — `wolMac`, `wolNic`, `wolReady`, and `wolWakeOn` so GameSphere can wake the PC without Sunshine’s zero MAC placeholder.
+- **Host sleep in COOPSTATE** — Linux `PrepareForSleep` watcher publishes `hostSleeping` / `hostSleepReason` so phones skip “connection terminated” noise when the PC sleeps; clears couch co-op on sleep.
+
+### Fixed
+- **Invite join seat** — `JOINREQ` may include `playerSlot` (1–3); `JOINACK` honors a free preferred guest seat instead of always taking the lowest empty slot.
+
 ## [1.5.37] — 2026-09-30
 
 ### Fixed

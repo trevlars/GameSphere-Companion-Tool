@@ -473,6 +473,12 @@ class GameSphereBridge:
 
         def _background_init() -> None:
             self.monitor.start()
+            try:
+                from host_tuning import power_state
+
+                power_state.start_watcher()
+            except Exception:
+                logging.debug("power_state watcher start failed", exc_info=True)
             self._coop_watch = couch_coop.CouchCoopWatch()
             self._coop_watch.start()
             couch_coop.apply("bridge_start")
@@ -576,9 +582,15 @@ def _hostinfo_json() -> str:
     wan = wan_setup.status(fast=True)
     voice = voice_bridge.status()
     push = _push_fields()
+    cfg = load_config()
+    wol = link_speed.wol_status(cfg.network_adapter)
     payload = {
         "ok": True,
         "maxPlayers": 4,
+        "wolMac": wol.get("mac") or "",
+        "wolNic": wol.get("adapter") or "",
+        "wolReady": bool(wol.get("ready")),
+        "wolWakeOn": wol.get("wakeOn") or "",
         "lanHost": wan.get("lanHost") or "",
         "wanHost": wan.get("wanHost") or "",
         "wanReady": bool(wan.get("wanReady")),
@@ -716,10 +728,17 @@ def _session_fields() -> Dict[str, Any]:
     try:
         from host_tuning import coop_session
 
-        return coop_session.coopstate_fields()
+        fields = coop_session.coopstate_fields()
     except Exception:
         logging.debug("coop_session coopstate failed", exc_info=True)
-        return {"sessionEvents": [], "sessionEndedAt": None, "sessionEndReason": ""}
+        fields = {"sessionEvents": [], "sessionEndedAt": None, "sessionEndReason": ""}
+    try:
+        from host_tuning import power_state
+
+        fields.update(power_state.coopstate_fields())
+    except Exception:
+        logging.debug("power_state coopstate failed", exc_info=True)
+    return fields
 
 
 def _buddy_fields() -> Dict:
